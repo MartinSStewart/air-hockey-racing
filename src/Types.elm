@@ -2,14 +2,23 @@ module Types exposing
     ( BackendModel
     , BackendMsg(..)
     , BackendUserData
+    , BroadcastChange(..)
     , ClientId
+    , ClientInitData
     , FrontendLoaded
     , FrontendLoading
     , FrontendModel(..)
     , FrontendMsg(..)
+    , Lobby
+    , LobbyId
+    , Local
+    , MatchId
+    , SessionChange(..)
     , SessionId
     , ToBackend(..)
     , ToFrontend(..)
+    , ToFrontendChange(..)
+    , UserId
     , WindowSize
     , WorldPixel
     )
@@ -18,12 +27,15 @@ import Browser exposing (UrlRequest)
 import Browser.Navigation
 import Dict exposing (Dict)
 import EverySet exposing (EverySet)
+import Id exposing (Id)
+import IdDict exposing (IdDict)
 import Keyboard
+import LocalModel exposing (LocalModel)
+import Physics.World
 import Pixels exposing (Pixels)
 import Quantity exposing (Quantity, Rate)
 import Time
 import Url exposing (Url)
-import User exposing (RawUserId, UserId)
 import WebGL.Texture exposing (Texture)
 
 
@@ -49,6 +61,7 @@ type alias FrontendLoading =
     , windowSize : WindowSize
     , devicePixelRatio : Quantity Float (Rate WorldPixel Pixels)
     , time : Time.Posix
+    , initData : Maybe ClientInitData
     }
 
 
@@ -62,17 +75,44 @@ type alias FrontendLoaded =
     , pressedKeys : List Keyboard.Key
     , devicePixelRatio : Quantity Float (Rate WorldPixel Pixels)
     , time : Time.Posix
+    , localModel : LocalModel ToFrontendChange Local
+    }
+
+
+type alias Local =
+    { lobbies : IdDict LobbyId Lobby
+    , userId : Id UserId
     }
 
 
 type alias BackendModel =
-    { userSessions : Dict SessionId { clientIds : Dict ClientId (), userId : UserId }
-    , users : Dict RawUserId BackendUserData
+    { userSessions : Dict SessionId { clientIds : Dict ClientId (), userId : Id UserId }
+    , users : IdDict UserId BackendUserData
+    , lobbies : IdDict LobbyId Lobby
+    , matches : IdDict MatchId Match
     }
 
 
+type alias Lobby =
+    { users : IdDict UserId () }
+
+
+type alias Match =
+    { world : Physics.World.World () }
+
+
 type alias BackendUserData =
-    {}
+    { name : String, state : UserState }
+
+
+type alias ClientInitData =
+    { lobbies : IdDict LobbyId Lobby, userId : Id UserId }
+
+
+type UserState
+    = LobbyState Int
+    | MatchState Int
+    | IdleState
 
 
 type FrontendMsg
@@ -83,15 +123,44 @@ type FrontendMsg
     | WindowResized WindowSize
     | GotDevicePixelRatio (Quantity Float (Rate WorldPixel Pixels))
     | AnimationFrame Time.Posix
+    | CreateLobbyPressed
+    | JoinLobbyPressed (Id LobbyId)
+
+
+type LobbyId
+    = LobbyId Never
+
+
+type MatchId
+    = MatchId Never
+
+
+type UserId
+    = UserId Never
 
 
 type ToBackend
-    = NoOpToBackend
+    = SessionChange_ SessionChange
 
 
 type BackendMsg
-    = NoOpBackendMsg
+    = ClientConnected SessionId ClientId
+    | ClientDisconnected SessionId ClientId
 
 
 type ToFrontend
-    = NoOpToFrontend
+    = Change ToFrontendChange
+    | ClientInit ClientInitData
+
+
+type ToFrontendChange
+    = BroadcastChange BroadcastChange
+    | SessionChange SessionChange
+
+
+type BroadcastChange
+    = BroadcastCreateLobby (Id UserId)
+
+
+type SessionChange
+    = CreateLobby

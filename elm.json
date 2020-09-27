@@ -2,7 +2,8 @@
     "type": "application",
     "source-directories": [
         "src",
-        "packages/elm-geometry/3.6.0/src"
+        "packages/elm-geometry/3.6.0/src",
+      "packages/elm-physics/5.0.0/src"
     ],
     "elm-version": "0.19.0",
     "dependencies": {
@@ -26,6 +27,8 @@
             "elm-explorations/linear-algebra": "1.0.3",
             "elm-explorations/webgl": "1.1.1",
             "ianmackenzie/elm-1d-parameter": "1.0.1",
+            "ianmackenzie/elm-3d-camera": "3.1.0",
+            "ianmackenzie/elm-3d-scene": "1.0.1",
             "ianmackenzie/elm-float-extra": "1.1.0",
             "ianmackenzie/elm-geometry-linear-algebra-interop": "2.0.2",
             "ianmackenzie/elm-interval": "2.0.0",
@@ -42,6 +45,7 @@
         },
         "indirect": {
             "NoRedInk/elm-string-conversions": "1.0.1",
+            "avh4/elm-color": "1.0.0",
             "bburdette/toop": "1.0.1",
             "danfishgold/base64-bytes": "1.0.3",
             "elm/file": "1.0.5",

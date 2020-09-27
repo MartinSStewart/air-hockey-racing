@@ -8,11 +8,16 @@ import Duration exposing (Duration)
 import Element exposing (Element)
 import Element.Background
 import Element.Border
+import Element.Input
 import Html exposing (Html)
 import Html.Attributes
+import Id exposing (Id)
+import IdDict
 import Keyboard
 import Lamdera
 import List.Extra as List
+import List.Nonempty
+import LocalModel exposing (Config)
 import Math.Matrix4 as Mat4 exposing (Mat4)
 import Pixels exposing (Pixels)
 import Quantity exposing (Quantity(..), Rate)
@@ -30,9 +35,6 @@ port martinsstewart_elm_device_pixel_ratio_from_js : (Float -> msg) -> Sub msg
 port martinsstewart_elm_device_pixel_ratio_to_js : () -> Cmd msg
 
 
-port supermario_copy_to_clipboard_to_js : String -> Cmd msg
-
-
 app =
     Lamdera.frontend
         { init = init
@@ -45,17 +47,26 @@ app =
         }
 
 
-loadedInit : FrontendLoading -> ( FrontendModel, Cmd FrontendMsg )
-loadedInit loading =
+loadedInit : FrontendLoading -> ClientInitData -> ( FrontendModel, Cmd FrontendMsg )
+loadedInit loading initData =
     ( Loaded
         { key = loading.key
         , pressedKeys = []
         , windowSize = loading.windowSize
         , devicePixelRatio = loading.devicePixelRatio
         , time = loading.time
+        , localModel = LocalModel.init initData
         }
     , Cmd.none
     )
+
+
+tryLoadedInit : FrontendLoading -> ( FrontendModel, Cmd FrontendMsg )
+tryLoadedInit loading =
+    Maybe.map
+        (loadedInit loading)
+        loading.initData
+        |> Maybe.withDefault ( Loading loading, Cmd.none )
 
 
 init : Url -> Browser.Navigation.Key -> ( FrontendModel, Cmd FrontendMsg )
@@ -65,6 +76,7 @@ init url key =
         , windowSize = { width = Pixels.pixels 1920, height = Pixels.pixels 1080 }
         , devicePixelRatio = Quantity 1
         , time = Time.millisToPosix 0
+        , initData = Nothing
         }
     , Task.perform
         (\{ viewport } ->
@@ -133,6 +145,47 @@ updateLoaded msg model =
             , Cmd.none
             )
 
+        CreateLobbyPressed ->
+            ( { model
+                | localModel =
+                    LocalModel.update
+                        localModelConfig
+                        model.time
+                        (SessionChange CreateLobby)
+                        model.localModel
+              }
+            , Lamdera.sendToBackend (SessionChange_ CreateLobby)
+            )
+
+        JoinLobbyPressed lobbyId ->
+            Debug.todo ""
+
+
+localModelConfig : Config ToFrontendChange Local
+localModelConfig =
+    { msgEqual = (==)
+    , update =
+        \msg model ->
+            case msg of
+                SessionChange CreateLobby ->
+                    { model
+                        | lobbies =
+                            IdDict.insert
+                                (IdDict.size model.lobbies |> Id.fromInt)
+                                { users = IdDict.singleton model.userId () }
+                                model.lobbies
+                    }
+
+                BroadcastChange (BroadcastCreateLobby userId) ->
+                    { model
+                        | lobbies =
+                            IdDict.insert
+                                (IdDict.size model.lobbies |> Id.fromInt)
+                                { users = IdDict.singleton userId () }
+                                model.lobbies
+                    }
+    }
+
 
 windowResizedUpdate : WindowSize -> { b | windowSize : WindowSize } -> ( { b | windowSize : WindowSize }, Cmd msg )
 windowResizedUpdate windowSize model =
@@ -157,8 +210,8 @@ keyDown key { pressedKeys } =
 updateFromBackend : ToFrontend -> FrontendModel -> ( FrontendModel, Cmd FrontendMsg )
 updateFromBackend msg model =
     case ( model, msg ) of
-        ( Loading loading, NoOpToFrontend ) ->
-            ( model, Cmd.none )
+        ( Loading loading, ClientInit initData ) ->
+            { loading | initData = Just initData } |> tryLoadedInit
 
         ( Loaded loaded, _ ) ->
             updateLoadedFromBackend msg loaded |> Tuple.mapFirst Loaded
@@ -170,7 +223,15 @@ updateFromBackend msg model =
 updateLoadedFromBackend : ToFrontend -> FrontendLoaded -> ( FrontendLoaded, Cmd FrontendMsg )
 updateLoadedFromBackend msg model =
     case msg of
-        NoOpToFrontend ->
+        Change change ->
+            ( { model
+                | localModel =
+                    LocalModel.updateFromBackend localModelConfig (List.Nonempty.fromElement change) model.localModel
+              }
+            , Cmd.none
+            )
+
+        ClientInit _ ->
             ( model, Cmd.none )
 
 
@@ -211,11 +272,48 @@ view model =
                     (Element.text "Loading")
 
             Loaded loadedModel ->
-                Element.layout
-                    []
-                    (Element.html (canvasView loadedModel))
+                loadedView loadedModel
         ]
     }
+
+
+loadedView : FrontendLoaded -> Html FrontendMsg
+loadedView model =
+    Element.layout
+        [ Element.behindContent (Element.html (canvasView model))
+        ]
+        (Element.column
+            [ Element.spacing 16 ]
+            [ button CreateLobbyPressed (Element.text "Create lobby")
+            , Element.column
+                [ Element.spacing 8 ]
+                [ Element.text "Lobbies"
+                , LocalModel.localModel model.localModel
+                    |> .lobbies
+                    |> IdDict.toList
+                    |> List.map lobbyRowView
+                    |> Element.column []
+                ]
+            ]
+        )
+
+
+button : msg -> Element msg -> Element msg
+button onPress label =
+    Element.Input.button
+        [ Element.Background.color <| Element.rgb 0.2 0.2 0.2 ]
+        { onPress = Just onPress
+        , label = label
+        }
+
+
+lobbyRowView : ( Id LobbyId, Lobby ) -> Element FrontendMsg
+lobbyRowView ( lobbyId, lobby ) =
+    Element.row
+        []
+        [ Element.text <| "Players: " ++ String.fromInt (IdDict.size lobby.users)
+        , button (JoinLobbyPressed lobbyId) (Element.text "Join")
+        ]
 
 
 offlineWarningView : Element msg
