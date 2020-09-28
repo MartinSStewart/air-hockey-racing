@@ -15,7 +15,3 @@ fromInt =
 toInt : Id idType -> Int
 toInt (Id id) =
     id
-
-
-a =
-    Dict.update

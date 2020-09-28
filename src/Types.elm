@@ -18,7 +18,6 @@ module Types exposing
     , ToBackend(..)
     , ToFrontend(..)
     , ToFrontendChange(..)
-    , UserId
     , WindowSize
     , WorldPixel
     )
@@ -31,11 +30,13 @@ import Id exposing (Id)
 import IdDict exposing (IdDict)
 import Keyboard
 import LocalModel exposing (LocalModel)
+import Match exposing (Match)
 import Physics.World
 import Pixels exposing (Pixels)
 import Quantity exposing (Quantity, Rate)
 import Time
 import Url exposing (Url)
+import User exposing (UserId)
 import WebGL.Texture exposing (Texture)
 
 
@@ -81,6 +82,7 @@ type alias FrontendLoaded =
 
 type alias Local =
     { lobbies : IdDict LobbyId Lobby
+    , match : Maybe Match
     , userId : Id UserId
     }
 
@@ -97,22 +99,12 @@ type alias Lobby =
     { users : IdDict UserId () }
 
 
-type alias Match =
-    { world : Physics.World.World () }
-
-
 type alias BackendUserData =
-    { name : String, state : UserState }
+    { name : String }
 
 
 type alias ClientInitData =
     { lobbies : IdDict LobbyId Lobby, userId : Id UserId }
-
-
-type UserState
-    = LobbyState Int
-    | MatchState Int
-    | IdleState
 
 
 type FrontendMsg
@@ -125,6 +117,7 @@ type FrontendMsg
     | AnimationFrame Time.Posix
     | CreateLobbyPressed
     | JoinLobbyPressed (Id LobbyId)
+    | StartMatchPressed
 
 
 type LobbyId
@@ -133,10 +126,6 @@ type LobbyId
 
 type MatchId
     = MatchId Never
-
-
-type UserId
-    = UserId Never
 
 
 type ToBackend
@@ -160,7 +149,11 @@ type ToFrontendChange
 
 type BroadcastChange
     = BroadcastCreateLobby (Id UserId)
+    | BroadcastJoinLobby (Id UserId) (Id LobbyId)
+    | BroadcastStartMatch (Id LobbyId)
 
 
 type SessionChange
     = CreateLobby
+    | JoinLobby (Id LobbyId)
+    | StartMatch

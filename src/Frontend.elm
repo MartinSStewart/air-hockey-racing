@@ -17,7 +17,8 @@ import Keyboard
 import Lamdera
 import List.Extra as List
 import List.Nonempty
-import LocalModel exposing (Config)
+import LocalModel exposing (Config, LocalModel)
+import Match exposing (Match)
 import Math.Matrix4 as Mat4 exposing (Mat4)
 import Pixels exposing (Pixels)
 import Quantity exposing (Quantity(..), Rate)
@@ -48,14 +49,14 @@ app =
 
 
 loadedInit : FrontendLoading -> ClientInitData -> ( FrontendModel, Cmd FrontendMsg )
-loadedInit loading initData =
+loadedInit loading { userId, lobbies } =
     ( Loaded
         { key = loading.key
         , pressedKeys = []
         , windowSize = loading.windowSize
         , devicePixelRatio = loading.devicePixelRatio
         , time = loading.time
-        , localModel = LocalModel.init initData
+        , localModel = LocalModel.init { userId = userId, lobbies = lobbies, match = Nothing }
         }
     , Cmd.none
     )
@@ -146,19 +147,30 @@ updateLoaded msg model =
             )
 
         CreateLobbyPressed ->
-            ( { model
-                | localModel =
-                    LocalModel.update
-                        localModelConfig
-                        model.time
-                        (SessionChange CreateLobby)
-                        model.localModel
-              }
-            , Lamdera.sendToBackend (SessionChange_ CreateLobby)
-            )
+            localChange CreateLobby model
 
         JoinLobbyPressed lobbyId ->
-            Debug.todo ""
+            localChange (JoinLobby lobbyId) model
+
+        StartMatchPressed ->
+            localChange StartMatch model
+
+
+localChange :
+    SessionChange
+    -> { a | localModel : LocalModel ToFrontendChange Local, time : Time.Posix }
+    -> ( { a | localModel : LocalModel ToFrontendChange Local, time : Time.Posix }, Cmd FrontendMsg )
+localChange change model =
+    ( { model
+        | localModel =
+            LocalModel.update
+                localModelConfig
+                model.time
+                (SessionChange change)
+                model.localModel
+      }
+    , Lamdera.sendToBackend (SessionChange_ change)
+    )
 
 
 localModelConfig : Config ToFrontendChange Local
@@ -176,6 +188,27 @@ localModelConfig =
                                 model.lobbies
                     }
 
+                SessionChange (JoinLobby lobbyId) ->
+                    { model
+                        | lobbies =
+                            IdDict.update
+                                lobbyId
+                                (Maybe.map (\lobby -> { lobby | users = IdDict.insert model.userId () lobby.users }))
+                                model.lobbies
+                    }
+
+                SessionChange StartMatch ->
+                    IdDict.toList model.lobbies
+                        |> List.find (Tuple.second >> .users >> IdDict.member model.userId)
+                        |> Maybe.map
+                            (\( lobbyId, lobby ) ->
+                                { model
+                                    | lobbies = IdDict.remove lobbyId model.lobbies
+                                    , match = Match.init lobby.users |> Just
+                                }
+                            )
+                        |> Maybe.withDefault model
+
                 BroadcastChange (BroadcastCreateLobby userId) ->
                     { model
                         | lobbies =
@@ -184,6 +217,31 @@ localModelConfig =
                                 { users = IdDict.singleton userId () }
                                 model.lobbies
                     }
+
+                BroadcastChange (BroadcastJoinLobby userId lobbyId) ->
+                    { model
+                        | lobbies =
+                            IdDict.update
+                                lobbyId
+                                (Maybe.map (\lobby -> { lobby | users = IdDict.insert userId () lobby.users }))
+                                model.lobbies
+                    }
+
+                BroadcastChange (BroadcastStartMatch lobbyId) ->
+                    case IdDict.get lobbyId model.lobbies of
+                        Just lobby ->
+                            { model
+                                | lobbies = IdDict.remove lobbyId model.lobbies
+                                , match =
+                                    if IdDict.member model.userId lobby.users then
+                                        Match.init lobby.users |> Just
+
+                                    else
+                                        Nothing
+                            }
+
+                        Nothing ->
+                            model
     }
 
 
@@ -209,6 +267,10 @@ keyDown key { pressedKeys } =
 
 updateFromBackend : ToFrontend -> FrontendModel -> ( FrontendModel, Cmd FrontendMsg )
 updateFromBackend msg model =
+    let
+        _ =
+            Debug.log "updateFromBackend" msg
+    in
     case ( model, msg ) of
         ( Loading loading, ClientInit initData ) ->
             { loading | initData = Just initData } |> tryLoadedInit
@@ -279,29 +341,51 @@ view model =
 
 loadedView : FrontendLoaded -> Html FrontendMsg
 loadedView model =
+    let
+        localModel =
+            LocalModel.localModel model.localModel
+    in
     Element.layout
         [ Element.behindContent (Element.html (canvasView model))
         ]
-        (Element.column
-            [ Element.spacing 16 ]
-            [ button CreateLobbyPressed (Element.text "Create lobby")
-            , Element.column
-                [ Element.spacing 8 ]
-                [ Element.text "Lobbies"
-                , LocalModel.localModel model.localModel
-                    |> .lobbies
-                    |> IdDict.toList
-                    |> List.map lobbyRowView
-                    |> Element.column []
-                ]
-            ]
+        (case localModel.match of
+            Just match ->
+                Element.text "In match"
+
+            Nothing ->
+                Element.column
+                    [ Element.spacing 16 ]
+                    [ case getCurrentLobby localModel of
+                        Just _ ->
+                            button StartMatchPressed (Element.text "Start match")
+
+                        Nothing ->
+                            button CreateLobbyPressed (Element.text "Create lobby")
+                    , Element.column
+                        [ Element.spacing 8 ]
+                        [ Element.text "Lobbies"
+                        , localModel
+                            |> .lobbies
+                            |> IdDict.toList
+                            |> List.map lobbyRowView
+                            |> Element.column []
+                        ]
+                    ]
         )
+
+
+getCurrentLobby : Local -> Maybe ( Id LobbyId, Lobby )
+getCurrentLobby local =
+    IdDict.toList local.lobbies
+        |> List.find (Tuple.second >> .users >> IdDict.member local.userId)
 
 
 button : msg -> Element msg -> Element msg
 button onPress label =
     Element.Input.button
-        [ Element.Background.color <| Element.rgb 0.2 0.2 0.2 ]
+        [ Element.Background.color <| Element.rgb 0.9 0.9 0.85
+        , Element.padding 4
+        ]
         { onPress = Just onPress
         , label = label
         }

@@ -3,7 +3,10 @@ module BackendLogic exposing (Effect(..), init, update, updateFromFrontend)
 import Dict
 import Id exposing (Id)
 import IdDict
+import List.Extra as List
+import Match
 import Types exposing (..)
+import User exposing (UserId)
 
 
 type Effect
@@ -35,6 +38,7 @@ update msg model =
                         sessionId
                         { clientIds = Dict.insert clientId () clientIds, userId = userId }
                         model.userSessions
+                , users = IdDict.insert userId { name = "TempName" } model.users
               }
             , ClientInit { lobbies = model.lobbies, userId = userId } |> Effect clientId |> List.singleton
             )
@@ -83,22 +87,54 @@ updateFromFrontend sessionId clientId msg model =
                                 { users = IdDict.singleton userId () }
                                 model.lobbies
                       }
-                    , broadcastCreateLobby userId model
+                    , broadcastChange CreateLobby (BroadcastCreateLobby userId) userId model
                     )
+
+                SessionChange_ (JoinLobby lobbyId) ->
+                    ( { model
+                        | lobbies =
+                            IdDict.update
+                                lobbyId
+                                (Maybe.map (\lobby -> { lobby | users = IdDict.insert userId () lobby.users }))
+                                model.lobbies
+                      }
+                    , broadcastChange (JoinLobby lobbyId) (BroadcastJoinLobby userId lobbyId) userId model
+                    )
+
+                SessionChange_ StartMatch ->
+                    IdDict.toList model.lobbies
+                        |> List.find (Tuple.second >> .users >> IdDict.member userId)
+                        |> Maybe.map
+                            (\( lobbyId, lobby ) ->
+                                ( { model
+                                    | lobbies =
+                                        IdDict.remove
+                                            lobbyId
+                                            model.lobbies
+                                    , matches =
+                                        IdDict.insert
+                                            (IdDict.size model.matches |> Id.fromInt)
+                                            (Match.init lobby.users)
+                                            model.matches
+                                  }
+                                , broadcastChange StartMatch (BroadcastStartMatch lobbyId) userId model
+                                )
+                            )
+                        |> Maybe.withDefault ( model, [] )
 
         Nothing ->
             ( model, [] )
 
 
-broadcastCreateLobby : Id UserId -> BackendModel -> List Effect
-broadcastCreateLobby userId model =
+broadcastChange : SessionChange -> BroadcastChange -> Id UserId -> BackendModel -> List Effect
+broadcastChange change broadcastChange_ userId model =
     broadcast
         (\sessionId _ ->
             if Dict.get sessionId model.userSessions |> Maybe.map .userId |> (==) (Just userId) then
-                SessionChange CreateLobby |> Change |> Just
+                SessionChange change |> Change |> Just
 
             else
-                BroadcastChange (BroadcastCreateLobby userId) |> Change |> Just
+                BroadcastChange broadcastChange_ |> Change |> Just
         )
         model
 
