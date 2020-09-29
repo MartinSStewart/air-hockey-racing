@@ -1,9 +1,13 @@
 port module Frontend exposing (app, init, update, updateFromBackend, view)
 
+import Angle
 import Browser exposing (UrlRequest(..))
 import Browser.Dom
 import Browser.Events
 import Browser.Navigation
+import Camera3d
+import Color
+import Direction3d
 import Duration exposing (Duration)
 import Element exposing (Element)
 import Element.Background
@@ -15,18 +19,22 @@ import Id exposing (Id)
 import IdDict
 import Keyboard
 import Lamdera
+import Length
 import List.Extra as List
 import List.Nonempty
 import LocalModel exposing (Config, LocalModel)
 import Match exposing (Match)
 import Math.Matrix4 as Mat4 exposing (Mat4)
 import Pixels exposing (Pixels)
+import Point3d
 import Quantity exposing (Quantity(..), Rate)
+import Scene3d
 import Task
 import Time
 import Types exposing (..)
 import UiColors
 import Url exposing (Url)
+import Viewpoint3d
 import WebGL exposing (Shader)
 
 
@@ -350,7 +358,26 @@ loadedView model =
         ]
         (case localModel.match of
             Just match ->
-                Element.text "In match"
+                Scene3d.sunny
+                    { upDirection = Direction3d.z
+                    , sunlightDirection = Direction3d.negativeZ
+                    , shadows = True
+                    , dimensions = ( Pixels.pixels 100, Pixels.pixels 100 )
+                    , camera =
+                        Camera3d.perspective
+                            { viewpoint =
+                                Viewpoint3d.lookAt
+                                    { focalPoint = Point3d.origin
+                                    , eyePoint = Point3d.meters 1 1 1
+                                    , upDirection = Direction3d.z
+                                    }
+                            , verticalFieldOfView = Angle.degrees 45
+                            }
+                    , clipDepth = Length.meters 100
+                    , background = Scene3d.backgroundColor (Color.rgb 1 0.5 0.5)
+                    , entities = []
+                    }
+                    |> Element.html
 
             Nothing ->
                 Element.column
