@@ -1,0 +1,27 @@
+{
+    "type": "package",
+    "name": "ianmackenzie/elm-geometry-linear-algebra-interop",
+    "summary": "Interop support for ianmackenzie/elm-geometry and elm-community/linear-algebra",
+    "license": "MPL-2.0",
+    "version": "2.0.2",
+    "exposed-modules": [
+        "Geometry.Interop.LinearAlgebra.Direction2d",
+        "Geometry.Interop.LinearAlgebra.Direction3d",
+        "Geometry.Interop.LinearAlgebra.Frame3d",
+        "Geometry.Interop.LinearAlgebra.Point2d",
+        "Geometry.Interop.LinearAlgebra.Point3d",
+        "Geometry.Interop.LinearAlgebra.Vector2d",
+        "Geometry.Interop.LinearAlgebra.Vector3d"
+    ],
+    "elm-version": "0.19.0 <= v < 0.20.0",
+    "dependencies": {
+        "elm/core": "1.0.0 <= v < 2.0.0",
+        "elm-explorations/linear-algebra": "1.0.3 <= v < 2.0.0",
+        "ianmackenzie/elm-geometry": "3.2.0 <= v < 4.0.0"
+    },
+    "test-dependencies": {
+        "elm-explorations/test": "1.2.2 <= v < 2.0.0",
+        "ianmackenzie/elm-geometry-test": "1.0.0 <= v < 2.0.0",
+        "ianmackenzie/elm-units": "2.2.0 <= v < 3.0.0"
+    }
+}
