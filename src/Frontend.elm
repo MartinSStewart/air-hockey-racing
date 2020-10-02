@@ -1,12 +1,14 @@
 port module Frontend exposing (app, init, update, updateFromBackend, view)
 
 import Angle
+import Block3d
 import Browser exposing (UrlRequest(..))
 import Browser.Dom
 import Browser.Events
 import Browser.Navigation
 import Camera3d
 import Color
+import Cylinder3d
 import Direction3d
 import Duration exposing (Duration)
 import Element exposing (Element)
@@ -17,6 +19,7 @@ import Html exposing (Html)
 import Html.Attributes
 import Id exposing (Id)
 import IdDict
+import Illuminance
 import Keyboard
 import Lamdera
 import Length
@@ -25,10 +28,14 @@ import List.Nonempty
 import LocalModel exposing (Config, LocalModel)
 import Match exposing (Match)
 import Math.Matrix4 as Mat4 exposing (Mat4)
+import Physics.World
 import Pixels exposing (Pixels)
 import Point3d
 import Quantity exposing (Quantity(..), Rate)
 import Scene3d
+import Scene3d.Entity
+import Scene3d.Light
+import Scene3d.Material
 import Task
 import Time
 import Types exposing (..)
@@ -354,30 +361,61 @@ loadedView model =
             LocalModel.localModel model.localModel
     in
     Element.layout
-        [ Element.behindContent (Element.html (canvasView model))
+        [ --Element.behindContent (Element.html (canvasView model))
+          Element.clip
+        , Element.behindContent <|
+            case localModel.match of
+                Just match ->
+                    let
+                        { canvasSize, actualCanvasSize } =
+                            findPixelPerfectSize model
+                    in
+                    Scene3d.custom
+                        { dimensions = canvasSize
+                        , camera =
+                            Camera3d.perspective
+                                { viewpoint =
+                                    Viewpoint3d.lookAt
+                                        { focalPoint = Point3d.origin
+                                        , eyePoint = Point3d.meters 0 15 20
+                                        , upDirection = Direction3d.z
+                                        }
+                                , verticalFieldOfView = Angle.degrees 30
+                                }
+                        , clipDepth = Length.meters 0.1
+                        , background =
+                            Scene3d.backgroundColor (Color.rgb 0.85 0.87 0.95)
+                        , entities = Match.entities match
+                        , antialiasing = model.devicePixelRatio |> (\(Quantity a) -> Scene3d.supersampling a)
+                        , lights =
+                            Scene3d.twoLights
+                                (Scene3d.Light.directional
+                                    (Scene3d.Light.castsShadows True)
+                                    { chromaticity = Scene3d.Light.sunlight
+                                    , intensity = Illuminance.lux 80000
+                                    , direction = Direction3d.negativeZ
+                                    }
+                                )
+                                (Scene3d.Light.soft
+                                    { upDirection = Direction3d.z
+                                    , chromaticity = Scene3d.Light.skylight
+                                    , intensityAbove = Illuminance.lux 40000
+                                    , intensityBelow = Illuminance.lux 10000
+                                    }
+                                )
+                        , exposure = Scene3d.exposureValue 15
+                        , toneMapping = Scene3d.noToneMapping
+                        , whiteBalance = Scene3d.Light.sunlight
+                        }
+                        |> Element.html
+                        |> Element.el [ Element.width Element.fill, Element.height Element.shrink ]
+
+                Nothing ->
+                    Element.none
         ]
         (case localModel.match of
             Just match ->
-                Scene3d.sunny
-                    { upDirection = Direction3d.z
-                    , sunlightDirection = Direction3d.negativeZ
-                    , shadows = True
-                    , dimensions = ( Pixels.pixels 100, Pixels.pixels 100 )
-                    , camera =
-                        Camera3d.perspective
-                            { viewpoint =
-                                Viewpoint3d.lookAt
-                                    { focalPoint = Point3d.origin
-                                    , eyePoint = Point3d.meters 1 1 1
-                                    , upDirection = Direction3d.z
-                                    }
-                            , verticalFieldOfView = Angle.degrees 45
-                            }
-                    , clipDepth = Length.meters 100
-                    , background = Scene3d.backgroundColor (Color.rgb 1 0.5 0.5)
-                    , entities = []
-                    }
-                    |> Element.html
+                Element.none
 
             Nothing ->
                 Element.column
@@ -439,7 +477,7 @@ offlineWarningView =
             ]
 
 
-findPixelPerfectSize : FrontendLoaded -> { canvasSize : ( Int, Int ), actualCanvasSize : ( Int, Int ) }
+findPixelPerfectSize : FrontendLoaded -> { canvasSize : ( Quantity Int Pixels, Quantity Int Pixels ), actualCanvasSize : ( Int, Int ) }
 findPixelPerfectSize frontendModel =
     let
         (Quantity pixelRatio) =
@@ -466,42 +504,43 @@ findPixelPerfectSize frontendModel =
         ( h, actualH ) =
             findValue frontendModel.windowSize.height
     in
-    { canvasSize = ( w, h ), actualCanvasSize = ( actualW, actualH ) }
+    { canvasSize = ( Pixels.pixels w, Pixels.pixels h ), actualCanvasSize = ( actualW, actualH ) }
 
 
-canvasView : FrontendLoaded -> Html FrontendMsg
-canvasView model =
-    let
-        ( windowWidth, windowHeight ) =
-            actualCanvasSize
 
-        ( cssWindowWidth, cssWindowHeight ) =
-            canvasSize
-
-        { canvasSize, actualCanvasSize } =
-            findPixelPerfectSize model
-
-        { x, y } =
-            { x = 0, y = 0 }
-
-        zoomFactor =
-            1
-
-        viewMatrix =
-            Mat4.makeScale3 (toFloat zoomFactor * 2 / toFloat windowWidth) (toFloat zoomFactor * -2 / toFloat windowHeight) 1
-                |> Mat4.translate3
-                    (negate <| toFloat <| round x)
-                    (negate <| toFloat <| round y)
-                    0
-    in
-    WebGL.toHtmlWith
-        [ WebGL.alpha False, WebGL.antialias ]
-        [ Html.Attributes.width windowWidth
-        , Html.Attributes.height windowHeight
-        , Html.Attributes.style "width" (String.fromInt cssWindowWidth ++ "px")
-        , Html.Attributes.style "height" (String.fromInt cssWindowHeight ++ "px")
-        ]
-        []
+--canvasView : FrontendLoaded -> Html FrontendMsg
+--canvasView model =
+--    let
+--        ( windowWidth, windowHeight ) =
+--            actualCanvasSize
+--
+--        ( cssWindowWidth, cssWindowHeight ) =
+--            canvasSize
+--
+--        { canvasSize, actualCanvasSize } =
+--            findPixelPerfectSize model
+--
+--        { x, y } =
+--            { x = 0, y = 0 }
+--
+--        zoomFactor =
+--            1
+--
+--        viewMatrix =
+--            Mat4.makeScale3 (toFloat zoomFactor * 2 / toFloat windowWidth) (toFloat zoomFactor * -2 / toFloat windowHeight) 1
+--                |> Mat4.translate3
+--                    (negate <| toFloat <| round x)
+--                    (negate <| toFloat <| round y)
+--                    0
+--    in
+--    WebGL.toHtmlWith
+--        [ WebGL.alpha False, WebGL.antialias ]
+--        [ Html.Attributes.width windowWidth
+--        , Html.Attributes.height windowHeight
+--        , Html.Attributes.style "width" (String.fromInt cssWindowWidth ++ "px")
+--        , Html.Attributes.style "height" (String.fromInt cssWindowHeight ++ "px")
+--        ]
+--        []
 
 
 subscriptions : FrontendModel -> Sub FrontendMsg
