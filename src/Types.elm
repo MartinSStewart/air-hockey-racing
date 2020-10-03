@@ -29,6 +29,7 @@ import EverySet exposing (EverySet)
 import Id exposing (Id)
 import IdDict exposing (IdDict)
 import Keyboard
+import Keyboard.Arrows
 import LocalModel exposing (LocalModel)
 import Match exposing (Match)
 import Physics.World
@@ -74,6 +75,7 @@ type alias FrontendLoaded =
     { key : Browser.Navigation.Key
     , windowSize : WindowSize
     , pressedKeys : List Keyboard.Key
+    , previousKeys : List Keyboard.Key
     , devicePixelRatio : Quantity Float (Rate WorldPixel Pixels)
     , time : Time.Posix
     , localModel : LocalModel ToFrontendChange Local
@@ -151,9 +153,11 @@ type BroadcastChange
     = BroadcastCreateLobby (Id UserId)
     | BroadcastJoinLobby (Id UserId) (Id LobbyId)
     | BroadcastStartMatch (Id LobbyId)
+    | BroadcastMove (Id UserId) Time.Posix Keyboard.Arrows.Direction
 
 
 type SessionChange
     = CreateLobby
     | JoinLobby (Id LobbyId)
     | StartMatch
+    | Move Time.Posix Keyboard.Arrows.Direction

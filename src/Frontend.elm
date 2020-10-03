@@ -21,6 +21,7 @@ import Id exposing (Id)
 import IdDict
 import Illuminance
 import Keyboard
+import Keyboard.Arrows
 import Lamdera
 import Length
 import List.Extra as List
@@ -68,6 +69,7 @@ loadedInit loading { userId, lobbies } =
     ( Loaded
         { key = loading.key
         , pressedKeys = []
+        , previousKeys = []
         , windowSize = loading.windowSize
         , devicePixelRatio = loading.devicePixelRatio
         , time = loading.time
@@ -157,9 +159,18 @@ updateLoaded msg model =
             devicePixelRatioUpdate devicePixelRatio model
 
         AnimationFrame time ->
-            ( { model | time = time }
-            , Cmd.none
-            )
+            let
+                newModel =
+                    { model
+                        | time = time
+                        , previousKeys = model.pressedKeys
+                    }
+            in
+            if Keyboard.Arrows.wasdDirection model.pressedKeys == Keyboard.Arrows.wasdDirection model.previousKeys then
+                ( newModel, Cmd.none )
+
+            else
+                localChange (Move (Keyboard.Arrows.wasdDirection model.pressedKeys)) newModel
 
         CreateLobbyPressed ->
             localChange CreateLobby model
@@ -224,6 +235,9 @@ localModelConfig =
                             )
                         |> Maybe.withDefault model
 
+                SessionChange (Move direction) ->
+                    { model | match = Maybe.map (Match.move model.userId direction) model.match }
+
                 BroadcastChange (BroadcastCreateLobby userId) ->
                     { model
                         | lobbies =
@@ -257,6 +271,9 @@ localModelConfig =
 
                         Nothing ->
                             model
+
+                BroadcastChange (BroadcastMove userId direction) ->
+                    { model | match = Maybe.map (Match.move userId direction) model.match }
     }
 
 
@@ -361,8 +378,7 @@ loadedView model =
             LocalModel.localModel model.localModel
     in
     Element.layout
-        [ --Element.behindContent (Element.html (canvasView model))
-          Element.clip
+        [ Element.clip
         , Element.behindContent <|
             case localModel.match of
                 Just match ->

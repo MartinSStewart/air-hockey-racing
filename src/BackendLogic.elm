@@ -4,7 +4,7 @@ import Dict
 import Id exposing (Id)
 import IdDict
 import List.Extra as List
-import Match
+import Match exposing (Match)
 import Types exposing (..)
 import User exposing (UserId)
 
@@ -122,8 +122,36 @@ updateFromFrontend sessionId clientId msg model =
                             )
                         |> Maybe.withDefault ( model, [] )
 
+                SessionChange_ (Move time direction) ->
+                    ( model, broadcastChange (Move time direction) (BroadcastMove userId time direction) userId model )
+
         Nothing ->
             ( model, [] )
+
+
+broadcastMatchChange change broadcastChange_ currentUserId model =
+    broadcast
+        (\sessionId _ ->
+            case Dict.get sessionId model.userSessions of
+                Just { userId } ->
+                    if userId == currentUserId then
+                        SessionChange change |> Change |> Just
+
+                    else if userMatch userId model == Nothing then
+                        Nothing
+
+                    else
+                        BroadcastChange broadcastChange_ |> Change |> Just
+
+                Nothing ->
+                    Nothing
+        )
+        model
+
+
+userMatch : Id UserId -> BackendModel -> Maybe ( Id MatchId, Match )
+userMatch userId model =
+    IdDict.toList model.matches |> List.find (Tuple.second >> Match.users >> IdDict.member userId)
 
 
 broadcastChange : SessionChange -> BroadcastChange -> Id UserId -> BackendModel -> List Effect

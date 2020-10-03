@@ -5,7 +5,7 @@ import Time
 
 
 type LocalModel msg model
-    = LocalModel { localMsgs : List ( Time.Posix, msg ), localModel : model, model : model }
+    = LocalModel { timeline : List ( Time.Posix, msg ), localModel : model, model : model }
 
 
 type alias Config msg model =
@@ -16,13 +16,13 @@ type alias Config msg model =
 
 init : model -> LocalModel msg model
 init model =
-    LocalModel { localMsgs = [], localModel = model, model = model }
+    LocalModel { timeline = [], localModel = model, model = model }
 
 
 update : Config msg model -> Time.Posix -> msg -> LocalModel msg model -> LocalModel msg model
 update config time msg (LocalModel localModel_) =
     LocalModel
-        { localMsgs = localModel_.localMsgs ++ [ ( time, msg ) ]
+        { timeline = localModel_.timeline ++ [ ( time, msg ) ]
         , localModel = config.update msg localModel_.localModel
         , model = localModel_.model
         }
@@ -33,9 +33,9 @@ localModel (LocalModel localModel_) =
     localModel_.localModel
 
 
-localMsgs : LocalModel msg model -> List ( Time.Posix, msg )
-localMsgs (LocalModel localModel_) =
-    localModel_.localMsgs
+timeline : LocalModel msg model -> List ( Time.Posix, msg )
+timeline (LocalModel localModel_) =
+    localModel_.timeline
 
 
 updateFromBackend : Config msg model -> Nonempty msg -> LocalModel msg model -> LocalModel msg model
@@ -63,11 +63,11 @@ updateFromBackend config msgs (LocalModel localModel_) =
                         |> Tuple.first
                         |> List.reverse
                 )
-                localModel_.localMsgs
+                localModel_.timeline
                 msgs
     in
     LocalModel
-        { localMsgs = newLocalMsgs
+        { timeline = newLocalMsgs
         , localModel = List.foldl config.update newModel (List.map Tuple.second newLocalMsgs)
         , model = newModel
         }

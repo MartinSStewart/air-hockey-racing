@@ -1,13 +1,15 @@
-module Match exposing (Match, entities, init, tankLength, tankRadius)
+module Match exposing (Match, entities, init, move, step, tankLength, tankRadius, users)
 
 import Block3d exposing (Block3d)
 import Color
 import Cylinder3d
 import Direction3d
+import Duration
 import Frame3d
 import Id exposing (Id)
 import IdDict exposing (IdDict)
-import Length
+import Keyboard.Arrows
+import Length exposing (Length)
 import Physics.Body exposing (Body)
 import Physics.Coordinates exposing (WorldCoordinates)
 import Physics.World
@@ -19,18 +21,48 @@ import User exposing (UserId)
 
 
 type Match
-    = Match { world : Physics.World.World (Maybe (Id UserId)) }
+    = Match { world : Physics.World.World (Maybe (Id UserId)), users : IdDict UserId UserData }
+
+
+type alias UserData =
+    { move : Keyboard.Arrows.Direction }
 
 
 init : IdDict UserId () -> Match
-init users =
+init users_ =
     Match
         { world =
-            IdDict.toList users
+            IdDict.toList users_
                 |> List.map (Tuple.first >> tank)
                 |> List.foldl Physics.World.add Physics.World.empty
                 |> Physics.World.add (Physics.Body.block floor Nothing)
+        , users = IdDict.map (\_ _ -> { move = Keyboard.Arrows.NoDirection }) users_
         }
+
+
+users : Match -> IdDict UserId ()
+users (Match match) =
+    match.users |> IdDict.map (\_ _ -> ())
+
+
+move : Id UserId -> Keyboard.Arrows.Direction -> Match -> Match
+move userId direction (Match match) =
+    { match
+        | users =
+            IdDict.update
+                userId
+                (Maybe.map (\userData -> { userData | move = direction }))
+                match.users
+    }
+        |> Match
+
+
+step : Match -> Match
+step (Match match) =
+    { match
+        | world = Physics.World.simulate (Quantity.multiplyBy (1 / 60) Duration.second) match.world
+    }
+        |> Match
 
 
 floorWidth =
@@ -55,10 +87,12 @@ tank userId =
         |> Physics.Body.moveTo (Point3d.xyz (Length.meters 0.5) (Length.meters 2) tankLength)
 
 
+tankRadius : Length
 tankRadius =
     Length.meters 0.15
 
 
+tankLength : Length
 tankLength =
     Length.meters 0.8
 
