@@ -4,8 +4,12 @@ module Internal.Transform3d exposing
     , atPoint
     , directionPlaceIn
     , directionRelativeTo
+    , directionsPlaceIn
     , fromOriginAndBasis
+    , inertiaPlaceIn
+    , inertiaRotateIn
     , inverse
+    , invertedInertiaRotateIn
     , moveTo
     , normalize
     , orientation
@@ -13,13 +17,14 @@ module Internal.Transform3d exposing
     , placeIn
     , pointPlaceIn
     , pointRelativeTo
+    , pointsPlaceIn
     , relativeTo
     , rotateAroundOwn
     , rotateBy
     , translateBy
     )
 
-import Internal.Matrix3 exposing (Mat3)
+import Internal.Matrix3 as Mat3 exposing (Mat3)
 import Internal.Vector3 as Vec3 exposing (Vec3)
 
 
@@ -127,9 +132,80 @@ atPoint point =
     Transform3d point identity
 
 
+{-| Transforms list of points, reverses the order
+-}
+pointsPlaceIn : Transform3d coordinates defines -> List Vec3 -> List Vec3
+pointsPlaceIn transform points =
+    pointsPlaceInHelp transform points []
+
+
+pointsPlaceInHelp : Transform3d coordinates defines -> List Vec3 -> List Vec3 -> List Vec3
+pointsPlaceInHelp transform points result =
+    case points of
+        point :: remainingPoints ->
+            pointsPlaceInHelp
+                transform
+                remainingPoints
+                (pointPlaceIn transform point :: result)
+
+        [] ->
+            result
+
+
 pointPlaceIn : Transform3d coordinates defines -> Vec3 -> Vec3
-pointPlaceIn (Transform3d globalOrigin globalOrientation) localPoint =
-    Vec3.add globalOrigin (rotate globalOrientation localPoint)
+pointPlaceIn (Transform3d globalOrigin (Orientation3d qx qy qz qw)) { x, y, z } =
+    let
+        ix =
+            qw * x + qy * z - qz * y
+
+        iy =
+            qw * y + qz * x - qx * z
+
+        iz =
+            qw * z + qx * y - qy * x
+
+        iw =
+            -qx * x - qy * y - qz * z
+    in
+    -- Vec3.add globalOrigin (rotate globalOrientation localPoint)
+    { x = ix * qw + iw * -qx + iy * -qz - iz * -qy + globalOrigin.x
+    , y = iy * qw + iw * -qy + iz * -qx - ix * -qz + globalOrigin.y
+    , z = iz * qw + iw * -qz + ix * -qy - iy * -qx + globalOrigin.z
+    }
+
+
+inertiaPlaceIn : Transform3d coordinates defines -> Vec3 -> Float -> Mat3 -> Mat3
+inertiaPlaceIn ((Transform3d { x, y, z } _) as transform3d) centerOfMass mass inertia =
+    let
+        -- rotate inertia into the frame
+        rotatedInertia =
+            inertiaRotateIn transform3d inertia
+
+        -- calculate the translation of inertia
+        inertiaOffset =
+            Mat3.pointInertia mass (x - centerOfMass.x) (y - centerOfMass.y) (z - centerOfMass.z)
+    in
+    Mat3.add rotatedInertia inertiaOffset
+
+
+inertiaRotateIn : Transform3d coordinates defines -> Mat3 -> Mat3
+inertiaRotateIn transform3d inertia =
+    let
+        rotation =
+            orientation transform3d
+    in
+    Mat3.mul
+        rotation
+        (Mat3.mul inertia (Mat3.transpose rotation))
+
+
+invertedInertiaRotateIn : Transform3d coordinates defines -> Mat3 -> Mat3
+invertedInertiaRotateIn transform3d inertia =
+    let
+        rotation =
+            orientation transform3d
+    in
+    Mat3.mul (Mat3.transpose rotation) (Mat3.mul inertia rotation)
 
 
 pointRelativeTo : Transform3d coordinates defines -> Vec3 -> Vec3
@@ -145,6 +221,26 @@ directionRelativeTo (Transform3d _ localOrientation) worldVector =
 directionPlaceIn : Transform3d coordinates defines -> Vec3 -> Vec3
 directionPlaceIn (Transform3d _ globalOrientation) worldVector =
     rotate globalOrientation worldVector
+
+
+{-| Transforms list of points, reverses the order
+-}
+directionsPlaceIn : Transform3d coordinates defines -> List Vec3 -> List Vec3
+directionsPlaceIn transform directions =
+    directionsPlaceInHelp transform directions []
+
+
+directionsPlaceInHelp : Transform3d coordinates defines -> List Vec3 -> List Vec3 -> List Vec3
+directionsPlaceInHelp transform directions result =
+    case directions of
+        point :: remainingdirections ->
+            directionsPlaceInHelp
+                transform
+                remainingdirections
+                (directionPlaceIn transform point :: result)
+
+        [] ->
+            result
 
 
 placeIn :

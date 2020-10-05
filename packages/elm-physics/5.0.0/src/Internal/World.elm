@@ -1,7 +1,6 @@
 module Internal.World exposing
     ( Protected(..)
     , World
-    , addGravityForces
     , raycast
     )
 
@@ -24,13 +23,6 @@ type alias World data =
     , gravity : Vec3
     , contactGroups : List (ContactGroup data)
     , simulatedBodies : Array (Body data)
-    }
-
-
-addGravityForces : World data -> World data
-addGravityForces world =
-    { world
-        | bodies = List.map (Body.addGravity world.gravity) world.bodies
     }
 
 

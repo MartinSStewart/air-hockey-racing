@@ -1,31 +1,31 @@
 module Collision.SphereConvex exposing (addContacts)
 
 import Internal.Contact exposing (Contact)
-import Internal.Convex as Convex exposing (Convex)
-import Internal.Coordinates exposing (ShapeWorldTransform3d)
-import Internal.Transform3d as Transform3d
 import Internal.Vector3 as Vec3 exposing (Vec3)
+import Shapes.Convex as Convex exposing (Convex)
+import Shapes.Sphere exposing (Sphere)
 
 
-addContacts : (Contact -> Contact) -> ShapeWorldTransform3d -> Float -> ShapeWorldTransform3d -> Convex -> List Contact -> List Contact
-addContacts orderContact sphereTransform3d radius convexTransform3d hull2 contacts =
+addContacts : (Contact -> Contact) -> Sphere -> Convex -> List Contact -> List Contact
+addContacts orderContact { radius, position } hull2 contacts =
     let
-        position =
-            Transform3d.originPoint sphereTransform3d
-
-        ( maybeWorldContact, penetration ) =
-            sphereContact position radius convexTransform3d hull2
+        ( maybeContact, penetration ) =
+            sphereContact position radius hull2
     in
-    case maybeWorldContact of
-        Just worldContact2 ->
+    case maybeContact of
+        Just contact2 ->
             let
-                worldNormal =
-                    Vec3.direction worldContact2 position
+                normal =
+                    Vec3.direction contact2 position
             in
             orderContact
-                { ni = worldNormal
-                , pi = Vec3.add worldContact2 (Vec3.scale penetration worldNormal)
-                , pj = worldContact2
+                { ni = normal
+                , pi =
+                    { x = contact2.x + penetration * normal.x
+                    , y = contact2.y + penetration * normal.y
+                    , z = contact2.z + penetration * normal.z
+                    }
+                , pj = contact2
                 }
                 :: contacts
 
@@ -68,13 +68,13 @@ isAnEdgeContact testEdgeResult =
 {-| The contact point, if any, of a Convex with a sphere, and
 the sphere's penetration into the Convex beyond that contact.
 -}
-sphereContact : Vec3 -> Float -> ShapeWorldTransform3d -> Convex -> ( Maybe Vec3, Float )
-sphereContact center radius convexTransform3d { faces } =
+sphereContact : Vec3 -> Float -> Convex -> ( Maybe Vec3, Float )
+sphereContact center radius { faces } =
     let
         sphereFaceContact : Vec3 -> Float -> ( Maybe Vec3, Float )
         sphereFaceContact normal distance =
-            -- The world frame contact is located distance away from
-            -- the world frame sphere center in the OPPOSITE direction of
+            -- The contact is located distance away from
+            -- the sphere center in the OPPOSITE direction of
             -- the normal.
             ( Just (Vec3.sub center (Vec3.scale distance normal))
             , radius - distance
@@ -101,7 +101,7 @@ sphereContact center radius convexTransform3d { faces } =
         reframedVertices faceVertices =
             List.foldl
                 (\vertex acc ->
-                    Vec3.sub (Transform3d.pointPlaceIn convexTransform3d vertex) center :: acc
+                    Vec3.sub vertex center :: acc
                 )
                 []
                 faceVertices
@@ -115,7 +115,7 @@ sphereContact center radius convexTransform3d { faces } =
                         QualifiedEdges acc ->
                             sphereTestFace
                                 radius
-                                (Transform3d.directionPlaceIn convexTransform3d face.normal)
+                                face.normal
                                 (reframedVertices face.vertices)
                                 acc
 

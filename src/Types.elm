@@ -12,6 +12,7 @@ module Types exposing
     , Lobby
     , LobbyId
     , Local
+    , MatchChange(..)
     , MatchId
     , SessionChange(..)
     , SessionId
@@ -25,20 +26,17 @@ module Types exposing
 import Browser exposing (UrlRequest)
 import Browser.Navigation
 import Dict exposing (Dict)
-import EverySet exposing (EverySet)
 import Id exposing (Id)
 import IdDict exposing (IdDict)
 import Keyboard
 import Keyboard.Arrows
 import LocalModel exposing (LocalModel)
 import Match exposing (Match)
-import Physics.World
 import Pixels exposing (Pixels)
 import Quantity exposing (Quantity, Rate)
 import Time
 import Url exposing (Url)
 import User exposing (UserId)
-import WebGL.Texture exposing (Texture)
 
 
 type alias SessionId =
@@ -79,12 +77,12 @@ type alias FrontendLoaded =
     , devicePixelRatio : Quantity Float (Rate WorldPixel Pixels)
     , time : Time.Posix
     , localModel : LocalModel ToFrontendChange Local
+    , match : Maybe Match
     }
 
 
 type alias Local =
     { lobbies : IdDict LobbyId Lobby
-    , match : Maybe Match
     , userId : Id UserId
     }
 
@@ -93,7 +91,7 @@ type alias BackendModel =
     { userSessions : Dict SessionId { clientIds : Dict ClientId (), userId : Id UserId }
     , users : IdDict UserId BackendUserData
     , lobbies : IdDict LobbyId Lobby
-    , matches : IdDict MatchId Match
+    , matches : IdDict MatchId { users : IdDict UserId () }
     }
 
 
@@ -132,6 +130,7 @@ type MatchId
 
 type ToBackend
     = SessionChange_ SessionChange
+    | MatchChange_ MatchChange
 
 
 type BackendMsg
@@ -142,6 +141,7 @@ type BackendMsg
 type ToFrontend
     = Change ToFrontendChange
     | ClientInit ClientInitData
+    | BroadcastMove (Id UserId) Time.Posix Keyboard.Arrows.Direction
 
 
 type ToFrontendChange
@@ -153,11 +153,13 @@ type BroadcastChange
     = BroadcastCreateLobby (Id UserId)
     | BroadcastJoinLobby (Id UserId) (Id LobbyId)
     | BroadcastStartMatch (Id LobbyId)
-    | BroadcastMove (Id UserId) Time.Posix Keyboard.Arrows.Direction
 
 
 type SessionChange
     = CreateLobby
     | JoinLobby (Id LobbyId)
     | StartMatch
-    | Move Time.Posix Keyboard.Arrows.Direction
+
+
+type MatchChange
+    = Move Time.Posix Keyboard.Arrows.Direction

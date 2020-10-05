@@ -73,7 +73,8 @@ loadedInit loading { userId, lobbies } =
         , windowSize = loading.windowSize
         , devicePixelRatio = loading.devicePixelRatio
         , time = loading.time
-        , localModel = LocalModel.init { userId = userId, lobbies = lobbies, match = Nothing }
+        , localModel = LocalModel.init { userId = userId, lobbies = lobbies }
+        , match = Nothing
         }
     , Cmd.none
     )
@@ -165,12 +166,29 @@ updateLoaded msg model =
                         | time = time
                         , previousKeys = model.pressedKeys
                     }
-            in
-            if Keyboard.Arrows.wasdDirection model.pressedKeys == Keyboard.Arrows.wasdDirection model.previousKeys then
-                ( newModel, Cmd.none )
 
-            else
-                localChange (Move (Keyboard.Arrows.wasdDirection model.pressedKeys)) newModel
+                move =
+                    Keyboard.Arrows.wasdDirection model.pressedKeys
+            in
+            case newModel.match of
+                Just match ->
+                    let
+                        userId =
+                            (LocalModel.localModel newModel.localModel).userId
+                    in
+                    if move == Keyboard.Arrows.wasdDirection model.previousKeys then
+                        ( { newModel | match = Match.step match |> Just }, Cmd.none )
+
+                    else
+                        ( { newModel
+                            | match =
+                                Match.move userId time move match |> Match.step |> Just
+                          }
+                        , Lamdera.sendToBackend (MatchChange_ (Move time move))
+                        )
+
+                Nothing ->
+                    ( newModel, Cmd.none )
 
         CreateLobbyPressed ->
             localChange CreateLobby model
@@ -184,16 +202,12 @@ updateLoaded msg model =
 
 localChange :
     SessionChange
-    -> { a | localModel : LocalModel ToFrontendChange Local, time : Time.Posix }
-    -> ( { a | localModel : LocalModel ToFrontendChange Local, time : Time.Posix }, Cmd FrontendMsg )
+    -> FrontendLoaded
+    -> ( FrontendLoaded, Cmd FrontendMsg )
 localChange change model =
     ( { model
-        | localModel =
-            LocalModel.update
-                localModelConfig
-                model.time
-                (SessionChange change)
-                model.localModel
+        | localModel = LocalModel.update localModelConfig model.time (SessionChange change) model.localModel
+        , match = updateMatchFromChange (SessionChange change) model.time model.localModel model.match
       }
     , Lamdera.sendToBackend (SessionChange_ change)
     )
@@ -226,17 +240,8 @@ localModelConfig =
                 SessionChange StartMatch ->
                     IdDict.toList model.lobbies
                         |> List.find (Tuple.second >> .users >> IdDict.member model.userId)
-                        |> Maybe.map
-                            (\( lobbyId, lobby ) ->
-                                { model
-                                    | lobbies = IdDict.remove lobbyId model.lobbies
-                                    , match = Match.init lobby.users |> Just
-                                }
-                            )
+                        |> Maybe.map (\( lobbyId, _ ) -> { model | lobbies = IdDict.remove lobbyId model.lobbies })
                         |> Maybe.withDefault model
-
-                SessionChange (Move direction) ->
-                    { model | match = Maybe.map (Match.move model.userId direction) model.match }
 
                 BroadcastChange (BroadcastCreateLobby userId) ->
                     { model
@@ -259,21 +264,10 @@ localModelConfig =
                 BroadcastChange (BroadcastStartMatch lobbyId) ->
                     case IdDict.get lobbyId model.lobbies of
                         Just lobby ->
-                            { model
-                                | lobbies = IdDict.remove lobbyId model.lobbies
-                                , match =
-                                    if IdDict.member model.userId lobby.users then
-                                        Match.init lobby.users |> Just
-
-                                    else
-                                        Nothing
-                            }
+                            { model | lobbies = IdDict.remove lobbyId model.lobbies }
 
                         Nothing ->
                             model
-
-                BroadcastChange (BroadcastMove userId direction) ->
-                    { model | match = Maybe.map (Match.move userId direction) model.match }
     }
 
 
@@ -314,6 +308,33 @@ updateFromBackend msg model =
             ( model, Cmd.none )
 
 
+updateMatchFromChange : ToFrontendChange -> Time.Posix -> LocalModel ToFrontendChange Local -> Maybe Match -> Maybe Match
+updateMatchFromChange change time localModel match =
+    case change of
+        SessionChange StartMatch ->
+            case LocalModel.localModel localModel |> getCurrentLobby of
+                Just ( _, lobby ) ->
+                    Match.init time lobby.users |> Just
+
+                Nothing ->
+                    match
+
+        BroadcastChange (BroadcastStartMatch lobbyId) ->
+            case LocalModel.localModel localModel |> getCurrentLobby of
+                Just ( lobbyId_, lobby ) ->
+                    if lobbyId_ == lobbyId then
+                        Match.init time lobby.users |> Just
+
+                    else
+                        match
+
+                Nothing ->
+                    match
+
+        _ ->
+            match
+
+
 updateLoadedFromBackend : ToFrontend -> FrontendLoaded -> ( FrontendLoaded, Cmd FrontendMsg )
 updateLoadedFromBackend msg model =
     case msg of
@@ -321,12 +342,27 @@ updateLoadedFromBackend msg model =
             ( { model
                 | localModel =
                     LocalModel.updateFromBackend localModelConfig (List.Nonempty.fromElement change) model.localModel
+                , match = updateMatchFromChange change model.time model.localModel model.match
               }
             , Cmd.none
             )
 
         ClientInit _ ->
+            -- Handled in updateFromBackend
             ( model, Cmd.none )
+
+        BroadcastMove userId time direction ->
+            ( { model
+                | match =
+                    case model.match of
+                        Just match ->
+                            Match.move userId time direction match |> Just
+
+                        Nothing ->
+                            model.match
+              }
+            , Cmd.none
+            )
 
 
 lostConnection : FrontendLoaded -> Bool
@@ -380,7 +416,7 @@ loadedView model =
     Element.layout
         [ Element.clip
         , Element.behindContent <|
-            case localModel.match of
+            case model.match of
                 Just match ->
                     let
                         { canvasSize, actualCanvasSize } =
@@ -429,7 +465,7 @@ loadedView model =
                 Nothing ->
                     Element.none
         ]
-        (case localModel.match of
+        (case model.match of
             Just match ->
                 Element.none
 

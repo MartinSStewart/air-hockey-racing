@@ -1,167 +1,167 @@
 module Internal.Shape exposing
-    ( Kind(..)
+    ( CenterOfMassCoordinates
     , Protected(..)
-    , Shape
-    , aabbClosure
+    , Shape(..)
     , expandBoundingSphereRadius
+    , inertia
     , raycast
+    , shapesPlaceIn
+    , shapesPlaceInWithInertia
+    , volume
     )
 
-import Internal.AABB as AABB
 import Internal.Const as Const
-import Internal.Convex as Convex exposing (Convex)
-import Internal.Coordinates exposing (CenterOfMassCoordinates, ShapeCoordinates)
+import Internal.Matrix3 as Mat3 exposing (Mat3)
 import Internal.Transform3d as Transform3d exposing (Transform3d)
 import Internal.Vector3 as Vec3 exposing (Vec3)
 import Physics.Coordinates exposing (BodyCoordinates, WorldCoordinates)
+import Shapes.Convex as Convex exposing (Convex)
+import Shapes.Plane as Plane exposing (Plane)
+import Shapes.Sphere as Sphere exposing (Sphere)
 
 
 type Protected
     = Protected (Shape BodyCoordinates)
 
 
-type alias Shape coordinates =
-    { transform3d : Transform3d coordinates { defines : ShapeCoordinates }
-    , volume : Float
-    , kind : Kind
-    }
+type CenterOfMassCoordinates
+    = CenterOfMassCoordinates
 
 
-type Kind
+type Shape coordinates
     = Convex Convex
-    | Plane
-    | Sphere Float
-    | Particle
+    | Plane Plane
+    | Sphere Sphere
+    | Particle Vec3
 
 
-aabbClosure : Kind -> Transform3d CenterOfMassCoordinates { defines : ShapeCoordinates } -> AABB.AABB
-aabbClosure kind =
-    case kind of
+volume : Shape coordinates -> Float
+volume shape =
+    case shape of
+        Sphere sphere ->
+            sphere.volume
+
         Convex convex ->
-            AABB.convex convex
+            convex.volume
 
-        Plane ->
-            AABB.plane
+        Plane _ ->
+            0
 
-        Sphere radius ->
-            AABB.sphere radius
+        Particle _ ->
+            0
 
-        Particle ->
-            AABB.particle
+
+inertia : Shape coordinates -> Mat3
+inertia shape =
+    case shape of
+        Sphere sphere ->
+            sphere.inertia
+
+        Convex convex ->
+            convex.inertia
+
+        Plane _ ->
+            Mat3.zero
+
+        Particle _ ->
+            Mat3.zero
+
+
+{-| Transforms shapes, reverses the original order
+-}
+shapesPlaceIn : Transform3d coordinates { defines : originalCoords } -> List (Shape originalCoords) -> List (Shape coordinates)
+shapesPlaceIn transform3d shapes =
+    shapesPlaceInHelp transform3d shapes []
+
+
+shapesPlaceInHelp : Transform3d coordinates { defines : originalCoords } -> List (Shape originalCoords) -> List (Shape coordinates) -> List (Shape coordinates)
+shapesPlaceInHelp transform3d shapes result =
+    case shapes of
+        shape :: remainingShapes ->
+            shapesPlaceInHelp
+                transform3d
+                remainingShapes
+                ((case shape of
+                    Convex convex ->
+                        Convex (Convex.placeIn transform3d convex)
+
+                    Plane plane ->
+                        Plane (Plane.placeIn transform3d plane)
+
+                    Sphere sphere ->
+                        Sphere (Sphere.placeIn transform3d sphere)
+
+                    Particle position ->
+                        Particle (Transform3d.pointPlaceIn transform3d position)
+                 )
+                    :: result
+                )
+
+        [] ->
+            result
+
+
+{-| Transforms shapes, reverses the original order
+-}
+shapesPlaceInWithInertia : Transform3d coordinates { defines : originalCoords } -> List (Shape originalCoords) -> List (Shape coordinates)
+shapesPlaceInWithInertia transform3d shapes =
+    shapesPlaceInWithInertiaHelp transform3d shapes []
+
+
+shapesPlaceInWithInertiaHelp : Transform3d coordinates { defines : originalCoords } -> List (Shape originalCoords) -> List (Shape coordinates) -> List (Shape coordinates)
+shapesPlaceInWithInertiaHelp transform3d shapes result =
+    case shapes of
+        shape :: remainingShapes ->
+            shapesPlaceInWithInertiaHelp
+                transform3d
+                remainingShapes
+                ((case shape of
+                    Convex convex ->
+                        Convex (Convex.placeInWithInertia transform3d convex)
+
+                    Plane plane ->
+                        Plane (Plane.placeIn transform3d plane)
+
+                    Sphere sphere ->
+                        Sphere (Sphere.placeInWithInertia transform3d sphere)
+
+                    Particle position ->
+                        Particle (Transform3d.pointPlaceIn transform3d position)
+                 )
+                    :: result
+                )
+
+        [] ->
+            result
 
 
 expandBoundingSphereRadius : Shape CenterOfMassCoordinates -> Float -> Float
-expandBoundingSphereRadius { transform3d, kind } boundingSphereRadius =
-    case kind of
+expandBoundingSphereRadius shape boundingSphereRadius =
+    case shape of
         Convex convex ->
-            Convex.expandBoundingSphereRadius transform3d convex boundingSphereRadius
+            Convex.expandBoundingSphereRadius convex boundingSphereRadius
 
-        Sphere radius ->
-            Transform3d.originPoint transform3d
-                |> Vec3.length
-                |> (+) radius
-                |> max boundingSphereRadius
+        Sphere sphere ->
+            Sphere.expandBoundingSphereRadius sphere boundingSphereRadius
 
-        Plane ->
+        Plane _ ->
             Const.maxNumber
 
-        Particle ->
-            max boundingSphereRadius (Vec3.length (Transform3d.originPoint transform3d))
+        Particle position ->
+            max boundingSphereRadius (Vec3.length position)
 
 
-raycast : { from : Vec3, direction : Vec3 } -> Transform3d WorldCoordinates { defines : ShapeCoordinates } -> Shape CenterOfMassCoordinates -> Maybe { distance : Float, point : Vec3, normal : Vec3 }
-raycast ray transform3d { kind } =
-    case kind of
-        Plane ->
-            raycastPlane ray transform3d
+raycast : { from : Vec3, direction : Vec3 } -> Shape WorldCoordinates -> Maybe { distance : Float, point : Vec3, normal : Vec3 }
+raycast ray shape =
+    case shape of
+        Plane plane ->
+            Plane.raycast ray plane
 
-        Sphere radius ->
-            raycastSphere ray (Transform3d.originPoint transform3d) radius
+        Sphere sphere ->
+            Sphere.raycast ray sphere
 
         Convex convex ->
-            Convex.raycast ray transform3d convex
+            Convex.raycast ray convex
 
-        Particle ->
-            Nothing
-
-
-raycastPlane : { from : Vec3, direction : Vec3 } -> Transform3d WorldCoordinates { defines : ShapeCoordinates } -> Maybe { distance : Float, point : Vec3, normal : Vec3 }
-raycastPlane { from, direction } transform3d =
-    let
-        planeNormalWS =
-            Transform3d.directionPlaceIn transform3d Vec3.k
-
-        dot =
-            Vec3.dot direction planeNormalWS
-    in
-    if dot < 0 then
-        let
-            pointOnFaceWS =
-                Transform3d.originPoint transform3d
-
-            pointToFrom =
-                Vec3.sub pointOnFaceWS from
-
-            scalar =
-                Vec3.dot planeNormalWS pointToFrom / dot
-        in
-        if scalar >= 0 then
-            Just
-                { distance = scalar
-                , point =
-                    { x = direction.x * scalar + from.x
-                    , y = direction.y * scalar + from.y
-                    , z = direction.z * scalar + from.z
-                    }
-                , normal = planeNormalWS
-                }
-
-        else
-            Nothing
-
-    else
-        Nothing
-
-
-raycastSphere : { from : Vec3, direction : Vec3 } -> Vec3 -> Float -> Maybe { distance : Float, point : Vec3, normal : Vec3 }
-raycastSphere { from, direction } position radius =
-    let
-        a =
-            direction.x * direction.x + direction.y * direction.y + direction.z * direction.z
-
-        b =
-            2 * (direction.x * (from.x - position.x) + direction.y * (from.y - position.y) + direction.z * (from.z - position.z))
-
-        c =
-            (from.x - position.x) * (from.x - position.x) + (from.y - position.y) * (from.y - position.y) + (from.z - position.z) * (from.z - position.z) - radius * radius
-
-        delta =
-            b * b - 4 * a * c
-    in
-    if delta < 0 then
-        Nothing
-
-    else
-        let
-            distance =
-                (-b - sqrt delta) / (2 * a)
-        in
-        if distance >= 0 then
-            let
-                point =
-                    { x = from.x + direction.x * distance
-                    , y = from.y + direction.y * distance
-                    , z = from.z + direction.z * distance
-                    }
-
-                normal =
-                    Vec3.sub point position
-            in
-            Just
-                { distance = distance
-                , point = point
-                , normal = normal
-                }
-
-        else
+        Particle _ ->
             Nothing

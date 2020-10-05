@@ -1,32 +1,36 @@
 module Collision.PlaneSphere exposing (addContacts)
 
 import Internal.Contact exposing (Contact)
-import Internal.Coordinates exposing (ShapeWorldTransform3d)
-import Internal.Transform3d as Transform3d
-import Internal.Vector3 as Vec3
+import Shapes.Plane exposing (Plane)
+import Shapes.Sphere exposing (Sphere)
 
 
-addContacts : (Contact -> Contact) -> ShapeWorldTransform3d -> ShapeWorldTransform3d -> Float -> List Contact -> List Contact
-addContacts orderContact planeTransform3d sphereTransform3d radius contacts =
+addContacts : (Contact -> Contact) -> Plane -> Sphere -> List Contact -> List Contact
+addContacts orderContact { normal, position } sphere contacts =
     let
-        worldPlaneNormal =
-            Transform3d.directionPlaceIn planeTransform3d Vec3.k
+        { x, y, z } =
+            sphere.position
 
-        worldVertex =
-            worldPlaneNormal
-                |> Vec3.scale radius
-                |> Vec3.sub (Transform3d.originPoint sphereTransform3d)
+        vertex =
+            { x = x - sphere.radius * normal.x
+            , y = y - sphere.radius * normal.y
+            , z = z - sphere.radius * normal.z
+            }
 
         dot =
-            Transform3d.originPoint planeTransform3d
-                |> Vec3.sub worldVertex
-                |> Vec3.dot worldPlaneNormal
+            ((vertex.x - position.x) * normal.x)
+                + ((vertex.y - position.y) * normal.y)
+                + ((vertex.z - position.z) * normal.z)
     in
     if dot <= 0 then
         orderContact
-            { ni = worldPlaneNormal
-            , pi = Vec3.sub worldVertex (Vec3.scale dot worldPlaneNormal)
-            , pj = worldVertex
+            { ni = normal
+            , pi =
+                { x = vertex.x - dot * normal.x
+                , y = vertex.y - dot * normal.y
+                , z = vertex.z - dot * normal.z
+                }
+            , pj = vertex
             }
             :: contacts
 

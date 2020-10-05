@@ -6,6 +6,7 @@ module Physics.Body exposing
     , data, withData
     , applyForce, applyImpulse
     , withMaterial, compound, withDamping
+    , cylinder
     )
 
 {-|
@@ -48,6 +49,7 @@ import Angle exposing (Angle)
 import AngularSpeed exposing (RadiansPerSecond)
 import Axis3d exposing (Axis3d)
 import Block3d exposing (Block3d)
+import Cylinder3d exposing (Cylinder3d)
 import Direction3d exposing (Direction3d)
 import Duration exposing (Seconds)
 import Force exposing (Newtons)
@@ -56,6 +58,7 @@ import Internal.Body as Internal exposing (Protected(..))
 import Internal.Material as InternalMaterial
 import Internal.Shape as InternalShape
 import Internal.Transform3d as Transform3d
+import Internal.Vector3 as Vec3
 import Length exposing (Meters)
 import Mass exposing (Mass)
 import Physics.Coordinates exposing (BodyCoordinates, WorldCoordinates)
@@ -98,7 +101,7 @@ the body, call this:
     cubeBody =
         block
             (Block3d.centeredOn
-                Frame3d.origin
+                Frame3d.atOrigin
                 ( meters 1, meters 1, meters 1 )
             )
             data
@@ -107,6 +110,11 @@ the body, call this:
 block : Block3d Meters BodyCoordinates -> data -> Body data
 block block3d =
     compound [ Shape.block block3d ]
+
+
+cylinder : Int -> Cylinder3d Meters BodyCoordinates -> data -> Body data
+cylinder detail cylinder3d =
+    compound [ Shape.cylinder detail cylinder3d ]
 
 
 {-| A plane with the normal that points
@@ -120,10 +128,11 @@ plane : data -> Body data
 plane =
     compound
         [ InternalShape.Protected
-            { transform3d = Transform3d.atOrigin
-            , kind = InternalShape.Plane
-            , volume = 0
-            }
+            (InternalShape.Plane
+                { position = Vec3.zero
+                , normal = Vec3.zAxis
+                }
+            )
         ]
 
 
@@ -150,10 +159,7 @@ particle : data -> Body data
 particle =
     compound
         [ InternalShape.Protected
-            { transform3d = Transform3d.atOrigin
-            , kind = InternalShape.Particle
-            , volume = 0
-            }
+            (InternalShape.Particle Vec3.zero)
         ]
 
 
@@ -202,12 +208,13 @@ withBehavior behavior (Protected body) =
                 [] ->
                     Protected body
 
-                [ { kind } ] ->
-                    if kind == InternalShape.Plane then
-                        Protected body
+                [ shape ] ->
+                    case shape of
+                        InternalShape.Plane _ ->
+                            Protected body
 
-                    else
-                        Protected (Internal.updateMassProperties { body | mass = mass })
+                        _ ->
+                            Protected (Internal.updateMassProperties { body | mass = mass })
 
                 _ ->
                     Protected (Internal.updateMassProperties { body | mass = mass })
@@ -296,7 +303,11 @@ moveTo point3d (Protected body) =
                 (Transform3d.moveTo (Point3d.toMeters point3d) bodyCoordinatesTransform3d)
                 body.centerOfMassTransform3d
     in
-    Protected (Internal.updateMassProperties { body | transform3d = newTransform3d })
+    Protected
+        { body
+            | transform3d = newTransform3d
+            , worldShapes = InternalShape.shapesPlaceIn newTransform3d body.shapes
+        }
 
 
 {-| Move the body in the world relative to its current position,
@@ -323,7 +334,11 @@ translateBy vector3d (Protected body) =
                 )
                 body.centerOfMassTransform3d
     in
-    Protected (Internal.updateMassProperties { body | transform3d = newTransform3d })
+    Protected
+        { body
+            | transform3d = newTransform3d
+            , worldShapes = InternalShape.shapesPlaceIn newTransform3d body.shapes
+        }
 
 
 {-| Rotate the body in the world around axis,
@@ -363,7 +378,11 @@ rotateAround axis angle (Protected body) =
                 newBodyCoordinatesTransform3d
                 body.centerOfMassTransform3d
     in
-    Protected (Internal.updateMassProperties { body | transform3d = newTransform3d })
+    Protected
+        { body
+            | transform3d = newTransform3d
+            , worldShapes = InternalShape.shapesPlaceIn newTransform3d body.shapes
+        }
 
 
 {-| Update user-defined data.
@@ -463,12 +482,18 @@ For example, the [sphere](#sphere) from above can be defined like this:
 
 We only support [rigid bodies](https://en.wikipedia.org/wiki/Rigid_body).
 
+Under the hood, we find the center of mass and the [inertia tensor](https://en.wikipedia.org/wiki/Moment_of_inertia#Inertia_tensor).
+It is assumed, that the shapes have the same dencity and do not overlap.
+
 -}
 compound : List Shape -> data -> Body data
 compound shapes newData =
     let
         unprotectedShapes =
-            List.map (\(InternalShape.Protected shape) -> shape) shapes
+            List.foldl
+                (\(InternalShape.Protected shape) result -> shape :: result)
+                []
+                shapes
     in
     Protected (Internal.compound unprotectedShapes newData)
 
