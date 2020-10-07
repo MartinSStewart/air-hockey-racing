@@ -3,7 +3,7 @@ module Env exposing (..)
 -- The Env.elm file is for per-environment configuration.
 -- See https://dashboard.lamdera.app/docs/environment for more info.
 
-import SendGrid
+
 
 
 isProduction_ : String
@@ -24,19 +24,9 @@ isProduction =
             False
 
 
-adminEmail : String
-adminEmail =
-    ""
 
 
-sendGridKey_ : String
-sendGridKey_ =
-    ""
 
-
-sendGridKey : SendGrid.ApiKey
-sendGridKey =
-    SendGrid.apiKey sendGridKey_
 
 
 domain : String
