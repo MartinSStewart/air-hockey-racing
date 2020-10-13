@@ -1,6 +1,4 @@
-module Id exposing (Id, fromInt, toInt)
-
-import Dict
+module Id exposing (Id, fromInt, increment, toInt)
 
 
 type Id idType
@@ -15,3 +13,8 @@ fromInt =
 toInt : Id idType -> Int
 toInt (Id id) =
     id
+
+
+increment : Id idType -> Id idType
+increment (Id id) =
+    Id (id + 1)

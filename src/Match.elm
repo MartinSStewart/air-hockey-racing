@@ -1,4 +1,4 @@
-module Match exposing (Match, entities, init, move, step, tankLength, tankRadius, users)
+module Match exposing (EventId, Match, entities, init, move, moveFromBackend, newEvent, step, tankLength, tankRadius, users)
 
 import Acceleration
 import Angle
@@ -32,8 +32,20 @@ type Match
         { world : Physics.World.World (Maybe (Id UserId))
         , users : IdDict UserId UserData
         , startTime : Time.Posix
-        , timeline : List ( Time.Posix, { userId : Id UserId, direction : Keyboard.Arrows.Direction } )
+        , eventCounter : Id EventId
+        , timeline :
+            List
+                ( Time.Posix
+                , { eventId : Maybe (Id EventId)
+                  , userId : Id UserId
+                  , direction : Keyboard.Arrows.Direction
+                  }
+                )
         }
+
+
+type EventId
+    = EventId Never
 
 
 type alias UserData =
@@ -52,6 +64,7 @@ init startTime users_ =
                 |> Physics.World.withGravity (Acceleration.metersPerSecondSquared 9.8) Direction3d.negativeZ
         , users = IdDict.map (\_ _ -> { move = Keyboard.Arrows.NoDirection }) users_
         , startTime = startTime
+        , eventCounter = Id.fromInt 0
         , timeline = []
         }
 
@@ -61,8 +74,8 @@ users (Match match) =
     match.users |> IdDict.map (\_ _ -> ())
 
 
-move : Id UserId -> Time.Posix -> Keyboard.Arrows.Direction -> Match -> Match
-move userId time direction (Match match) =
+move : Maybe (Id EventId) -> Id UserId -> Time.Posix -> Keyboard.Arrows.Direction -> Match -> Match
+move eventId userId time direction (Match match) =
     { match
         | users =
             IdDict.update
@@ -70,11 +83,27 @@ move userId time direction (Match match) =
                 (Maybe.map (\userData -> { userData | move = direction }))
                 match.users
         , timeline =
-            ( time, { userId = userId, direction = direction } )
+            ( time, { eventId = eventId, userId = userId, direction = direction } )
                 :: match.timeline
                 |> List.sortBy (Tuple.first >> Time.posixToMillis >> negate)
     }
         |> Match
+
+
+moveFromBackend : Maybe (Id EventId) -> Id UserId -> Time.Posix -> Keyboard.Arrows.Direction -> Match -> Match
+moveFromBackend eventId userId time direction (Match match) =
+    { match
+        | timeline =
+            List.filter (Tuple.second >> .eventId >> (==) eventId) match.timeline
+                |> (::) ( time, { eventId = eventId, userId = userId, direction = direction } )
+                |> List.sortBy (Tuple.first >> Time.posixToMillis >> negate)
+    }
+        |> Match
+
+
+newEvent : Match -> ( Match, Id EventId )
+newEvent (Match match) =
+    ( Match { match | eventCounter = Id.increment match.eventCounter }, match.eventCounter )
 
 
 stepSize : Duration
@@ -200,10 +229,7 @@ tankLength =
 
 
 tankModel =
-    Cylinder3d.centeredOn
-        Point3d.origin
-        Direction3d.z
-        { radius = tankRadius, length = tankLength }
+    Cylinder3d.centeredOn Point3d.origin Direction3d.z { radius = tankRadius, length = tankLength }
 
 
 entity : Body (Maybe (Id UserId)) -> Maybe (Scene3d.Entity.Entity WorldCoordinates)
