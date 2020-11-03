@@ -77,14 +77,18 @@ type alias FrontendLoaded =
     , devicePixelRatio : Quantity Float (Rate WorldPixel Pixels)
     , time : Time.Posix
     , localModel : LocalModel ToFrontendChange Local
-    , match : Maybe Match
     }
 
 
 type alias Local =
     { lobbies : IdDict LobbyId Lobby
     , userId : Id UserId
+    , timeline : Maybe (List TimelineEvent)
     }
+
+
+type alias TimelineEvent =
+    { userId : Id UserId, time : Time.Posix, input : Keyboard.Arrows.Direction }
 
 
 type alias BackendModel =
