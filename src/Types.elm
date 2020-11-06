@@ -12,7 +12,6 @@ module Types exposing
     , Lobby
     , LobbyId
     , Local
-    , MatchChange(..)
     , MatchId
     , SessionChange(..)
     , SessionId
@@ -134,7 +133,6 @@ type MatchId
 
 type ToBackend
     = SessionChange_ SessionChange
-    | MatchChange_ MatchChange
 
 
 type BackendMsg
@@ -145,7 +143,7 @@ type BackendMsg
 type ToFrontend
     = Change ToFrontendChange
     | ClientInit ClientInitData
-    | BroadcastMove (Id UserId) Time.Posix Keyboard.Arrows.Direction
+    --| BroadcastMove (Id UserId) Time.Posix Keyboard.Arrows.Direction
 
 
 type ToFrontendChange
@@ -157,6 +155,7 @@ type BroadcastChange
     = BroadcastCreateLobby (Id UserId)
     | BroadcastJoinLobby (Id UserId) (Id LobbyId)
     | BroadcastStartMatch (Id LobbyId)
+    | MatchInput (Maybe Keyboard.Arrows.Direction)
 
 
 type SessionChange
@@ -164,6 +163,3 @@ type SessionChange
     | JoinLobby (Id LobbyId)
     | StartMatch
 
-
-type MatchChange
-    = Move Time.Posix Keyboard.Arrows.Direction

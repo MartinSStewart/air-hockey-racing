@@ -351,18 +351,18 @@ updateLoadedFromBackend msg model =
             -- Handled in updateFromBackend
             ( model, Cmd.none )
 
-        BroadcastMove userId time direction ->
-            ( { model
-                | match =
-                    case model.match of
-                        Just match ->
-                            Match.move userId time direction match |> Just
-
-                        Nothing ->
-                            model.match
-              }
-            , Cmd.none
-            )
+        --BroadcastMove userId time direction ->
+        --    ( { model
+        --        | match =
+        --            case model.match of
+        --                Just match ->
+        --                    Match.move userId time direction match |> Just
+        --
+        --                Nothing ->
+        --                    model.match
+        --      }
+        --    , Cmd.none
+        --    )
 
 
 lostConnection : FrontendLoaded -> Bool
