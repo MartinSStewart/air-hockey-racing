@@ -73,8 +73,7 @@ loadedInit loading { userId, lobbies } =
         , windowSize = loading.windowSize
         , devicePixelRatio = loading.devicePixelRatio
         , time = loading.time
-        , localModel = LocalModel.init { userId = userId, lobbies = lobbies }
-        , match = Nothing
+        , localModel = LocalModel.init { userId = userId, lobbies = lobbies, timeline = Nothing }
         }
     , Cmd.none
     )
@@ -170,26 +169,27 @@ updateLoaded msg model =
                 move =
                     Keyboard.Arrows.wasdDirection model.pressedKeys
             in
-            case newModel.match of
-                Just match ->
-                    let
-                        userId =
-                            (LocalModel.localModel newModel.localModel).userId
-                    in
-                    if move == Keyboard.Arrows.wasdDirection model.previousKeys then
-                        ( { newModel | match = Match.step match |> Just }, Cmd.none )
+            ( newModel, Cmd.none )
 
-                    else
-                        ( { newModel
-                            | match =
-                                Match.move userId time move match |> Match.step |> Just
-                          }
-                        , Lamdera.sendToBackend (MatchChange_ (Move time move))
-                        )
-
-                Nothing ->
-                    ( newModel, Cmd.none )
-
+        --case newModel.match of
+        --    Just match ->
+        --        let
+        --            userId =
+        --                (LocalModel.localModel newModel.localModel).userId
+        --        in
+        --        if move == Keyboard.Arrows.wasdDirection model.previousKeys then
+        --            ( { newModel | match = Match.step match |> Just }, Cmd.none )
+        --
+        --        else
+        --            ( { newModel
+        --                | match =
+        --                    Match.move userId time move match |> Match.step |> Just
+        --              }
+        --            , Lamdera.sendToBackend (MatchChange_ (Move time move))
+        --            )
+        --
+        --    Nothing ->
+        --        ( newModel, Cmd.none )
         CreateLobbyPressed ->
             localChange CreateLobby model
 
@@ -207,7 +207,8 @@ localChange :
 localChange change model =
     ( { model
         | localModel = LocalModel.update localModelConfig model.time (SessionChange change) model.localModel
-        , match = updateMatchFromChange (SessionChange change) model.time model.localModel model.match
+
+        --, match = updateMatchFromChange (SessionChange change) model.time model.localModel model.match
       }
     , Lamdera.sendToBackend (SessionChange_ change)
     )
@@ -268,6 +269,9 @@ localModelConfig =
 
                         Nothing ->
                             model
+
+                BroadcastChange (BroadcastMatchInput event) ->
+                    { model | timeline = Maybe.map ((::) event) model.timeline }
     }
 
 
@@ -342,7 +346,8 @@ updateLoadedFromBackend msg model =
             ( { model
                 | localModel =
                     LocalModel.updateFromBackend localModelConfig (List.Nonempty.fromElement change) model.localModel
-                , match = updateMatchFromChange change model.time model.localModel model.match
+
+                --, match = updateMatchFromChange change model.time model.localModel model.match
               }
             , Cmd.none
             )
@@ -351,18 +356,20 @@ updateLoadedFromBackend msg model =
             -- Handled in updateFromBackend
             ( model, Cmd.none )
 
-        --BroadcastMove userId time direction ->
-        --    ( { model
-        --        | match =
-        --            case model.match of
-        --                Just match ->
-        --                    Match.move userId time direction match |> Just
-        --
-        --                Nothing ->
-        --                    model.match
-        --      }
-        --    , Cmd.none
-        --    )
+
+
+--BroadcastMove userId time direction ->
+--    ( { model
+--        | match =
+--            case model.match of
+--                Just match ->
+--                    Match.move userId time direction match |> Just
+--
+--                Nothing ->
+--                    model.match
+--      }
+--    , Cmd.none
+--    )
 
 
 lostConnection : FrontendLoaded -> Bool
@@ -412,12 +419,15 @@ loadedView model =
     let
         localModel =
             LocalModel.localModel model.localModel
+
+        maybeTimeline =
+            LocalModel.localModel model.localModel |> .timeline
     in
     Element.layout
         [ Element.clip
         , Element.behindContent <|
-            case model.match of
-                Just match ->
+            case maybeTimeline of
+                Just timeline ->
                     let
                         { canvasSize, actualCanvasSize } =
                             findPixelPerfectSize model
@@ -437,7 +447,7 @@ loadedView model =
                         , clipDepth = Length.meters 0.1
                         , background =
                             Scene3d.backgroundColor (Color.rgb 0.85 0.87 0.95)
-                        , entities = Match.entities match
+                        , entities = [] --Match.entities match
                         , antialiasing = model.devicePixelRatio |> (\(Quantity a) -> Scene3d.supersampling a)
                         , lights =
                             Scene3d.twoLights
@@ -465,8 +475,8 @@ loadedView model =
                 Nothing ->
                     Element.none
         ]
-        (case model.match of
-            Just match ->
+        (case maybeTimeline of
+            Just _ ->
                 Element.none
 
             Nothing ->

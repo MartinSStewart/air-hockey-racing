@@ -5,7 +5,8 @@
         "packages/elm-physics/src",
         "packages/elm-geometry-linear-algebra-interop/2.0.2/src",
         "packages/elm-3d-scene/1.0.1/src",
-        "packages/elm-3d-camera/3.1.0/src"
+        "packages/elm-3d-camera/3.1.0/src",
+        "tools"
     ],
     "elm-version": "0.19.0",
     "dependencies": {

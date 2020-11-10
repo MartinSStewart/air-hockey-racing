@@ -3,8 +3,9 @@ module BackendLogic exposing (Effect(..), init, update, updateFromFrontend)
 import Dict
 import Id exposing (Id)
 import IdDict
+import Lamdera exposing (ClientId, SessionId)
 import List.Extra as List
-import Types exposing (..)
+import Types exposing (BackendModel, BackendMsg(..), BackendUserData, BroadcastChange(..), MatchId, SessionChange(..), ToBackend(..), ToFrontend(..))
 import User exposing (UserId)
 
 
@@ -121,14 +122,7 @@ updateFromFrontend sessionId _ msg model =
                             )
                         |> Maybe.withDefault ( model, [] )
 
-                MatchChange_ (Move time direction) ->
-                    ( model
-                    , broadcastMatchChange
-                        (BroadcastMove userId time direction)
-                        (BroadcastMove userId time direction)
-                        userId
-                        model
-                    )
+
 
         Nothing ->
             ( model, [] )

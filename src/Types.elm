@@ -3,7 +3,6 @@ module Types exposing
     , BackendMsg(..)
     , BackendUserData
     , BroadcastChange(..)
-    , ClientId
     , ClientInitData
     , FrontendLoaded
     , FrontendLoading
@@ -14,7 +13,6 @@ module Types exposing
     , Local
     , MatchId
     , SessionChange(..)
-    , SessionId
     , ToBackend(..)
     , ToFrontend(..)
     , ToFrontendChange(..)
@@ -29,21 +27,13 @@ import Id exposing (Id)
 import IdDict exposing (IdDict)
 import Keyboard
 import Keyboard.Arrows
+import Lamdera exposing (ClientId, SessionId)
 import LocalModel exposing (LocalModel)
-import Match exposing (Match)
 import Pixels exposing (Pixels)
 import Quantity exposing (Quantity, Rate)
 import Time
 import Url exposing (Url)
 import User exposing (UserId)
-
-
-type alias SessionId =
-    String
-
-
-type alias ClientId =
-    String
 
 
 type FrontendModel
@@ -143,7 +133,10 @@ type BackendMsg
 type ToFrontend
     = Change ToFrontendChange
     | ClientInit ClientInitData
-    --| BroadcastMove (Id UserId) Time.Posix Keyboard.Arrows.Direction
+
+
+
+--| BroadcastMove (Id UserId) Time.Posix Keyboard.Arrows.Direction
 
 
 type ToFrontendChange
@@ -155,11 +148,11 @@ type BroadcastChange
     = BroadcastCreateLobby (Id UserId)
     | BroadcastJoinLobby (Id UserId) (Id LobbyId)
     | BroadcastStartMatch (Id LobbyId)
-    | MatchInput (Maybe Keyboard.Arrows.Direction)
+    | BroadcastMatchInput TimelineEvent
 
 
 type SessionChange
     = CreateLobby
     | JoinLobby (Id LobbyId)
     | StartMatch
-
+    | MatchInput Time.Posix (Maybe Keyboard.Arrows.Direction)
