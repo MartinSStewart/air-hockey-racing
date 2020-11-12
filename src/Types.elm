@@ -29,6 +29,7 @@ import Keyboard
 import Keyboard.Arrows
 import Lamdera exposing (ClientId, SessionId)
 import LocalModel exposing (LocalModel)
+import Match exposing (Match)
 import Pixels exposing (Pixels)
 import Quantity exposing (Quantity, Rate)
 import Time
@@ -77,7 +78,7 @@ type alias Local =
 
 
 type alias TimelineEvent =
-    { userId : Id UserId, time : Time.Posix, input : Keyboard.Arrows.Direction }
+    { userId : Id UserId, time : Time.Posix, input : Maybe Keyboard.Arrows.Direction }
 
 
 type alias BackendModel =

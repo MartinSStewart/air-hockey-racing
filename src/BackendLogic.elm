@@ -5,7 +5,17 @@ import Id exposing (Id)
 import IdDict
 import Lamdera exposing (ClientId, SessionId)
 import List.Extra as List
-import Types exposing (BackendModel, BackendMsg(..), BackendUserData, BroadcastChange(..), MatchId, SessionChange(..), ToBackend(..), ToFrontend(..))
+import Types
+    exposing
+        ( BackendModel
+        , BackendMsg(..)
+        , BackendUserData
+        , BroadcastChange(..)
+        , MatchId
+        , SessionChange(..)
+        , ToBackend(..)
+        , ToFrontend(..)
+        )
 import User exposing (UserId)
 
 
@@ -122,7 +132,20 @@ updateFromFrontend sessionId _ msg model =
                             )
                         |> Maybe.withDefault ( model, [] )
 
-
+                SessionChange_ (MatchInput time input) ->
+                    ( model
+                    , IdDict.toList model.matches
+                        |> List.find (Tuple.second >> .users >> IdDict.member userId)
+                        |> Maybe.map
+                            (\( _, { users } ) ->
+                                broadcastChange
+                                    (MatchInput time input)
+                                    (BroadcastMatchInput { userId = userId, time = time, input = input })
+                                    userId
+                                    model
+                            )
+                        |> Maybe.withDefault []
+                    )
 
         Nothing ->
             ( model, [] )
@@ -150,7 +173,9 @@ broadcastMatchChange change broadcastChange_ currentUserId model =
 
 userMatch : Id UserId -> BackendModel -> Maybe (Id MatchId)
 userMatch userId model =
-    IdDict.toList model.matches |> List.find (Tuple.second >> .users >> IdDict.member userId) |> Maybe.map Tuple.first
+    IdDict.toList model.matches
+        |> List.find (Tuple.second >> .users >> IdDict.member userId)
+        |> Maybe.map Tuple.first
 
 
 broadcastChange : SessionChange -> BroadcastChange -> Id UserId -> BackendModel -> List Effect
@@ -158,10 +183,10 @@ broadcastChange change broadcastChange_ userId model =
     broadcast
         (\sessionId _ ->
             if Dict.get sessionId model.userSessions |> Maybe.map .userId |> (==) (Just userId) then
-                SessionChange change |> Change |> Just
+                Types.SessionChange change |> Change |> Just
 
             else
-                BroadcastChange broadcastChange_ |> Change |> Just
+                Types.BroadcastChange broadcastChange_ |> Change |> Just
         )
         model
 

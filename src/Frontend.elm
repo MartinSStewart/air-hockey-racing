@@ -244,6 +244,12 @@ localModelConfig =
                         |> Maybe.map (\( lobbyId, _ ) -> { model | lobbies = IdDict.remove lobbyId model.lobbies })
                         |> Maybe.withDefault model
 
+                SessionChange (MatchInput time input) ->
+                    { model
+                        | timeline =
+                            Maybe.map ((::) { userId = model.userId, time = time, input = input }) model.timeline
+                    }
+
                 BroadcastChange (BroadcastCreateLobby userId) ->
                     { model
                         | lobbies =
@@ -345,7 +351,10 @@ updateLoadedFromBackend msg model =
         Change change ->
             ( { model
                 | localModel =
-                    LocalModel.updateFromBackend localModelConfig (List.Nonempty.fromElement change) model.localModel
+                    LocalModel.updateFromBackend
+                        localModelConfig
+                        (List.Nonempty.fromElement change)
+                        model.localModel
 
                 --, match = updateMatchFromChange change model.time model.localModel model.match
               }
@@ -414,6 +423,22 @@ view model =
     }
 
 
+getMatch : FrontendLoaded -> Maybe Match
+getMatch model =
+    let
+        maybeTimeline =
+            LocalModel.localModel model.localModel
+                |> .timeline
+                |> Maybe.map (List.sortBy (.time >> Time.posixToMillis))
+    in
+    case maybeTimeline of
+        Just timeline ->
+            Match.init
+
+        Nothing ->
+            Nothing
+
+
 loadedView : FrontendLoaded -> Html FrontendMsg
 loadedView model =
     let
@@ -447,7 +472,7 @@ loadedView model =
                         , clipDepth = Length.meters 0.1
                         , background =
                             Scene3d.backgroundColor (Color.rgb 0.85 0.87 0.95)
-                        , entities = [] --Match.entities match
+                        , entities = Match.entities match
                         , antialiasing = model.devicePixelRatio |> (\(Quantity a) -> Scene3d.supersampling a)
                         , lights =
                             Scene3d.twoLights
