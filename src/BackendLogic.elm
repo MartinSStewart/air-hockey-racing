@@ -111,7 +111,7 @@ updateFromFrontend sessionId _ msg model =
                     , broadcastChange (JoinLobby lobbyId) (BroadcastJoinLobby userId lobbyId) userId model
                     )
 
-                SessionChange_ StartMatch ->
+                SessionChange_ (StartMatch time) ->
                     IdDict.toList model.lobbies
                         |> List.find (Tuple.second >> .users >> IdDict.member userId)
                         |> Maybe.map
@@ -127,7 +127,7 @@ updateFromFrontend sessionId _ msg model =
                                             { users = lobby.users }
                                             model.matches
                                   }
-                                , broadcastChange StartMatch (BroadcastStartMatch lobbyId) userId model
+                                , broadcastChange (StartMatch time) (BroadcastStartMatch time lobbyId) userId model
                                 )
                             )
                         |> Maybe.withDefault ( model, [] )

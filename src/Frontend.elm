@@ -1,22 +1,18 @@
 port module Frontend exposing (app, init, update, updateFromBackend, view)
 
 import Angle
-import Block3d
 import Browser exposing (UrlRequest(..))
 import Browser.Dom
 import Browser.Events
 import Browser.Navigation
 import Camera3d
 import Color
-import Cylinder3d
 import Direction3d
-import Duration exposing (Duration)
 import Element exposing (Element)
 import Element.Background
 import Element.Border
 import Element.Input
 import Html exposing (Html)
-import Html.Attributes
 import Id exposing (Id)
 import IdDict
 import Illuminance
@@ -28,22 +24,17 @@ import List.Extra as List
 import List.Nonempty
 import LocalModel exposing (Config, LocalModel)
 import Match exposing (Match)
-import Math.Matrix4 as Mat4 exposing (Mat4)
-import Physics.World
 import Pixels exposing (Pixels)
 import Point3d
 import Quantity exposing (Quantity(..), Rate)
 import Scene3d
-import Scene3d.Entity
 import Scene3d.Light
-import Scene3d.Material
 import Task
 import Time
 import Types exposing (..)
 import UiColors
 import Url exposing (Url)
 import Viewpoint3d
-import WebGL exposing (Shader)
 
 
 port martinsstewart_elm_device_pixel_ratio_from_js : (Float -> msg) -> Sub msg
@@ -73,7 +64,7 @@ loadedInit loading { userId, lobbies } =
         , windowSize = loading.windowSize
         , devicePixelRatio = loading.devicePixelRatio
         , time = loading.time
-        , localModel = LocalModel.init { userId = userId, lobbies = lobbies, timeline = Nothing }
+        , localModel = LocalModel.init { userId = userId, lobbies = lobbies, match = Nothing }
         }
     , Cmd.none
     )
@@ -169,27 +160,17 @@ updateLoaded msg model =
                 move =
                     Keyboard.Arrows.wasdDirection model.pressedKeys
             in
-            ( newModel, Cmd.none )
+            case (LocalModel.localModel newModel.localModel).match of
+                Just _ ->
+                    if move == Keyboard.Arrows.wasdDirection model.previousKeys then
+                        ( newModel, Cmd.none )
 
-        --case newModel.match of
-        --    Just match ->
-        --        let
-        --            userId =
-        --                (LocalModel.localModel newModel.localModel).userId
-        --        in
-        --        if move == Keyboard.Arrows.wasdDirection model.previousKeys then
-        --            ( { newModel | match = Match.step match |> Just }, Cmd.none )
-        --
-        --        else
-        --            ( { newModel
-        --                | match =
-        --                    Match.move userId time move match |> Match.step |> Just
-        --              }
-        --            , Lamdera.sendToBackend (MatchChange_ (Move time move))
-        --            )
-        --
-        --    Nothing ->
-        --        ( newModel, Cmd.none )
+                    else
+                        localChange (MatchInput time move) newModel
+
+                Nothing ->
+                    ( newModel, Cmd.none )
+
         CreateLobbyPressed ->
             localChange CreateLobby model
 
@@ -197,7 +178,7 @@ updateLoaded msg model =
             localChange (JoinLobby lobbyId) model
 
         StartMatchPressed ->
-            localChange StartMatch model
+            localChange (StartMatch model.time) model
 
 
 localChange :
@@ -207,8 +188,6 @@ localChange :
 localChange change model =
     ( { model
         | localModel = LocalModel.update localModelConfig model.time (SessionChange change) model.localModel
-
-        --, match = updateMatchFromChange (SessionChange change) model.time model.localModel model.match
       }
     , Lamdera.sendToBackend (SessionChange_ change)
     )
@@ -216,6 +195,11 @@ localChange change model =
 
 localModelConfig : Config ToFrontendChange Local
 localModelConfig =
+    let
+        addEvent : TimelineEvent -> MatchState -> MatchState
+        addEvent event match =
+            { match | events = event :: match.events }
+    in
     { msgEqual = (==)
     , update =
         \msg model ->
@@ -229,33 +213,21 @@ localModelConfig =
                                 model.lobbies
                     }
 
-                SessionChange (JoinLobby lobbyId) ->
-                    { model
-                        | lobbies =
-                            IdDict.update
-                                lobbyId
-                                (Maybe.map (\lobby -> { lobby | users = IdDict.insert model.userId () lobby.users }))
-                                model.lobbies
-                    }
-
-                SessionChange StartMatch ->
-                    IdDict.toList model.lobbies
-                        |> List.find (Tuple.second >> .users >> IdDict.member model.userId)
-                        |> Maybe.map (\( lobbyId, _ ) -> { model | lobbies = IdDict.remove lobbyId model.lobbies })
-                        |> Maybe.withDefault model
-
-                SessionChange (MatchInput time input) ->
-                    { model
-                        | timeline =
-                            Maybe.map ((::) { userId = model.userId, time = time, input = input }) model.timeline
-                    }
-
                 BroadcastChange (BroadcastCreateLobby userId) ->
                     { model
                         | lobbies =
                             IdDict.insert
                                 (IdDict.size model.lobbies |> Id.fromInt)
                                 { users = IdDict.singleton userId () }
+                                model.lobbies
+                    }
+
+                SessionChange (JoinLobby lobbyId) ->
+                    { model
+                        | lobbies =
+                            IdDict.update
+                                lobbyId
+                                (Maybe.map (\lobby -> { lobby | users = IdDict.insert model.userId () lobby.users }))
                                 model.lobbies
                     }
 
@@ -268,7 +240,19 @@ localModelConfig =
                                 model.lobbies
                     }
 
-                BroadcastChange (BroadcastStartMatch lobbyId) ->
+                SessionChange (StartMatch startTime) ->
+                    IdDict.toList model.lobbies
+                        |> List.find (Tuple.second >> .users >> IdDict.member model.userId)
+                        |> Maybe.map
+                            (\( lobbyId, lobby ) ->
+                                { model
+                                    | lobbies = IdDict.remove lobbyId model.lobbies
+                                    , match = Just { startTime = startTime, events = [], otherUsers = IdDict.keys lobby.users }
+                                }
+                            )
+                        |> Maybe.withDefault model
+
+                BroadcastChange (BroadcastStartMatch time lobbyId) ->
                     case IdDict.get lobbyId model.lobbies of
                         Just lobby ->
                             { model | lobbies = IdDict.remove lobbyId model.lobbies }
@@ -276,8 +260,16 @@ localModelConfig =
                         Nothing ->
                             model
 
+                SessionChange (MatchInput time input) ->
+                    { model
+                        | match =
+                            Maybe.map
+                                (addEvent { userId = model.userId, time = time, input = input })
+                                model.match
+                    }
+
                 BroadcastChange (BroadcastMatchInput event) ->
-                    { model | timeline = Maybe.map ((::) event) model.timeline }
+                    { model | match = Maybe.map (addEvent event) model.match }
     }
 
 
@@ -318,33 +310,6 @@ updateFromBackend msg model =
             ( model, Cmd.none )
 
 
-updateMatchFromChange : ToFrontendChange -> Time.Posix -> LocalModel ToFrontendChange Local -> Maybe Match -> Maybe Match
-updateMatchFromChange change time localModel match =
-    case change of
-        SessionChange StartMatch ->
-            case LocalModel.localModel localModel |> getCurrentLobby of
-                Just ( _, lobby ) ->
-                    Match.init time lobby.users |> Just
-
-                Nothing ->
-                    match
-
-        BroadcastChange (BroadcastStartMatch lobbyId) ->
-            case LocalModel.localModel localModel |> getCurrentLobby of
-                Just ( lobbyId_, lobby ) ->
-                    if lobbyId_ == lobbyId then
-                        Match.init time lobby.users |> Just
-
-                    else
-                        match
-
-                Nothing ->
-                    match
-
-        _ ->
-            match
-
-
 updateLoadedFromBackend : ToFrontend -> FrontendLoaded -> ( FrontendLoaded, Cmd FrontendMsg )
 updateLoadedFromBackend msg model =
     case msg of
@@ -355,8 +320,6 @@ updateLoadedFromBackend msg model =
                         localModelConfig
                         (List.Nonempty.fromElement change)
                         model.localModel
-
-                --, match = updateMatchFromChange change model.time model.localModel model.match
               }
             , Cmd.none
             )
@@ -366,33 +329,9 @@ updateLoadedFromBackend msg model =
             ( model, Cmd.none )
 
 
-
---BroadcastMove userId time direction ->
---    ( { model
---        | match =
---            case model.match of
---                Just match ->
---                    Match.move userId time direction match |> Just
---
---                Nothing ->
---                    model.match
---      }
---    , Cmd.none
---    )
-
-
 lostConnection : FrontendLoaded -> Bool
 lostConnection model =
     False
-
-
-
---case LocalModel.localMsgs model.localModel of
---    ( time, _ ) :: _ ->
---        Duration.from time model.time |> Quantity.greaterThan (Duration.seconds 10)
---
---    [] ->
---        False
 
 
 view : FrontendModel -> Browser.Document FrontendMsg
@@ -426,17 +365,44 @@ view model =
 getMatch : FrontendLoaded -> Maybe Match
 getMatch model =
     let
-        maybeTimeline =
+        localModel =
             LocalModel.localModel model.localModel
-                |> .timeline
-                |> Maybe.map (List.sortBy (.time >> Time.posixToMillis))
     in
-    case maybeTimeline of
-        Just timeline ->
-            Match.init
+    case localModel.match of
+        Just { startTime, events, otherUsers } ->
+            let
+                users =
+                    localModel.userId :: otherUsers |> List.map (\a -> ( a, () )) |> IdDict.fromList
+            in
+            getMatchHelper (Time.posixToMillis model.time) (Time.posixToMillis startTime) (Match.init users)
+                |> Just
 
+        --List.foldl
+        --    (\{ userId, time, input } ( currentTime, match ) ->
+        --        ( Time.posixToMillis currentTime |> (+) 16 |> Time.millisToPosix
+        --        , Match.step match
+        --        )
+        --    )
+        --    ( startTime, Match.init users )
+        --    (List.sortBy (.time >> Time.posixToMillis) events)
+        --    |> Tuple.second
+        --    |> Just
         Nothing ->
             Nothing
+
+
+stepSize : Int
+stepSize =
+    33
+
+
+getMatchHelper : Int -> Int -> Match -> Match
+getMatchHelper targetTime currentTime match =
+    if currentTime + stepSize < targetTime then
+        getMatchHelper targetTime (currentTime + stepSize) (Match.step match)
+
+    else
+        match
 
 
 loadedView : FrontendLoaded -> Html FrontendMsg
@@ -445,14 +411,14 @@ loadedView model =
         localModel =
             LocalModel.localModel model.localModel
 
-        maybeTimeline =
-            LocalModel.localModel model.localModel |> .timeline
+        maybeMatch =
+            getMatch model
     in
     Element.layout
         [ Element.clip
         , Element.behindContent <|
-            case maybeTimeline of
-                Just timeline ->
+            case maybeMatch of
+                Just match ->
                     let
                         { canvasSize, actualCanvasSize } =
                             findPixelPerfectSize model
@@ -500,7 +466,7 @@ loadedView model =
                 Nothing ->
                     Element.none
         ]
-        (case maybeTimeline of
+        (case maybeMatch of
             Just _ ->
                 Element.none
 

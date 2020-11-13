@@ -12,7 +12,9 @@ module Types exposing
     , LobbyId
     , Local
     , MatchId
+    , MatchState
     , SessionChange(..)
+    , TimelineEvent
     , ToBackend(..)
     , ToFrontend(..)
     , ToFrontendChange(..)
@@ -73,12 +75,16 @@ type alias FrontendLoaded =
 type alias Local =
     { lobbies : IdDict LobbyId Lobby
     , userId : Id UserId
-    , timeline : Maybe (List TimelineEvent)
+    , match : Maybe MatchState
     }
 
 
+type alias MatchState =
+    { startTime : Time.Posix, events : List TimelineEvent, otherUsers : List (Id UserId) }
+
+
 type alias TimelineEvent =
-    { userId : Id UserId, time : Time.Posix, input : Maybe Keyboard.Arrows.Direction }
+    { userId : Id UserId, time : Time.Posix, input : Keyboard.Arrows.Direction }
 
 
 type alias BackendModel =
@@ -148,12 +154,12 @@ type ToFrontendChange
 type BroadcastChange
     = BroadcastCreateLobby (Id UserId)
     | BroadcastJoinLobby (Id UserId) (Id LobbyId)
-    | BroadcastStartMatch (Id LobbyId)
+    | BroadcastStartMatch Time.Posix (Id LobbyId)
     | BroadcastMatchInput TimelineEvent
 
 
 type SessionChange
     = CreateLobby
     | JoinLobby (Id LobbyId)
-    | StartMatch
-    | MatchInput Time.Posix (Maybe Keyboard.Arrows.Direction)
+    | StartMatch Time.Posix
+    | MatchInput Time.Posix Keyboard.Arrows.Direction

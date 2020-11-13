@@ -7,6 +7,7 @@ module IdDict exposing
     , get
     , insert
     , isEmpty
+    , keys
     , map
     , member
     , remove
@@ -92,3 +93,8 @@ toList (IdDict dict) =
 update : Id idType -> (Maybe value -> Maybe value) -> IdDict idType value -> IdDict idType value
 update key mapFunc (IdDict dict) =
     Dict.update (Id.toInt key) mapFunc dict |> IdDict
+
+
+keys : IdDict idType a -> List (Id idType)
+keys (IdDict dict) =
+    Dict.keys dict |> List.map Id.fromInt
