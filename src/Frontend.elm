@@ -8,6 +8,7 @@ import Browser.Navigation
 import Camera3d
 import Color
 import Direction3d
+import Duration exposing (Duration)
 import Element exposing (Element)
 import Element.Background
 import Element.Border
@@ -65,6 +66,8 @@ loadedInit loading { userId, lobbies } =
         , devicePixelRatio = loading.devicePixelRatio
         , time = loading.time
         , localModel = LocalModel.init { userId = userId, lobbies = lobbies, match = Nothing }
+        , matchCache = IdDict.empty
+        , match = Nothing
         }
     , Cmd.none
     )
@@ -155,7 +158,26 @@ updateLoaded msg model =
                     { model
                         | time = time
                         , previousKeys = model.pressedKeys
+                        , matchCache =
+                            case ( model.match, LocalModel.localModel model.localModel |> .match ) of
+                                ( Just visibleMatch, Just match ) ->
+                                    IdDict.insert
+                                        (timeToFrameId model.time match)
+                                        visibleMatch
+                                        model.matchCache
+                                        |> IdDict.filter
+                                            (\frameId _ ->
+                                                frameIdToTime frameId match
+                                                    |> Duration.from time
+                                                    |> Quantity.lessThan Duration.second
+                                            )
+
+                                _ ->
+                                    model.matchCache
                     }
+
+                newModel2 =
+                    { newModel | match = getMatch newModel }
 
                 move =
                     Keyboard.Arrows.wasdDirection model.pressedKeys
@@ -163,13 +185,13 @@ updateLoaded msg model =
             case (LocalModel.localModel newModel.localModel).match of
                 Just _ ->
                     if move == Keyboard.Arrows.wasdDirection model.previousKeys then
-                        ( newModel, Cmd.none )
+                        ( newModel2, Cmd.none )
 
                     else
-                        localChange (MatchInput time move) newModel
+                        localChange (MatchInput time move) newModel2
 
                 Nothing ->
-                    ( newModel, Cmd.none )
+                    ( newModel2, Cmd.none )
 
         CreateLobbyPressed ->
             localChange CreateLobby model
@@ -181,13 +203,37 @@ updateLoaded msg model =
             localChange (StartMatch model.time) model
 
 
+timeToFrameId : Time.Posix -> MatchState -> Id FrameId
+timeToFrameId time matchState =
+    Duration.from matchState.startTime time
+        |> (\a -> Quantity.ratio a frameDuration)
+        |> round
+        |> Id.fromInt
+
+
+frameIdToTime : Id FrameId -> MatchState -> Time.Posix
+frameIdToTime frame matchState =
+    Quantity.multiplyBy (Id.toInt frame |> toFloat) frameDuration
+        |> Duration.addTo matchState.startTime
+
+
+frameDuration : Duration
+frameDuration =
+    Duration.seconds (1 / 60)
+
+
 localChange :
     SessionChange
     -> FrontendLoaded
     -> ( FrontendLoaded, Cmd FrontendMsg )
 localChange change model =
     ( { model
-        | localModel = LocalModel.update localModelConfig model.time (SessionChange change) model.localModel
+        | localModel =
+            LocalModel.update
+                localModelConfig
+                model.time
+                (SessionChange change)
+                model.localModel
       }
     , Lamdera.sendToBackend (SessionChange_ change)
     )
@@ -410,14 +456,11 @@ loadedView model =
     let
         localModel =
             LocalModel.localModel model.localModel
-
-        maybeMatch =
-            getMatch model
     in
     Element.layout
         [ Element.clip
         , Element.behindContent <|
-            case maybeMatch of
+            case model.match of
                 Just match ->
                     let
                         { canvasSize, actualCanvasSize } =
@@ -466,7 +509,7 @@ loadedView model =
                 Nothing ->
                     Element.none
         ]
-        (case maybeMatch of
+        (case model.match of
             Just _ ->
                 Element.none
 

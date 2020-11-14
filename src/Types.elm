@@ -4,6 +4,7 @@ module Types exposing
     , BackendUserData
     , BroadcastChange(..)
     , ClientInitData
+    , FrameId
     , FrontendLoaded
     , FrontendLoading
     , FrontendModel(..)
@@ -48,6 +49,10 @@ type WorldPixel
     = WorldPixel Never
 
 
+type FrameId
+    = FrameId Never
+
+
 type alias FrontendLoading =
     { key : Browser.Navigation.Key
     , windowSize : WindowSize
@@ -69,6 +74,8 @@ type alias FrontendLoaded =
     , devicePixelRatio : Quantity Float (Rate WorldPixel Pixels)
     , time : Time.Posix
     , localModel : LocalModel ToFrontendChange Local
+    , matchCache : IdDict FrameId Match
+    , match : Maybe Match
     }
 
 
@@ -84,7 +91,7 @@ type alias MatchState =
 
 
 type alias TimelineEvent =
-    { userId : Id UserId, time : Time.Posix, input : Keyboard.Arrows.Direction }
+    { userId : Id UserId, frameId : Id FrameId, input : Keyboard.Arrows.Direction }
 
 
 type alias BackendModel =
