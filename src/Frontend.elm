@@ -15,7 +15,7 @@ import Element.Border
 import Element.Input
 import Html exposing (Html)
 import Id exposing (Id)
-import IdDict
+import IdDict exposing (IdDict)
 import Illuminance
 import Keyboard
 import Keyboard.Arrows
@@ -35,6 +35,7 @@ import Time
 import Types exposing (..)
 import UiColors
 import Url exposing (Url)
+import User exposing (UserId)
 import Viewpoint3d
 
 
@@ -67,7 +68,7 @@ loadedInit loading { userId, lobbies } =
         , time = loading.time
         , localModel = LocalModel.init { userId = userId, lobbies = lobbies, match = Nothing }
         , matchCache = IdDict.empty
-        , match = Nothing
+        , visibleMatch = Nothing
         }
     , Cmd.none
     )
@@ -159,7 +160,7 @@ updateLoaded msg model =
                         | time = time
                         , previousKeys = model.pressedKeys
                         , matchCache =
-                            case ( model.match, LocalModel.localModel model.localModel |> .match ) of
+                            case ( model.visibleMatch, LocalModel.localModel model.localModel |> .match ) of
                                 ( Just visibleMatch, Just match ) ->
                                     IdDict.insert
                                         (timeToFrameId model.time match)
@@ -176,19 +177,34 @@ updateLoaded msg model =
                                     model.matchCache
                     }
 
+                localModel =
+                    LocalModel.localModel model.localModel
+
                 newModel2 =
-                    { newModel | match = getMatch newModel }
+                    { newModel
+                        | visibleMatch =
+                            case localModel.match of
+                                Just match ->
+                                    let
+                                        users =
+                                            localModel.userId :: match.otherUsers
+                                    in
+                                    getMatch (timeToFrameId model.time match) newModel.matchCache users match |> Just
+
+                                Nothing ->
+                                    model.visibleMatch
+                    }
 
                 move =
                     Keyboard.Arrows.wasdDirection model.pressedKeys
             in
             case (LocalModel.localModel newModel.localModel).match of
-                Just _ ->
+                Just matchState ->
                     if move == Keyboard.Arrows.wasdDirection model.previousKeys then
                         ( newModel2, Cmd.none )
 
                     else
-                        localChange (MatchInput time move) newModel2
+                        localChange (MatchInput (timeToFrameId time matchState) move) newModel2
 
                 Nothing ->
                     ( newModel2, Cmd.none )
@@ -293,7 +309,12 @@ localModelConfig =
                             (\( lobbyId, lobby ) ->
                                 { model
                                     | lobbies = IdDict.remove lobbyId model.lobbies
-                                    , match = Just { startTime = startTime, events = [], otherUsers = IdDict.keys lobby.users }
+                                    , match =
+                                        Just
+                                            { startTime = startTime
+                                            , events = []
+                                            , otherUsers = IdDict.keys lobby.users
+                                            }
                                 }
                             )
                         |> Maybe.withDefault model
@@ -306,11 +327,11 @@ localModelConfig =
                         Nothing ->
                             model
 
-                SessionChange (MatchInput time input) ->
+                SessionChange (MatchInput frameId input) ->
                     { model
                         | match =
                             Maybe.map
-                                (addEvent { userId = model.userId, time = time, input = input })
+                                (addEvent { userId = model.userId, frameId = frameId, input = input })
                                 model.match
                     }
 
@@ -408,33 +429,40 @@ view model =
     }
 
 
-getMatch : FrontendLoaded -> Maybe Match
-getMatch model =
-    let
-        localModel =
-            LocalModel.localModel model.localModel
-    in
-    case localModel.match of
-        Just { startTime, events, otherUsers } ->
-            let
-                users =
-                    localModel.userId :: otherUsers |> List.map (\a -> ( a, () )) |> IdDict.fromList
-            in
-            getMatchHelper (Time.posixToMillis model.time) (Time.posixToMillis startTime) (Match.init users)
-                |> Just
+getMatch :
+    Id FrameId
+    -> IdDict FrameId Match
+    -> List (Id UserId)
+    -> MatchState
+    -> Match
+getMatch frameId matchCache users matchState =
+    if Id.toInt frameId <= 0 then
+        Match.init users
 
-        --List.foldl
-        --    (\{ userId, time, input } ( currentTime, match ) ->
-        --        ( Time.posixToMillis currentTime |> (+) 16 |> Time.millisToPosix
-        --        , Match.step match
-        --        )
-        --    )
-        --    ( startTime, Match.init users )
-        --    (List.sortBy (.time >> Time.posixToMillis) events)
-        --    |> Tuple.second
-        --    |> Just
-        Nothing ->
-            Nothing
+    else
+        case
+            IdDict.toList matchCache
+                |> List.filter (\( key, _ ) -> Id.toInt key > Id.toInt frameId)
+                |> List.maximumBy (Tuple.first >> Id.toInt)
+        of
+            Just ( currentFrame, cachedMatch ) ->
+                getMatchHelper frameId currentFrame cachedMatch
+
+            Nothing ->
+                Match.init users
+
+
+
+--List.foldl
+--    (\{ userId, time, input } ( currentTime, match ) ->
+--        ( Time.posixToMillis currentTime |> (+) 16 |> Time.millisToPosix
+--        , Match.step match
+--        )
+--    )
+--    ( startTime, Match.init users )
+--    (List.sortBy (.time >> Time.posixToMillis) events)
+--    |> Tuple.second
+--    |> Just
 
 
 stepSize : Int
@@ -442,10 +470,10 @@ stepSize =
     33
 
 
-getMatchHelper : Int -> Int -> Match -> Match
+getMatchHelper : Id FrameId -> Id FrameId -> Match -> Match
 getMatchHelper targetTime currentTime match =
-    if currentTime + stepSize < targetTime then
-        getMatchHelper targetTime (currentTime + stepSize) (Match.step match)
+    if Id.toInt currentTime + stepSize < Id.toInt targetTime then
+        getMatchHelper targetTime (Id.toInt currentTime + 1 |> Id.fromInt) (Match.step match)
 
     else
         match
@@ -460,7 +488,7 @@ loadedView model =
     Element.layout
         [ Element.clip
         , Element.behindContent <|
-            case model.match of
+            case model.visibleMatch of
                 Just match ->
                     let
                         { canvasSize, actualCanvasSize } =
@@ -509,7 +537,7 @@ loadedView model =
                 Nothing ->
                     Element.none
         ]
-        (case model.match of
+        (case model.visibleMatch of
             Just _ ->
                 Element.none
 

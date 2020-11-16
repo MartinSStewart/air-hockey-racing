@@ -132,15 +132,15 @@ updateFromFrontend sessionId _ msg model =
                             )
                         |> Maybe.withDefault ( model, [] )
 
-                SessionChange_ (MatchInput time input) ->
+                SessionChange_ (MatchInput frameId input) ->
                     ( model
                     , IdDict.toList model.matches
                         |> List.find (Tuple.second >> .users >> IdDict.member userId)
                         |> Maybe.map
                             (\( _, { users } ) ->
                                 broadcastChange
-                                    (MatchInput time input)
-                                    (BroadcastMatchInput { userId = userId, time = time, input = input })
+                                    (MatchInput frameId input)
+                                    (BroadcastMatchInput { userId = userId, frameId = frameId, input = input })
                                     userId
                                     model
                             )

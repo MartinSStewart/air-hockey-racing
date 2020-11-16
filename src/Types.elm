@@ -75,7 +75,7 @@ type alias FrontendLoaded =
     , time : Time.Posix
     , localModel : LocalModel ToFrontendChange Local
     , matchCache : IdDict FrameId Match
-    , match : Maybe Match
+    , visibleMatch : Maybe Match
     }
 
 
@@ -169,4 +169,4 @@ type SessionChange
     = CreateLobby
     | JoinLobby (Id LobbyId)
     | StartMatch Time.Posix
-    | MatchInput Time.Posix Keyboard.Arrows.Direction
+    | MatchInput (Id FrameId) Keyboard.Arrows.Direction

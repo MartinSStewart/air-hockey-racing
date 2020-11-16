@@ -40,17 +40,20 @@ type alias UserData =
     { move : Keyboard.Arrows.Direction }
 
 
-init : IdDict UserId () -> Match
+init : List (Id UserId) -> Match
 init users_ =
     Match
         { world =
-            IdDict.toList users_
-                |> List.map (Tuple.first >> tank)
+            users_
+                |> List.map tank
                 |> List.foldl Physics.World.add Physics.World.empty
                 |> Physics.World.add
                     (Body.block floor Nothing |> Body.withBehavior Body.static)
                 |> Physics.World.withGravity (Acceleration.metersPerSecondSquared 9.8) Direction3d.negativeZ
-        , users = IdDict.map (\_ _ -> { move = Keyboard.Arrows.NoDirection }) users_
+        , users =
+            List.map (\a -> ( a, () )) users_
+                |> IdDict.fromList
+                |> IdDict.map (\_ _ -> { move = Keyboard.Arrows.NoDirection })
         }
 
 
