@@ -7,8 +7,10 @@ module Types exposing
     , FrameId
     , FrontendLoaded
     , FrontendLoading
-    , FrontendModel(..)
-    , FrontendMsg(..)
+    , FrontendModel
+    , FrontendModel_(..)
+    , FrontendMsg
+    , FrontendMsg_(..)
     , Lobby
     , LobbyId
     , Local
@@ -23,6 +25,7 @@ module Types exposing
     , WorldPixel
     )
 
+import Audio
 import Browser exposing (UrlRequest)
 import Browser.Navigation
 import Dict exposing (Dict)
@@ -40,7 +43,15 @@ import Url exposing (Url)
 import User exposing (UserId)
 
 
-type FrontendModel
+type alias FrontendModel =
+    Audio.Model FrontendMsg_ FrontendModel_
+
+
+type alias FrontendMsg =
+    Audio.Msg FrontendMsg_
+
+
+type FrontendModel_
     = Loading FrontendLoading
     | Loaded FrontendLoaded
 
@@ -114,7 +125,7 @@ type alias ClientInitData =
     { lobbies : IdDict LobbyId Lobby, userId : Id UserId }
 
 
-type FrontendMsg
+type FrontendMsg_
     = UrlClicked UrlRequest
     | UrlChanged Url
     | NoOpFrontendMsg
