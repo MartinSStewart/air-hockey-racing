@@ -1,25 +1,9 @@
-module Tests exposing (..)
+module Tests exposing (Test(..), TestResult(..), main, test, testAssert, testInit, testMap, testSingle, time)
 
-import Array
-import Ascii exposing (Ascii)
-import BackendLogic exposing (Effect(..))
-import Bounds exposing (Bounds)
-import Change exposing (LocalChange(..))
-import Dict
 import Element exposing (Element)
 import Element.Background
-import EverySet
-import Grid
-import GridCell
-import Helper exposing (Coord)
 import Html exposing (Html)
-import List.Nonempty as Nonempty
-import LocalGrid
-import LocalModel
 import Time
-import Types exposing (BackendModel, ClientId, FrontendModel, SessionId, ToBackend(..), ToFrontend(..))
-import Units exposing (CellUnit)
-import User
 
 
 type TestResult
@@ -31,8 +15,7 @@ main : Html msg
 main =
     Element.layout [] <|
         Element.column [ Element.padding 16 ]
-            [
-            ]
+            []
 
 
 test : String -> Test model -> Element msg
@@ -64,20 +47,6 @@ test name (Test testResults _) =
         ]
 
 
-newUserState : ( BackendModel, List BackendLogic.Effect )
-newUserState =
-    BackendLogic.init
-        |> BackendLogic.updateFromFrontend
-            "session0"
-            "client0"
-            (RequestData smallViewBounds)
-
-
-smallViewBounds : Bounds Units.CellUnit
-smallViewBounds =
-    Bounds.bounds ( Units.cellUnit 0, Units.cellUnit 0 ) ( Units.cellUnit 1, Units.cellUnit 1 )
-
-
 time seconds =
     Time.millisToPosix ((seconds * 1000) + 10000000)
 
@@ -104,29 +73,3 @@ testMap mapFunc (Test results model) =
 testSingle : TestResult -> Test ()
 testSingle result =
     Test [ result ] ()
-
-
-asciiA =
-    Ascii.fromChar 'a' |> Maybe.withDefault Ascii.default
-
-
-checkGridValue : ( Coord CellUnit, Int ) -> Maybe Ascii -> LocalModel.LocalModel a LocalGrid.LocalGrid -> TestResult
-checkGridValue ( cellPosition, localPosition ) value =
-    LocalGrid.localModel
-        >> .grid
-        >> Grid.getCell cellPosition
-        >> Maybe.andThen (GridCell.flatten EverySet.empty EverySet.empty >> Array.get localPosition >> Maybe.map Tuple.second)
-        >> (\ascii ->
-                if ascii == value then
-                    Passed
-
-                else
-                    Failed
-                        ("Wrong value found in grid "
-                            ++ Debug.toString ascii
-                            ++ " at cell position "
-                            ++ Debug.toString cellPosition
-                            ++ " and local position "
-                            ++ Debug.toString localPosition
-                        )
-           )
