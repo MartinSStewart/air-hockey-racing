@@ -8,6 +8,7 @@ import Browser.Events
 import Browser.Navigation
 import Camera3d
 import Color
+import Dict
 import Direction3d
 import Duration exposing (Duration)
 import Element exposing (Element)
@@ -33,6 +34,7 @@ import Point3d
 import Quantity exposing (Quantity(..), Rate)
 import Scene3d
 import Scene3d.Light
+import Sounds exposing (Sounds)
 import Task
 import Time
 import Types exposing (..)
@@ -70,16 +72,22 @@ app =
 
 audio : FrontendModel_ -> Audio
 audio model =
-    case model of
+    (case model of
         Loading _ ->
             Audio.silence
 
-        Loaded _ ->
-            Audio.silence
+        Loaded loaded ->
+            case loaded.lastButtonPress of
+                Just lastButtonPress ->
+                    Audio.audio loaded.sounds.buttonPress lastButtonPress
+
+                Nothing ->
+                    Audio.silence
+    ) |> Audio.
 
 
-loadedInit : FrontendLoading -> ClientInitData -> ( FrontendModel_, Cmd FrontendMsg_, AudioCmd FrontendMsg_ )
-loadedInit loading { userId, lobbies } =
+loadedInit : FrontendLoading -> Sounds -> ClientInitData -> ( FrontendModel_, Cmd FrontendMsg_, AudioCmd FrontendMsg_ )
+loadedInit loading sounds { userId, lobbies } =
     ( Loaded
         { key = loading.key
         , pressedKeys = []
@@ -90,6 +98,8 @@ loadedInit loading { userId, lobbies } =
         , localModel = LocalModel.init { userId = userId, lobbies = lobbies, match = Nothing }
         , matchCache = IdDict.empty
         , visibleMatch = Nothing
+        , sounds = sounds
+        , lastButtonPress = Nothing
         }
     , Cmd.none
     , Audio.cmdNone
@@ -98,8 +108,9 @@ loadedInit loading { userId, lobbies } =
 
 tryLoadedInit : FrontendLoading -> ( FrontendModel_, Cmd FrontendMsg_, AudioCmd FrontendMsg_ )
 tryLoadedInit loading =
-    Maybe.map
+    Maybe.map2
         (loadedInit loading)
+        (Sounds.loadingFinished loading.sounds)
         loading.initData
         |> Maybe.withDefault ( Loading loading, Cmd.none, Audio.cmdNone )
 
@@ -112,6 +123,7 @@ init url key =
         , devicePixelRatio = Quantity 1
         , time = Time.millisToPosix 0
         , initData = Nothing
+        , sounds = Dict.empty
         }
     , Task.perform
         (\{ viewport } ->
@@ -121,7 +133,7 @@ init url key =
                 }
         )
         Browser.Dom.getViewport
-    , Audio.cmdNone
+    , Sounds.requestSounds SoundLoaded
     )
 
 
@@ -131,20 +143,25 @@ update msg model =
         Loading loadingModel ->
             case msg of
                 WindowResized windowSize ->
-                    windowResizedUpdate windowSize loadingModel |> (\( a, b, c ) -> ( Loading a, b, c ))
+                    windowResizedUpdate windowSize loadingModel |> (\( a, b ) -> ( Loading a, b, Audio.cmdNone ))
 
                 GotDevicePixelRatio devicePixelRatio ->
-                    devicePixelRatioUpdate devicePixelRatio loadingModel |> (\( a, b, c ) -> ( Loading a, b, c ))
+                    devicePixelRatioUpdate devicePixelRatio loadingModel
+                        |> (\( a, b ) -> ( Loading a, b, Audio.cmdNone ))
+
+                SoundLoaded url result ->
+                    { loadingModel | sounds = Dict.insert url result loadingModel.sounds }
+                        |> tryLoadedInit
 
                 _ ->
                     ( model, Cmd.none, Audio.cmdNone )
 
         Loaded frontendLoaded ->
             updateLoaded msg frontendLoaded
-                |> (\( a, b, c ) -> ( Loaded a, b, c ))
+                |> (\( a, b ) -> ( Loaded a, b, Audio.cmdNone ))
 
 
-updateLoaded : FrontendMsg_ -> FrontendLoaded -> ( FrontendLoaded, Cmd FrontendMsg_, AudioCmd FrontendMsg_ )
+updateLoaded : FrontendMsg_ -> FrontendLoaded -> ( FrontendLoaded, Cmd FrontendMsg_ )
 updateLoaded msg model =
     case msg of
         UrlClicked urlRequest ->
@@ -152,25 +169,22 @@ updateLoaded msg model =
                 Internal url ->
                     ( model
                     , Cmd.batch [ Browser.Navigation.pushUrl model.key (Url.toString url) ]
-                    , Audio.cmdNone
                     )
 
                 External url ->
                     ( model
                     , Browser.Navigation.load url
-                    , Audio.cmdNone
                     )
 
         UrlChanged _ ->
-            ( model, Cmd.none, Audio.cmdNone )
+            ( model, Cmd.none )
 
         NoOpFrontendMsg ->
-            ( model, Cmd.none, Audio.cmdNone )
+            ( model, Cmd.none )
 
         KeyMsg keyMsg ->
             ( { model | pressedKeys = Keyboard.update keyMsg model.pressedKeys }
             , Cmd.none
-            , Audio.cmdNone
             )
 
         WindowResized windowSize ->
@@ -227,22 +241,29 @@ updateLoaded msg model =
             case (LocalModel.localModel newModel.localModel).match of
                 Just matchState ->
                     if move == Keyboard.Arrows.wasdDirection model.previousKeys then
-                        ( newModel2, Cmd.none, Audio.cmdNone )
+                        ( newModel2, Cmd.none )
 
                     else
                         localChange (MatchInput (timeToFrameId time matchState) move) newModel2
 
                 Nothing ->
-                    ( newModel2, Cmd.none, Audio.cmdNone )
+                    ( newModel2, Cmd.none )
 
         CreateLobbyPressed ->
             localChange CreateLobby model
+                |> Tuple.mapFirst (\m -> { m | lastButtonPress = Just model.time })
 
         JoinLobbyPressed lobbyId ->
             localChange (JoinLobby lobbyId) model
+                |> Tuple.mapFirst (\m -> { m | lastButtonPress = Just model.time })
 
         StartMatchPressed ->
             localChange (StartMatch model.time) model
+                |> Tuple.mapFirst (\m -> { m | lastButtonPress = Just model.time })
+
+        SoundLoaded _ _ ->
+            -- Shouldn't happen
+            ( model, Cmd.none )
 
 
 timeToFrameId : Time.Posix -> MatchState -> Id FrameId
@@ -267,7 +288,7 @@ frameDuration =
 localChange :
     SessionChange
     -> FrontendLoaded
-    -> ( FrontendLoaded, Cmd FrontendMsg_, AudioCmd FrontendMsg_ )
+    -> ( FrontendLoaded, Cmd FrontendMsg_ )
 localChange change model =
     ( { model
         | localModel =
@@ -278,7 +299,6 @@ localChange change model =
                 model.localModel
       }
     , Lamdera.sendToBackend (SessionChange_ change)
-    , Audio.cmdNone
     )
 
 
@@ -367,19 +387,18 @@ localModelConfig =
     }
 
 
-windowResizedUpdate : WindowSize -> { b | windowSize : WindowSize } -> ( { b | windowSize : WindowSize }, Cmd msg, AudioCmd FrontendMsg_ )
+windowResizedUpdate : WindowSize -> { b | windowSize : WindowSize } -> ( { b | windowSize : WindowSize }, Cmd msg )
 windowResizedUpdate windowSize model =
-    ( { model | windowSize = windowSize }, martinsstewart_elm_device_pixel_ratio_to_js (), Audio.cmdNone )
+    ( { model | windowSize = windowSize }, martinsstewart_elm_device_pixel_ratio_to_js () )
 
 
 devicePixelRatioUpdate :
     Quantity Float (Rate WorldPixel Pixels)
     -> { b | devicePixelRatio : Quantity Float (Rate WorldPixel Pixels) }
-    -> ( { b | devicePixelRatio : Quantity Float (Rate WorldPixel Pixels) }, Cmd msg, AudioCmd FrontendMsg_ )
+    -> ( { b | devicePixelRatio : Quantity Float (Rate WorldPixel Pixels) }, Cmd msg )
 devicePixelRatioUpdate devicePixelRatio model =
     ( { model | devicePixelRatio = devicePixelRatio }
     , Cmd.none
-    , Audio.cmdNone
     )
 
 

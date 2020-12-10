@@ -38,6 +38,7 @@ import LocalModel exposing (LocalModel)
 import Match exposing (Match)
 import Pixels exposing (Pixels)
 import Quantity exposing (Quantity, Rate)
+import Sounds exposing (Sounds)
 import Time
 import Url exposing (Url)
 import User exposing (UserId)
@@ -70,6 +71,7 @@ type alias FrontendLoading =
     , devicePixelRatio : Quantity Float (Rate WorldPixel Pixels)
     , time : Time.Posix
     , initData : Maybe ClientInitData
+    , sounds : Dict String (Result Audio.LoadError Audio.Source)
     }
 
 
@@ -87,6 +89,8 @@ type alias FrontendLoaded =
     , localModel : LocalModel ToFrontendChange Local
     , matchCache : IdDict FrameId Match
     , visibleMatch : Maybe Match
+    , sounds : Sounds
+    , lastButtonPress : Maybe Time.Posix
     }
 
 
@@ -136,6 +140,7 @@ type FrontendMsg_
     | CreateLobbyPressed
     | JoinLobbyPressed (Id LobbyId)
     | StartMatchPressed
+    | SoundLoaded String (Result Audio.LoadError Audio.Source)
 
 
 type LobbyId
