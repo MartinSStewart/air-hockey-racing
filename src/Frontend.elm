@@ -88,7 +88,7 @@ audio audioData model =
                 Nothing ->
                     Audio.silence
     )
-        |> Audio.offset (Duration.milliseconds 30)
+        |> Audio.offsetBy (Duration.milliseconds 30)
 
 
 loadedInit : FrontendLoading -> Sounds -> ClientInitData -> ( FrontendModel_, Cmd FrontendMsg_, AudioCmd FrontendMsg_ )
