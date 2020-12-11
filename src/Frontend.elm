@@ -1,7 +1,7 @@
 port module Frontend exposing (app, init, update, updateFromBackend, view)
 
 import Angle
-import Audio exposing (Audio, AudioCmd)
+import Audio exposing (Audio, AudioCmd, AudioData)
 import Browser exposing (UrlRequest(..))
 import Browser.Dom
 import Browser.Events
@@ -70,20 +70,25 @@ app =
         }
 
 
-audio : FrontendModel_ -> Audio
-audio model =
+audio : AudioData -> FrontendModel_ -> Audio
+audio audioData model =
     (case model of
         Loading _ ->
             Audio.silence
 
         Loaded loaded ->
+            let
+                _ =
+                    Debug.log " " (Audio.length loaded.sounds.buttonPress audioData)
+            in
             case loaded.lastButtonPress of
                 Just lastButtonPress ->
                     Audio.audio loaded.sounds.buttonPress lastButtonPress
 
                 Nothing ->
                     Audio.silence
-    ) |> Audio.
+    )
+        |> Audio.offset (Duration.milliseconds 30)
 
 
 loadedInit : FrontendLoading -> Sounds -> ClientInitData -> ( FrontendModel_, Cmd FrontendMsg_, AudioCmd FrontendMsg_ )
@@ -137,8 +142,8 @@ init url key =
     )
 
 
-update : FrontendMsg_ -> FrontendModel_ -> ( FrontendModel_, Cmd FrontendMsg_, AudioCmd FrontendMsg_ )
-update msg model =
+update : AudioData -> FrontendMsg_ -> FrontendModel_ -> ( FrontendModel_, Cmd FrontendMsg_, AudioCmd FrontendMsg_ )
+update audioData msg model =
     case model of
         Loading loadingModel ->
             case msg of
@@ -407,8 +412,8 @@ keyDown key { pressedKeys } =
     List.any ((==) key) pressedKeys
 
 
-updateFromBackend : ToFrontend -> FrontendModel_ -> ( FrontendModel_, Cmd FrontendMsg_, AudioCmd FrontendMsg_ )
-updateFromBackend msg model =
+updateFromBackend : AudioData -> ToFrontend -> FrontendModel_ -> ( FrontendModel_, Cmd FrontendMsg_, AudioCmd FrontendMsg_ )
+updateFromBackend audioData msg model =
     let
         _ =
             Debug.log "updateFromBackend" msg
@@ -448,8 +453,8 @@ lostConnection model =
     False
 
 
-view : FrontendModel_ -> Browser.Document FrontendMsg_
-view model =
+view : AudioData -> FrontendModel_ -> Browser.Document FrontendMsg_
+view audioData model =
     { title =
         case model of
             Loading _ ->
@@ -714,8 +719,8 @@ findPixelPerfectSize frontendModel =
 --        []
 
 
-subscriptions : FrontendModel_ -> Sub FrontendMsg_
-subscriptions model =
+subscriptions : AudioData -> FrontendModel_ -> Sub FrontendMsg_
+subscriptions audioData model =
     Sub.batch
         [ martinsstewart_elm_device_pixel_ratio_from_js
             (Quantity.Quantity >> Quantity.per Pixels.pixel >> GotDevicePixelRatio)
