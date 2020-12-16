@@ -37,6 +37,7 @@ import Scene3d.Light
 import Sounds exposing (Sounds)
 import Task
 import Time
+import Timeline exposing (FrameId)
 import Types exposing (..)
 import UiColors
 import Url exposing (Url)
@@ -77,10 +78,6 @@ audio audioData model =
             Audio.silence
 
         Loaded loaded ->
-            let
-                _ =
-                    Debug.log " " (Audio.length loaded.sounds.buttonPress audioData)
-            in
             case loaded.lastButtonPress of
                 Just lastButtonPress ->
                     Audio.audio loaded.sounds.buttonPress lastButtonPress
@@ -101,10 +98,9 @@ loadedInit loading sounds { userId, lobbies } =
         , devicePixelRatio = loading.devicePixelRatio
         , time = loading.time
         , localModel = LocalModel.init { userId = userId, lobbies = lobbies, match = Nothing }
-        , matchCache = IdDict.empty
-        , visibleMatch = Nothing
         , sounds = sounds
         , lastButtonPress = Nothing
+        , cache = Nothing
         }
     , Cmd.none
     , Audio.cmdNone
@@ -204,41 +200,10 @@ updateLoaded msg model =
                     { model
                         | time = time
                         , previousKeys = model.pressedKeys
-                        , matchCache =
-                            case ( model.visibleMatch, LocalModel.localModel model.localModel |> .match ) of
-                                ( Just visibleMatch, Just match ) ->
-                                    IdDict.insert
-                                        (timeToFrameId model.time match)
-                                        visibleMatch
-                                        model.matchCache
-                                        |> IdDict.filter
-                                            (\frameId _ ->
-                                                frameIdToTime frameId match
-                                                    |> Duration.from time
-                                                    |> Quantity.lessThan Duration.second
-                                            )
-
-                                _ ->
-                                    model.matchCache
                     }
 
                 localModel =
                     LocalModel.localModel model.localModel
-
-                newModel2 =
-                    { newModel
-                        | visibleMatch =
-                            case localModel.match of
-                                Just match ->
-                                    let
-                                        users =
-                                            localModel.userId :: match.otherUsers
-                                    in
-                                    getMatch (timeToFrameId model.time match) newModel.matchCache users match |> Just
-
-                                Nothing ->
-                                    model.visibleMatch
-                    }
 
                 move =
                     Keyboard.Arrows.wasdDirection model.pressedKeys
@@ -246,13 +211,13 @@ updateLoaded msg model =
             case (LocalModel.localModel newModel.localModel).match of
                 Just matchState ->
                     if move == Keyboard.Arrows.wasdDirection model.previousKeys then
-                        ( newModel2, Cmd.none )
+                        ( model, Cmd.none )
 
                     else
-                        localChange (MatchInput (timeToFrameId time matchState) move) newModel2
+                        localChange (MatchInput (timeToFrameId time matchState) move) newModel
 
                 Nothing ->
-                    ( newModel2, Cmd.none )
+                    ( model, Cmd.none )
 
         CreateLobbyPressed ->
             localChange CreateLobby model
@@ -309,11 +274,6 @@ localChange change model =
 
 localModelConfig : Config ToFrontendChange Local
 localModelConfig =
-    let
-        addEvent : TimelineEvent -> MatchState -> MatchState
-        addEvent event match =
-            { match | events = event :: match.events }
-    in
     { msgEqual = (==)
     , update =
         \msg model ->
@@ -364,7 +324,7 @@ localModelConfig =
                                     , match =
                                         Just
                                             { startTime = startTime
-                                            , events = []
+                                            , timeline = []
                                             , otherUsers = IdDict.keys lobby.users
                                             }
                                 }
@@ -373,7 +333,7 @@ localModelConfig =
 
                 BroadcastChange (BroadcastStartMatch time lobbyId) ->
                     case IdDict.get lobbyId model.lobbies of
-                        Just lobby ->
+                        Just _ ->
                             { model | lobbies = IdDict.remove lobbyId model.lobbies }
 
                         Nothing ->
@@ -383,12 +343,27 @@ localModelConfig =
                     { model
                         | match =
                             Maybe.map
-                                (addEvent { userId = model.userId, frameId = frameId, input = input })
+                                (\match ->
+                                    { match
+                                        | timeline =
+                                            Timeline.addInput_
+                                                frameId
+                                                { userId = model.userId, input = input }
+                                                match.timeline
+                                    }
+                                )
                                 model.match
                     }
 
-                BroadcastChange (BroadcastMatchInput event) ->
-                    { model | match = Maybe.map (addEvent event) model.match }
+                BroadcastChange (BroadcastMatchInput frame timelineEvent) ->
+                    { model
+                        | match =
+                            Maybe.map
+                                (\match ->
+                                    { match | timeline = Timeline.addInput_ frame timelineEvent match.timeline }
+                                )
+                                model.match
+                    }
     }
 
 
@@ -468,12 +443,17 @@ view audioData model =
                     "Weasel tanks"
     , body =
         [ case model of
-            Loading _ ->
+            Loading loading ->
                 Element.layout
                     [ Element.width Element.fill
                     , Element.height Element.fill
                     ]
-                    (Element.text "Loading")
+                    (if Dict.values loading.sounds |> List.any isErr then
+                        Element.text "Loading failed"
+
+                     else
+                        Element.text "Loading"
+                    )
 
             Loaded loadedModel ->
                 loadedView loadedModel
@@ -481,40 +461,14 @@ view audioData model =
     }
 
 
-getMatch :
-    Id FrameId
-    -> IdDict FrameId Match
-    -> List (Id UserId)
-    -> MatchState
-    -> Match
-getMatch frameId matchCache users matchState =
-    if Id.toInt frameId <= 0 then
-        Match.init users
+isErr : Result error value -> Bool
+isErr a =
+    case a of
+        Err _ ->
+            True
 
-    else
-        case
-            IdDict.toList matchCache
-                |> List.filter (\( key, _ ) -> Id.toInt key > Id.toInt frameId)
-                |> List.maximumBy (Tuple.first >> Id.toInt)
-        of
-            Just ( currentFrame, cachedMatch ) ->
-                getMatchHelper frameId currentFrame cachedMatch
-
-            Nothing ->
-                Match.init users
-
-
-
---List.foldl
---    (\{ userId, time, input } ( currentTime, match ) ->
---        ( Time.posixToMillis currentTime |> (+) 16 |> Time.millisToPosix
---        , Match.step match
---        )
---    )
---    ( startTime, Match.init users )
---    (List.sortBy (.time >> Time.posixToMillis) events)
---    |> Tuple.second
---    |> Just
+        Ok _ ->
+            False
 
 
 stepSize : Int
@@ -540,8 +494,8 @@ loadedView model =
     Element.layout
         [ Element.clip
         , Element.behindContent <|
-            case model.visibleMatch of
-                Just match ->
+            case model.cache of
+                Just cache ->
                     let
                         { canvasSize, actualCanvasSize } =
                             findPixelPerfectSize model
@@ -561,7 +515,7 @@ loadedView model =
                         , clipDepth = Length.meters 0.1
                         , background =
                             Scene3d.backgroundColor (Color.rgb 0.85 0.87 0.95)
-                        , entities = Match.entities match
+                        , entities = [] --Match.entities match
                         , antialiasing = model.devicePixelRatio |> (\(Quantity a) -> Scene3d.supersampling a)
                         , lights =
                             Scene3d.twoLights
@@ -589,7 +543,7 @@ loadedView model =
                 Nothing ->
                     Element.none
         ]
-        (case model.visibleMatch of
+        (case model.cache of
             Just _ ->
                 Element.none
 

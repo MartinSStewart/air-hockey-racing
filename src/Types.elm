@@ -4,7 +4,6 @@ module Types exposing
     , BackendUserData
     , BroadcastChange(..)
     , ClientInitData
-    , FrameId
     , FrontendLoaded
     , FrontendLoading
     , FrontendModel
@@ -40,6 +39,7 @@ import Pixels exposing (Pixels)
 import Quantity exposing (Quantity, Rate)
 import Sounds exposing (Sounds)
 import Time
+import Timeline exposing (FrameId, Timeline, TimelineCache)
 import Url exposing (Url)
 import User exposing (UserId)
 
@@ -59,10 +59,6 @@ type FrontendModel_
 
 type WorldPixel
     = WorldPixel Never
-
-
-type FrameId
-    = FrameId Never
 
 
 type alias FrontendLoading =
@@ -87,10 +83,9 @@ type alias FrontendLoaded =
     , devicePixelRatio : Quantity Float (Rate WorldPixel Pixels)
     , time : Time.Posix
     , localModel : LocalModel ToFrontendChange Local
-    , matchCache : IdDict FrameId Match
-    , visibleMatch : Maybe Match
     , sounds : Sounds
     , lastButtonPress : Maybe Time.Posix
+    , cache : Maybe (TimelineCache Match)
     }
 
 
@@ -102,11 +97,11 @@ type alias Local =
 
 
 type alias MatchState =
-    { startTime : Time.Posix, events : List TimelineEvent, otherUsers : List (Id UserId) }
+    { startTime : Time.Posix, timeline : Timeline TimelineEvent, otherUsers : List (Id UserId) }
 
 
 type alias TimelineEvent =
-    { userId : Id UserId, frameId : Id FrameId, input : Keyboard.Arrows.Direction }
+    { userId : Id UserId, input : Keyboard.Arrows.Direction }
 
 
 type alias BackendModel =
@@ -165,10 +160,6 @@ type ToFrontend
     | ClientInit ClientInitData
 
 
-
---| BroadcastMove (Id UserId) Time.Posix Keyboard.Arrows.Direction
-
-
 type ToFrontendChange
     = BroadcastChange BroadcastChange
     | SessionChange SessionChange
@@ -178,7 +169,7 @@ type BroadcastChange
     = BroadcastCreateLobby (Id UserId)
     | BroadcastJoinLobby (Id UserId) (Id LobbyId)
     | BroadcastStartMatch Time.Posix (Id LobbyId)
-    | BroadcastMatchInput TimelineEvent
+    | BroadcastMatchInput (Id FrameId) TimelineEvent
 
 
 type SessionChange

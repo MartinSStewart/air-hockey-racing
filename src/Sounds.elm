@@ -10,7 +10,7 @@ type alias Sounds =
 
 soundUrls : List String
 soundUrls =
-    [ "./blip.mp3" ]
+    [ "./blipp.mp3" ]
 
 
 requestSounds : (String -> Result Audio.LoadError Audio.Source -> msg) -> AudioCmd msg

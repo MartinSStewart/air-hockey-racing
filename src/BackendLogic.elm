@@ -140,7 +140,7 @@ updateFromFrontend sessionId _ msg model =
                             (\( _, { users } ) ->
                                 broadcastChange
                                     (MatchInput frameId input)
-                                    (BroadcastMatchInput { userId = userId, frameId = frameId, input = input })
+                                    (BroadcastMatchInput frameId { userId = userId, input = input })
                                     userId
                                     model
                             )
