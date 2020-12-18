@@ -217,7 +217,7 @@ updateLoaded msg model =
                         localChange (MatchInput (timeToFrameId time matchState) move) newModel
 
                 Nothing ->
-                    ( model, Cmd.none )
+                    ( newModel, Cmd.none )
 
         CreateLobbyPressed ->
             localChange CreateLobby model

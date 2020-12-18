@@ -1,10 +1,9 @@
 module Audio exposing
     ( elementWithAudio, documentWithAudio, applicationWithAudio, Model, Msg, AudioData
     , AudioCmd, loadAudio, LoadError(..), Source, cmdMap, cmdBatch, cmdNone
-    , Audio, audio, group, silence, audioWithConfig, audioDefaultConfig, PlayAudioConfig, LoopConfig
-    , scaleVolume, scaleVolumeAt
+    , Audio, audio, group, silence, length, audioWithConfig, audioDefaultConfig, PlayAudioConfig, LoopConfig
+    , scaleVolume, scaleVolumeAt, offsetBy
     , lamderaFrontendWithAudio, migrateModel, migrateMsg
-    , length, offsetBy
     )
 
 {-|
@@ -28,14 +27,14 @@ Load audio so you can later play it.
 
 Define what audio should be playing.
 
-@docs Audio, audio, group, silence, audioWithConfig, audioDefaultConfig, sourceDuration, PlayAudioConfig, LoopConfig
+@docs Audio, audio, group, silence, length, audioWithConfig, audioDefaultConfig, PlayAudioConfig, LoopConfig
 
 
 # Audio effects
 
 Effects you can apply to `Audio`.
 
-@docs scaleVolume, scaleVolumeAt
+@docs scaleVolume, scaleVolumeAt, offsetBy
 
 
 # Lamdera stuff
@@ -59,7 +58,9 @@ import Time
 import Url exposing (Url)
 
 
-{-| -}
+{-| The top level model for our program.
+This contains the model for your app as well as extra data needed to keep track of what audio is playing.
+-}
 type Model userMsg userModel
     = Model (Model_ userMsg userModel)
 
@@ -83,8 +84,8 @@ type alias SourceData =
     { duration : Duration }
 
 
-{-| Stores information about audio files you have loaded.
-You can query how long an audio file plays for with `sourceDuration`.
+{-| Information about audio files you have loaded.
+This is passed as a parameter to your update, view, subscriptions, and audio functions.
 -}
 type AudioData
     = AudioData
@@ -101,15 +102,17 @@ audioData (Model model) =
 
 {-| Get how long an audio source plays for.
 -}
-length : Source -> AudioData -> Duration
-length source (AudioData audioData_) =
+length : AudioData -> Source -> Duration
+length (AudioData audioData_) source =
     Dict.get (audioSourceBufferId source |> rawBufferId) audioData_.sourceData
         |> Maybe.map .duration
         -- We should always be able to find the bufferId so this should never default to 0.
         |> Maybe.withDefault Quantity.zero
 
 
-{-| -}
+{-| The top level msg for our program.
+This contains the msg type your app uses in addition to msgs that are needed to handle when audio gets loaded.
+-}
 type Msg userMsg
     = FromJSMsg FromJSMsg
     | UserMsg userMsg
@@ -147,7 +150,7 @@ cmdNone =
     AudioCmdGroup []
 
 
-{-| Map a command from one type to another. Conceptually the same as Cmd.map
+{-| Map a command from one type to another. Conceptually the same as Cmd.map.
 -}
 cmdMap : (a -> b) -> AudioCmd a -> AudioCmd b
 cmdMap map cmd =
@@ -189,13 +192,16 @@ elementWithAudio :
     , audioPort : Ports msg
     }
     -> Platform.Program flags (Model msg model) (Msg msg)
-elementWithAudio app =
-    { init = app.init >> initHelper app.audioPort.toJS app.audio
-    , view = \model -> getUserModel model |> app.view (audioData model) |> Html.map UserMsg
-    , update = update app
-    , subscriptions = subscriptions app
-    }
-        |> Browser.element
+elementWithAudio =
+    withAudioOffset
+        >> (\app ->
+                { init = app.init >> initHelper app.audioPort.toJS app.audio
+                , view = \model -> getUserModel model |> app.view (audioData model) |> Html.map UserMsg
+                , update = update app
+                , subscriptions = subscriptions app
+                }
+                    |> Browser.element
+           )
 
 
 {-| Browser.document but with the ability to play sounds.
@@ -209,21 +215,24 @@ documentWithAudio :
     , audioPort : Ports msg
     }
     -> Platform.Program flags (Model msg model) (Msg msg)
-documentWithAudio app =
-    { init = app.init >> initHelper app.audioPort.toJS app.audio
-    , view =
-        \model ->
-            let
-                { title, body } =
-                    app.view (audioData model) (getUserModel model)
-            in
-            { title = title
-            , body = body |> List.map (Html.map UserMsg)
-            }
-    , update = update app
-    , subscriptions = subscriptions app
-    }
-        |> Browser.document
+documentWithAudio =
+    withAudioOffset
+        >> (\app ->
+                { init = app.init >> initHelper app.audioPort.toJS app.audio
+                , view =
+                    \model ->
+                        let
+                            { title, body } =
+                                app.view (audioData model) (getUserModel model)
+                        in
+                        { title = title
+                        , body = body |> List.map (Html.map UserMsg)
+                        }
+                , update = update app
+                , subscriptions = subscriptions app
+                }
+                    |> Browser.document
+           )
 
 
 {-| Browser.application but with the ability to play sounds.
@@ -239,23 +248,26 @@ applicationWithAudio :
     , audioPort : Ports msg
     }
     -> Platform.Program flags (Model msg model) (Msg msg)
-applicationWithAudio app =
-    { init = \flags url key -> app.init flags url key |> initHelper app.audioPort.toJS app.audio
-    , view =
-        \model ->
-            let
-                { title, body } =
-                    app.view (audioData model) (getUserModel model)
-            in
-            { title = title
-            , body = body |> List.map (Html.map UserMsg)
-            }
-    , update = update app
-    , subscriptions = subscriptions app
-    , onUrlRequest = app.onUrlRequest >> UserMsg
-    , onUrlChange = app.onUrlChange >> UserMsg
-    }
-        |> Browser.application
+applicationWithAudio =
+    withAudioOffset
+        >> (\app ->
+                { init = \flags url key -> app.init flags url key |> initHelper app.audioPort.toJS app.audio
+                , view =
+                    \model ->
+                        let
+                            { title, body } =
+                                app.view (audioData model) (getUserModel model)
+                        in
+                        { title = title
+                        , body = body |> List.map (Html.map UserMsg)
+                        }
+                , update = update app
+                , subscriptions = subscriptions app
+                , onUrlRequest = app.onUrlRequest >> UserMsg
+                , onUrlChange = app.onUrlChange >> UserMsg
+                }
+                    |> Browser.application
+           )
 
 
 {-| Lamdera.frontend but with the ability to play sounds (highly experimental, just ignore this for now).
@@ -280,25 +292,32 @@ lamderaFrontendWithAudio :
         , onUrlRequest : Browser.UrlRequest -> Msg frontendMsg
         , onUrlChange : Url -> Msg frontendMsg
         }
-lamderaFrontendWithAudio app =
-    { init = \url key -> initHelper app.audioPort.toJS app.audio (app.init url key)
-    , view =
-        \model ->
-            let
-                { title, body } =
-                    app.view (audioData model) (getUserModel model)
-            in
-            { title = title
-            , body = body |> List.map (Html.map UserMsg)
-            }
-    , update = update app
-    , updateFromBackend =
-        \toFrontend model ->
-            updateHelper app.audioPort.toJS app.audio (flip app.updateFromBackend toFrontend) model
-    , subscriptions = subscriptions app
-    , onUrlRequest = app.onUrlRequest >> UserMsg
-    , onUrlChange = app.onUrlChange >> UserMsg
-    }
+lamderaFrontendWithAudio =
+    withAudioOffset
+        >> (\app ->
+                { init = \url key -> initHelper app.audioPort.toJS app.audio (app.init url key)
+                , view =
+                    \model ->
+                        let
+                            { title, body } =
+                                app.view (audioData model) (getUserModel model)
+                        in
+                        { title = title
+                        , body = body |> List.map (Html.map UserMsg)
+                        }
+                , update = update app
+                , updateFromBackend =
+                    \toFrontend model ->
+                        updateHelper app.audioPort.toJS app.audio (flip app.updateFromBackend toFrontend) model
+                , subscriptions = subscriptions app
+                , onUrlRequest = app.onUrlRequest >> UserMsg
+                , onUrlChange = app.onUrlChange >> UserMsg
+                }
+           )
+
+
+withAudioOffset app =
+    { app | audio = \audioData_ model -> app.audio audioData_ model |> offsetBy (Duration.milliseconds 50) }
 
 
 {-| Use this function when migrating your model in Lamdera.
@@ -598,6 +617,7 @@ subscriptions app (Model model) =
     Sub.batch [ app.subscriptions (audioData (Model model)) model.userModel |> Sub.map UserMsg, app.audioPort.fromJS fromJSPortSub ]
 
 
+decodeLoadError : JD.Decoder LoadError
 decodeLoadError =
     JD.string
         |> JD.andThen
@@ -669,10 +689,12 @@ rawBufferId (BufferId bufferId) =
     bufferId
 
 
+encodeBufferId : BufferId -> JE.Value
 encodeBufferId (BufferId bufferId) =
     JE.int bufferId
 
 
+decodeBufferId : JD.Decoder BufferId
 decodeBufferId =
     JD.int |> JD.map BufferId
 
@@ -714,7 +736,7 @@ updateAudioState ( nodeGroupId, audioGroup ) ( flattenedAudio, audioState, json 
                             [ encodeValue .volume encodeSetVolume
                             , encodeValue .loop encodeSetLoopConfig
                             , encodeValue .playbackRate encodeSetPlaybackRate
-                            , encodeValue .volumeTimelines encodeSetVolumeAt
+                            , encodeValue volumeTimelines encodeSetVolumeAt
                             ]
                                 |> List.filterMap identity
                     in
@@ -763,7 +785,7 @@ encodeStartSound nodeGroupId audio_ =
         , ( "startTime", audioStartTime audio_ |> encodeTime )
         , ( "startAt", audio_.startAt |> encodeDuration )
         , ( "volume", JE.float audio_.volume )
-        , ( "volumeTimelines", JE.list encodeVolumeTimeline audio_.volumeTimelines )
+        , ( "volumeTimelines", JE.list encodeVolumeTimeline (volumeTimelines audio_) )
         , ( "loop", encodeLoopConfig audio_.loop )
         , ( "playbackRate", JE.float audio_.playbackRate )
         ]
@@ -772,6 +794,13 @@ encodeStartSound nodeGroupId audio_ =
 audioStartTime : FlattenedAudio -> Time.Posix
 audioStartTime audio_ =
     Duration.addTo audio_.startTime audio_.offset
+
+
+volumeTimelines : FlattenedAudio -> List VolumeTimeline
+volumeTimelines audio_ =
+    List.map
+        (Nonempty.map (Tuple.mapFirst (\a -> Duration.addTo a audio_.offset)))
+        audio_.volumeTimelines
 
 
 encodeTime : Time.Posix -> JE.Value
@@ -820,18 +849,18 @@ encodeSetPlaybackRate nodeGroupId playbackRate =
 
 
 {-| A nonempty list of (time, volume) points for defining how loud a sound should be at any point in time.
-The points don't need to be sorted but don't include multiple points that have the same time.
+The points don't need to be sorted but you should avoid including multiple points that have the same time.
 -}
 type alias VolumeTimeline =
     Nonempty ( Time.Posix, Float )
 
 
 encodeSetVolumeAt : NodeGroupId -> List VolumeTimeline -> JE.Value
-encodeSetVolumeAt nodeGroupId volumeTimelines =
+encodeSetVolumeAt nodeGroupId volumeTimelines_ =
     JE.object
         [ ( "nodeGroupId", JE.int nodeGroupId )
         , ( "action", JE.string "setVolumeAt" )
-        , ( "volumeAt", JE.list encodeVolumeTimeline volumeTimelines )
+        , ( "volumeAt", JE.list encodeVolumeTimeline volumeTimelines_ )
         ]
 
 
@@ -1126,12 +1155,12 @@ silence =
     group []
 
 
-{-| Possible errors we can get when loading audio source files.
+{-| These are possible errors we can get when loading an audio source file.
 
-    - FailedToDecode: This means we got the data but we couldn't decode it. One likely reason for this is that your url points to the wrong place and you're trying to decode 404 page.
-    - NetworkError: We couldn't reach the url. Either it's some kind of CORS issue or you're disconnected from the internet.
-    - UnknownError: We don't know what happened but you're audio didn't load!
-    - ErrorThatHappensWhen...: Yes, there's a good reason this is here. If you need to load more than 1000 sounds make an issue about it on github and I'll see what I can do.
+  - FailedToDecode: This means we got the data but we couldn't decode it. One likely reason for this is that your url points to the wrong place and you're trying to decode a 404 page instead.
+  - NetworkError: We couldn't reach the url. Either it's some kind of CORS issue or you're disconnected from the internet.
+  - UnknownError: We don't know what happened but your audio didn't load!
+  - ErrorThatHappensWhen...: Yes, there's a good reason for this. If you need to load more than 1000 sounds make an issue about it on github and I'll see what I can do.
 
 -}
 type LoadError
