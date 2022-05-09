@@ -420,14 +420,14 @@ view audioData model =
     { title =
         case model of
             Loading _ ->
-                "Weasel tanks"
+                "Hockey Puck Racer"
 
             Loaded loadedModel ->
                 if lostConnection loadedModel then
-                    "Weasel tanks (offline)"
+                    "(offline) Hockey Puck Racer"
 
                 else
-                    "Weasel tanks"
+                    "Hockey Puck Racer"
     , body =
         [ case model of
             Loading loading ->
