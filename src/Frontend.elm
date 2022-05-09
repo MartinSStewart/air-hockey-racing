@@ -1,15 +1,11 @@
 port module Frontend exposing (app, init, update, updateFromBackend, view)
 
-import Angle
 import Audio exposing (Audio, AudioCmd, AudioData)
 import Browser exposing (UrlRequest(..))
 import Browser.Dom
 import Browser.Events
 import Browser.Navigation
-import Camera3d
-import Color
 import Dict
-import Direction3d
 import Duration exposing (Duration)
 import Element exposing (Element)
 import Element.Background
@@ -18,22 +14,16 @@ import Element.Input
 import Html exposing (Html)
 import Id exposing (Id)
 import IdDict exposing (IdDict)
-import Illuminance
 import Json.Decode
 import Json.Encode
 import Keyboard
 import Keyboard.Arrows
 import Lamdera
-import Length
 import List.Extra as List
 import List.Nonempty
 import LocalModel exposing (Config, LocalModel)
-import Match exposing (Match)
 import Pixels exposing (Pixels)
-import Point3d
 import Quantity exposing (Quantity(..), Rate)
-import Scene3d
-import Scene3d.Light
 import Sounds exposing (Sounds)
 import Task
 import Time
@@ -41,8 +31,6 @@ import Timeline exposing (FrameId)
 import Types exposing (..)
 import UiColors
 import Url exposing (Url)
-import User exposing (UserId)
-import Viewpoint3d
 
 
 port martinsstewart_elm_device_pixel_ratio_from_js : (Float -> msg) -> Sub msg
@@ -100,7 +88,6 @@ loadedInit loading sounds { userId, lobbies } =
         , localModel = LocalModel.init { userId = userId, lobbies = lobbies, match = Nothing }
         , sounds = sounds
         , lastButtonPress = Nothing
-        , cache = Nothing
         }
     , Cmd.none
     , Audio.cmdNone
@@ -476,15 +463,6 @@ stepSize =
     33
 
 
-getMatchHelper : Id FrameId -> Id FrameId -> Match -> Match
-getMatchHelper targetTime currentTime match =
-    if Id.toInt currentTime + stepSize < Id.toInt targetTime then
-        getMatchHelper targetTime (Id.toInt currentTime + 1 |> Id.fromInt) (Match.step match)
-
-    else
-        match
-
-
 loadedView : FrontendLoaded -> Html FrontendMsg_
 loadedView model =
     let
@@ -494,78 +472,26 @@ loadedView model =
     Element.layout
         [ Element.clip
         , Element.behindContent <|
-            case model.cache of
-                Just cache ->
-                    let
-                        { canvasSize, actualCanvasSize } =
-                            findPixelPerfectSize model
-                    in
-                    Scene3d.custom
-                        { dimensions = canvasSize
-                        , camera =
-                            Camera3d.perspective
-                                { viewpoint =
-                                    Viewpoint3d.lookAt
-                                        { focalPoint = Point3d.origin
-                                        , eyePoint = Point3d.meters 0 15 20
-                                        , upDirection = Direction3d.z
-                                        }
-                                , verticalFieldOfView = Angle.degrees 30
-                                }
-                        , clipDepth = Length.meters 0.1
-                        , background =
-                            Scene3d.backgroundColor (Color.rgb 0.85 0.87 0.95)
-                        , entities = [] --Match.entities match
-                        , antialiasing = model.devicePixelRatio |> (\(Quantity a) -> Scene3d.supersampling a)
-                        , lights =
-                            Scene3d.twoLights
-                                (Scene3d.Light.directional
-                                    (Scene3d.Light.castsShadows True)
-                                    { chromaticity = Scene3d.Light.sunlight
-                                    , intensity = Illuminance.lux 80000
-                                    , direction = Direction3d.negativeZ
-                                    }
-                                )
-                                (Scene3d.Light.soft
-                                    { upDirection = Direction3d.z
-                                    , chromaticity = Scene3d.Light.skylight
-                                    , intensityAbove = Illuminance.lux 40000
-                                    , intensityBelow = Illuminance.lux 10000
-                                    }
-                                )
-                        , exposure = Scene3d.exposureValue 15
-                        , toneMapping = Scene3d.noToneMapping
-                        , whiteBalance = Scene3d.Light.sunlight
-                        }
-                        |> Element.html
-                        |> Element.el [ Element.width Element.fill, Element.height Element.shrink ]
+            Element.none
+        ]
+        (Element.column
+            [ Element.spacing 16 ]
+            [ case getCurrentLobby localModel of
+                Just _ ->
+                    button StartMatchPressed (Element.text "Start match")
 
                 Nothing ->
-                    Element.none
-        ]
-        (case model.cache of
-            Just _ ->
-                Element.none
-
-            Nothing ->
-                Element.column
-                    [ Element.spacing 16 ]
-                    [ case getCurrentLobby localModel of
-                        Just _ ->
-                            button StartMatchPressed (Element.text "Start match")
-
-                        Nothing ->
-                            button CreateLobbyPressed (Element.text "Create lobby")
-                    , Element.column
-                        [ Element.spacing 8 ]
-                        [ Element.text "Lobbies"
-                        , localModel
-                            |> .lobbies
-                            |> IdDict.toList
-                            |> List.map lobbyRowView
-                            |> Element.column []
-                        ]
-                    ]
+                    button CreateLobbyPressed (Element.text "Create lobby")
+            , Element.column
+                [ Element.spacing 8 ]
+                [ Element.text "Lobbies"
+                , localModel
+                    |> .lobbies
+                    |> IdDict.toList
+                    |> List.map lobbyRowView
+                    |> Element.column []
+                ]
+            ]
         )
 
 

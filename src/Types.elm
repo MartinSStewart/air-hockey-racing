@@ -34,7 +34,7 @@ import Keyboard
 import Keyboard.Arrows
 import Lamdera exposing (ClientId, SessionId)
 import LocalModel exposing (LocalModel)
-import Match exposing (Match)
+
 import Pixels exposing (Pixels)
 import Quantity exposing (Quantity, Rate)
 import Sounds exposing (Sounds)
@@ -85,7 +85,6 @@ type alias FrontendLoaded =
     , localModel : LocalModel ToFrontendChange Local
     , sounds : Sounds
     , lastButtonPress : Maybe Time.Posix
-    , cache : Maybe (TimelineCache Match)
     }
 
 
