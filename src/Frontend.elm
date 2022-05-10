@@ -1,12 +1,17 @@
-port module Frontend exposing (app, init, update, updateFromBackend, view)
+module Frontend exposing (app, init, update, updateFromBackend, view)
 
+import AssocList as Dict
 import Audio exposing (Audio, AudioCmd, AudioData)
 import Browser exposing (UrlRequest(..))
-import Browser.Dom
-import Browser.Events
-import Browser.Navigation
-import Dict
 import Duration exposing (Duration)
+import Effect.Browser.Dom
+import Effect.Browser.Events
+import Effect.Browser.Navigation
+import Effect.Command as Command exposing (Command, FrontendOnly)
+import Effect.Lamdera
+import Effect.Subscription as Subscription exposing (Subscription)
+import Effect.Task
+import Effect.Time
 import Element exposing (Element)
 import Element.Background
 import Element.Border
@@ -23,40 +28,33 @@ import List.Extra as List
 import List.Nonempty
 import LocalModel exposing (Config, LocalModel)
 import Pixels exposing (Pixels)
+import Ports
 import Quantity exposing (Quantity(..), Rate)
 import Sounds exposing (Sounds)
-import Task
-import Time
 import Timeline exposing (FrameId)
 import Types exposing (..)
 import UiColors
 import Url exposing (Url)
 
 
-port martinsstewart_elm_device_pixel_ratio_from_js : (Float -> msg) -> Sub msg
-
-
-port martinsstewart_elm_device_pixel_ratio_to_js : () -> Cmd msg
-
-
-port audioPortToJS : Json.Encode.Value -> Cmd msg
-
-
-port audioPortFromJS : (Json.Decode.Value -> msg) -> Sub msg
-
-
 app =
-    Audio.lamderaFrontendWithAudio
-        { init = init
-        , onUrlRequest = UrlClicked
-        , onUrlChange = UrlChanged
-        , update = update
-        , updateFromBackend = updateFromBackend
-        , subscriptions = subscriptions
-        , view = view
-        , audio = audio
-        , audioPort = { fromJS = audioPortFromJS, toJS = audioPortToJS }
-        }
+    Effect.Lamdera.frontend
+        Lamdera.sendToBackend
+        (Audio.lamderaFrontendWithAudio
+            { init = init
+            , onUrlRequest = UrlClicked
+            , onUrlChange = UrlChanged
+            , update = update
+            , updateFromBackend = updateFromBackend
+            , subscriptions = subscriptions
+            , view = view
+            , audio = audio
+            , audioPort =
+                { fromJS = Ports.audioFromJs
+                , toJS = Ports.audioToJs
+                }
+            }
+        )
 
 
 audio : AudioData -> FrontendModel_ -> Audio
@@ -76,7 +74,7 @@ audio audioData model =
         |> Audio.offsetBy (Duration.milliseconds 30)
 
 
-loadedInit : FrontendLoading -> Sounds -> ClientInitData -> ( FrontendModel_, Cmd FrontendMsg_, AudioCmd FrontendMsg_ )
+loadedInit : FrontendLoading -> Sounds -> ClientInitData -> ( FrontendModel_, Command FrontendOnly toMsg FrontendMsg_, AudioCmd FrontendMsg_ )
 loadedInit loading sounds { userId, lobbies } =
     ( Loaded
         { key = loading.key
@@ -89,43 +87,43 @@ loadedInit loading sounds { userId, lobbies } =
         , sounds = sounds
         , lastButtonPress = Nothing
         }
-    , Cmd.none
+    , Command.none
     , Audio.cmdNone
     )
 
 
-tryLoadedInit : FrontendLoading -> ( FrontendModel_, Cmd FrontendMsg_, AudioCmd FrontendMsg_ )
+tryLoadedInit : FrontendLoading -> ( FrontendModel_, Command FrontendOnly toMsg FrontendMsg_, AudioCmd FrontendMsg_ )
 tryLoadedInit loading =
     Maybe.map2
         (loadedInit loading)
         (Sounds.loadingFinished loading.sounds)
         loading.initData
-        |> Maybe.withDefault ( Loading loading, Cmd.none, Audio.cmdNone )
+        |> Maybe.withDefault ( Loading loading, Command.none, Audio.cmdNone )
 
 
-init : Url -> Browser.Navigation.Key -> ( FrontendModel_, Cmd FrontendMsg_, AudioCmd FrontendMsg_ )
+init : Url -> Effect.Browser.Navigation.Key -> ( FrontendModel_, Command FrontendOnly toMsg FrontendMsg_, AudioCmd FrontendMsg_ )
 init url key =
     ( Loading
         { key = key
         , windowSize = { width = Pixels.pixels 1920, height = Pixels.pixels 1080 }
         , devicePixelRatio = Quantity 1
-        , time = Time.millisToPosix 0
+        , time = Effect.Time.millisToPosix 0
         , initData = Nothing
         , sounds = Dict.empty
         }
-    , Task.perform
+    , Effect.Task.perform
         (\{ viewport } ->
             WindowResized
                 { width = round viewport.width |> Pixels.pixels
                 , height = round viewport.height |> Pixels.pixels
                 }
         )
-        Browser.Dom.getViewport
+        Effect.Browser.Dom.getViewport
     , Sounds.requestSounds SoundLoaded
     )
 
 
-update : AudioData -> FrontendMsg_ -> FrontendModel_ -> ( FrontendModel_, Cmd FrontendMsg_, AudioCmd FrontendMsg_ )
+update : AudioData -> FrontendMsg_ -> FrontendModel_ -> ( FrontendModel_, Command FrontendOnly ToBackend FrontendMsg_, AudioCmd FrontendMsg_ )
 update audioData msg model =
     case model of
         Loading loadingModel ->
@@ -142,37 +140,37 @@ update audioData msg model =
                         |> tryLoadedInit
 
                 _ ->
-                    ( model, Cmd.none, Audio.cmdNone )
+                    ( model, Command.none, Audio.cmdNone )
 
         Loaded frontendLoaded ->
             updateLoaded msg frontendLoaded
                 |> (\( a, b ) -> ( Loaded a, b, Audio.cmdNone ))
 
 
-updateLoaded : FrontendMsg_ -> FrontendLoaded -> ( FrontendLoaded, Cmd FrontendMsg_ )
+updateLoaded : FrontendMsg_ -> FrontendLoaded -> ( FrontendLoaded, Command FrontendOnly ToBackend FrontendMsg_ )
 updateLoaded msg model =
     case msg of
         UrlClicked urlRequest ->
             case urlRequest of
-                Internal url ->
+                Browser.Internal url ->
                     ( model
-                    , Cmd.batch [ Browser.Navigation.pushUrl model.key (Url.toString url) ]
+                    , Command.batch [ Effect.Browser.Navigation.pushUrl model.key (Url.toString url) ]
                     )
 
-                External url ->
+                Browser.External url ->
                     ( model
-                    , Browser.Navigation.load url
+                    , Effect.Browser.Navigation.load url
                     )
 
         UrlChanged _ ->
-            ( model, Cmd.none )
+            ( model, Command.none )
 
         NoOpFrontendMsg ->
-            ( model, Cmd.none )
+            ( model, Command.none )
 
         KeyMsg keyMsg ->
             ( { model | pressedKeys = Keyboard.update keyMsg model.pressedKeys }
-            , Cmd.none
+            , Command.none
             )
 
         WindowResized windowSize ->
@@ -198,13 +196,13 @@ updateLoaded msg model =
             case (LocalModel.localModel newModel.localModel).match of
                 Just matchState ->
                     if move == Keyboard.Arrows.wasdDirection model.previousKeys then
-                        ( model, Cmd.none )
+                        ( model, Command.none )
 
                     else
                         localChange (MatchInput (timeToFrameId time matchState) move) newModel
 
                 Nothing ->
-                    ( newModel, Cmd.none )
+                    ( newModel, Command.none )
 
         CreateLobbyPressed ->
             localChange CreateLobby model
@@ -220,10 +218,10 @@ updateLoaded msg model =
 
         SoundLoaded _ _ ->
             -- Shouldn't happen
-            ( model, Cmd.none )
+            ( model, Command.none )
 
 
-timeToFrameId : Time.Posix -> MatchState -> Id FrameId
+timeToFrameId : Effect.Time.Posix -> MatchState -> Id FrameId
 timeToFrameId time matchState =
     Duration.from matchState.startTime time
         |> (\a -> Quantity.ratio a frameDuration)
@@ -231,7 +229,7 @@ timeToFrameId time matchState =
         |> Id.fromInt
 
 
-frameIdToTime : Id FrameId -> MatchState -> Time.Posix
+frameIdToTime : Id FrameId -> MatchState -> Effect.Time.Posix
 frameIdToTime frame matchState =
     Quantity.multiplyBy (Id.toInt frame |> toFloat) frameDuration
         |> Duration.addTo matchState.startTime
@@ -245,7 +243,7 @@ frameDuration =
 localChange :
     SessionChange
     -> FrontendLoaded
-    -> ( FrontendLoaded, Cmd FrontendMsg_ )
+    -> ( FrontendLoaded, Command FrontendOnly ToBackend FrontendMsg_ )
 localChange change model =
     ( { model
         | localModel =
@@ -255,7 +253,7 @@ localChange change model =
                 (SessionChange change)
                 model.localModel
       }
-    , Lamdera.sendToBackend (SessionChange_ change)
+    , Effect.Lamdera.sendToBackend (SessionChange_ change)
     )
 
 
@@ -354,18 +352,18 @@ localModelConfig =
     }
 
 
-windowResizedUpdate : WindowSize -> { b | windowSize : WindowSize } -> ( { b | windowSize : WindowSize }, Cmd msg )
+windowResizedUpdate : WindowSize -> { b | windowSize : WindowSize } -> ( { b | windowSize : WindowSize }, Command FrontendOnly toMsg FrontendMsg_ )
 windowResizedUpdate windowSize model =
-    ( { model | windowSize = windowSize }, martinsstewart_elm_device_pixel_ratio_to_js () )
+    ( { model | windowSize = windowSize }, Ports.devicePixelRatioRequest )
 
 
 devicePixelRatioUpdate :
     Quantity Float (Rate WorldPixel Pixels)
     -> { b | devicePixelRatio : Quantity Float (Rate WorldPixel Pixels) }
-    -> ( { b | devicePixelRatio : Quantity Float (Rate WorldPixel Pixels) }, Cmd msg )
+    -> ( { b | devicePixelRatio : Quantity Float (Rate WorldPixel Pixels) }, Command FrontendOnly toMsg msg )
 devicePixelRatioUpdate devicePixelRatio model =
     ( { model | devicePixelRatio = devicePixelRatio }
-    , Cmd.none
+    , Command.none
     )
 
 
@@ -374,7 +372,7 @@ keyDown key { pressedKeys } =
     List.any ((==) key) pressedKeys
 
 
-updateFromBackend : AudioData -> ToFrontend -> FrontendModel_ -> ( FrontendModel_, Cmd FrontendMsg_, AudioCmd FrontendMsg_ )
+updateFromBackend : AudioData -> ToFrontend -> FrontendModel_ -> ( FrontendModel_, Command FrontendOnly toMsg FrontendMsg_, AudioCmd FrontendMsg_ )
 updateFromBackend audioData msg model =
     let
         _ =
@@ -388,10 +386,10 @@ updateFromBackend audioData msg model =
             updateLoadedFromBackend msg loaded |> (\( a, b ) -> ( Loaded a, b, Audio.cmdNone ))
 
         _ ->
-            ( model, Cmd.none, Audio.cmdNone )
+            ( model, Command.none, Audio.cmdNone )
 
 
-updateLoadedFromBackend : ToFrontend -> FrontendLoaded -> ( FrontendLoaded, Cmd FrontendMsg_ )
+updateLoadedFromBackend : ToFrontend -> FrontendLoaded -> ( FrontendLoaded, Command FrontendOnly toMsg FrontendMsg_ )
 updateLoadedFromBackend msg model =
     case msg of
         Change change ->
@@ -402,12 +400,12 @@ updateLoadedFromBackend msg model =
                         (List.Nonempty.fromElement change)
                         model.localModel
               }
-            , Cmd.none
+            , Command.none
             )
 
         ClientInit _ ->
             -- Handled in updateFromBackend
-            ( model, Cmd.none )
+            ( model, Command.none )
 
 
 lostConnection : FrontendLoaded -> Bool
@@ -599,20 +597,19 @@ findPixelPerfectSize frontendModel =
 --        []
 
 
-subscriptions : AudioData -> FrontendModel_ -> Sub FrontendMsg_
+subscriptions : AudioData -> FrontendModel_ -> Subscription FrontendOnly FrontendMsg_
 subscriptions audioData model =
-    Sub.batch
-        [ martinsstewart_elm_device_pixel_ratio_from_js
-            (Quantity.Quantity >> Quantity.per Pixels.pixel >> GotDevicePixelRatio)
-        , Browser.Events.onResize
+    Subscription.batch
+        [ Ports.devicePixelRatioResponse (Quantity.Quantity >> Quantity.per Pixels.pixel >> GotDevicePixelRatio)
+        , Effect.Browser.Events.onResize
             (\width height -> WindowResized { width = Pixels.pixels width, height = Pixels.pixels height })
         , case model of
             Loading _ ->
-                Sub.none
+                Subscription.none
 
             Loaded _ ->
-                Sub.batch
-                    [ Sub.map KeyMsg Keyboard.subscriptions
-                    , Browser.Events.onAnimationFrame AnimationFrame
+                Subscription.batch
+                    [ Subscription.map KeyMsg Keyboard.subscriptions
+                    , Effect.Browser.Events.onAnimationFrame AnimationFrame
                     ]
         ]

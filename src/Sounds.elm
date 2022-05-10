@@ -1,7 +1,7 @@
 module Sounds exposing (Sounds, loadingFinished, requestSounds)
 
+import AssocList as Dict exposing (Dict)
 import Audio exposing (AudioCmd)
-import Dict exposing (Dict)
 
 
 type alias Sounds =

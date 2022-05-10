@@ -1,11 +1,11 @@
 module LocalModel exposing (Config, LocalModel, init, localModel, localMsgs, update, updateFromBackend)
 
+import Effect.Time
 import List.Nonempty exposing (Nonempty)
-import Time
 
 
 type LocalModel msg model
-    = LocalModel { localMsgs : List ( Time.Posix, msg ), localModel : model, model : model }
+    = LocalModel { localMsgs : List ( Effect.Time.Posix, msg ), localModel : model, model : model }
 
 
 type alias Config msg model =
@@ -19,7 +19,7 @@ init model =
     LocalModel { localMsgs = [], localModel = model, model = model }
 
 
-update : Config msg model -> Time.Posix -> msg -> LocalModel msg model -> LocalModel msg model
+update : Config msg model -> Effect.Time.Posix -> msg -> LocalModel msg model -> LocalModel msg model
 update config time msg (LocalModel localModel_) =
     LocalModel
         { localMsgs = localModel_.localMsgs ++ [ ( time, msg ) ]
@@ -33,7 +33,7 @@ localModel (LocalModel localModel_) =
     localModel_.localModel
 
 
-localMsgs : LocalModel msg model -> List ( Time.Posix, msg )
+localMsgs : LocalModel msg model -> List ( Effect.Time.Posix, msg )
 localMsgs (LocalModel localModel_) =
     localModel_.localMsgs
 

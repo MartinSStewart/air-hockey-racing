@@ -1,28 +1,33 @@
 module Backend exposing (app)
 
-import Dict
+import AssocList as Dict
+import Effect.Command as Command exposing (BackendOnly, Command)
+import Effect.Lamdera exposing (ClientId, SessionId)
+import Effect.Subscription as Subscription exposing (Subscription)
 import Id exposing (Id)
 import IdDict
-import Lamdera exposing (ClientId, SessionId)
+import Lamdera
 import List.Extra as List
 import Types exposing (..)
 import User exposing (UserId)
 
 
 app =
-    Lamdera.backend
-        { init = ( init, Cmd.none )
+    Effect.Lamdera.backend
+        Lamdera.broadcast
+        Lamdera.sendToFrontend
+        { init = ( init, Command.none )
         , update = update
         , updateFromFrontend = updateFromFrontend
         , subscriptions = subscriptions
         }
 
 
-subscriptions : BackendModel -> Sub BackendMsg
+subscriptions : BackendModel -> Subscription BackendOnly BackendMsg
 subscriptions model =
-    Sub.batch
-        [ Lamdera.onConnect ClientConnected
-        , Lamdera.onDisconnect ClientDisconnected
+    Subscription.batch
+        [ Effect.Lamdera.onConnect ClientConnected
+        , Effect.Lamdera.onDisconnect ClientDisconnected
         ]
 
 
@@ -35,7 +40,7 @@ init =
     }
 
 
-update : BackendMsg -> BackendModel -> ( BackendModel, Cmd BackendMsg )
+update : BackendMsg -> BackendModel -> ( BackendModel, Command BackendOnly ToFrontend BackendMsg )
 update msg model =
     case msg of
         ClientConnected sessionId clientId ->
@@ -53,7 +58,7 @@ update msg model =
                         model.userSessions
                 , users = IdDict.insert userId { name = "TempName" } model.users
               }
-            , ClientInit { lobbies = model.lobbies, userId = userId } |> Lamdera.sendToFrontend clientId
+            , ClientInit { lobbies = model.lobbies, userId = userId } |> Effect.Lamdera.sendToFrontend clientId
             )
 
         ClientDisconnected sessionId clientId ->
@@ -68,7 +73,7 @@ update msg model =
                         )
                         model.userSessions
               }
-            , Cmd.none
+            , Command.none
             )
 
 
@@ -87,7 +92,12 @@ getUserFromSessionId sessionId model =
             Nothing
 
 
-updateFromFrontend : SessionId -> ClientId -> ToBackend -> BackendModel -> ( BackendModel, Cmd BackendMsg )
+updateFromFrontend :
+    SessionId
+    -> ClientId
+    -> ToBackend
+    -> BackendModel
+    -> ( BackendModel, Command BackendOnly ToFrontend BackendMsg )
 updateFromFrontend sessionId _ msg model =
     case Dict.get sessionId model.userSessions of
         Just { userId } ->
@@ -133,7 +143,7 @@ updateFromFrontend sessionId _ msg model =
                                 , broadcastChange (StartMatch time) (BroadcastStartMatch time lobbyId) userId model
                                 )
                             )
-                        |> Maybe.withDefault ( model, Cmd.none )
+                        |> Maybe.withDefault ( model, Command.none )
 
                 SessionChange_ (MatchInput frameId input) ->
                     ( model
@@ -147,11 +157,11 @@ updateFromFrontend sessionId _ msg model =
                                     userId
                                     model
                             )
-                        |> Maybe.withDefault Cmd.none
+                        |> Maybe.withDefault Command.none
                     )
 
         Nothing ->
-            ( model, Cmd.none )
+            ( model, Command.none )
 
 
 broadcastMatchChange change broadcastChange_ currentUserId model =
@@ -181,7 +191,7 @@ userMatch userId model =
         |> Maybe.map Tuple.first
 
 
-broadcastChange : SessionChange -> BroadcastChange -> Id UserId -> BackendModel -> Cmd BackendMsg
+broadcastChange : SessionChange -> BroadcastChange -> Id UserId -> BackendModel -> Command BackendOnly ToFrontend BackendMsg
 broadcastChange change broadcastChange_ userId model =
     broadcast
         (\sessionId _ ->
@@ -194,10 +204,10 @@ broadcastChange change broadcastChange_ userId model =
         model
 
 
-broadcast : (SessionId -> ClientId -> Maybe ToFrontend) -> BackendModel -> Cmd BackendMsg
+broadcast : (SessionId -> ClientId -> Maybe ToFrontend) -> BackendModel -> Command BackendOnly ToFrontend BackendMsg
 broadcast msgFunc model =
     model.userSessions
         |> Dict.toList
         |> List.concatMap (\( sessionId, { clientIds } ) -> Dict.keys clientIds |> List.map (Tuple.pair sessionId))
-        |> List.filterMap (\( sessionId, clientId ) -> msgFunc sessionId clientId |> Maybe.map (Lamdera.sendToFrontend clientId))
-        |> Cmd.batch
+        |> List.filterMap (\( sessionId, clientId ) -> msgFunc sessionId clientId |> Maybe.map (Effect.Lamdera.sendToFrontend clientId))
+        |> Command.batch
