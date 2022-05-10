@@ -1,6 +1,6 @@
 module Frontend exposing (app, init, update, updateFromBackend, view)
 
-import AssocList as Dict
+import AssocList as Dict exposing (Dict)
 import Audio exposing (Audio, AudioCmd, AudioData)
 import Browser exposing (UrlRequest(..))
 import Duration exposing (Duration)
@@ -18,15 +18,9 @@ import Element.Border
 import Element.Input
 import Html exposing (Html)
 import Id exposing (Id)
-import IdDict exposing (IdDict)
-import Json.Decode
-import Json.Encode
 import Keyboard
-import Keyboard.Arrows
 import Lamdera
 import List.Extra as List
-import List.Nonempty
-import LocalModel exposing (Config, LocalModel)
 import Pixels exposing (Pixels)
 import Ports
 import Quantity exposing (Quantity(..), Rate)
@@ -74,8 +68,8 @@ audio audioData model =
         |> Audio.offsetBy (Duration.milliseconds 30)
 
 
-loadedInit : FrontendLoading -> Sounds -> ClientInitData -> ( FrontendModel_, Command FrontendOnly toMsg FrontendMsg_, AudioCmd FrontendMsg_ )
-loadedInit loading sounds { userId, lobbies } =
+loadedInit : FrontendLoading -> Sounds -> LobbyData -> ( FrontendModel_, Command FrontendOnly toMsg FrontendMsg_, AudioCmd FrontendMsg_ )
+loadedInit loading sounds lobbyData =
     ( Loaded
         { key = loading.key
         , pressedKeys = []
@@ -83,7 +77,7 @@ loadedInit loading sounds { userId, lobbies } =
         , windowSize = loading.windowSize
         , devicePixelRatio = loading.devicePixelRatio
         , time = loading.time
-        , localModel = LocalModel.init { userId = userId, lobbies = lobbies, match = Nothing }
+        , page = LobbyPage lobbyData
         , sounds = sounds
         , lastButtonPress = Nothing
         }
@@ -180,41 +174,21 @@ updateLoaded msg model =
             devicePixelRatioUpdate devicePixelRatio model
 
         AnimationFrame time ->
-            let
-                newModel =
-                    { model
-                        | time = time
-                        , previousKeys = model.pressedKeys
-                    }
-
-                localModel =
-                    LocalModel.localModel model.localModel
-
-                move =
-                    Keyboard.Arrows.wasdDirection model.pressedKeys
-            in
-            case (LocalModel.localModel newModel.localModel).match of
-                Just matchState ->
-                    if move == Keyboard.Arrows.wasdDirection model.previousKeys then
-                        ( model, Command.none )
-
-                    else
-                        localChange (MatchInput (timeToFrameId time matchState) move) newModel
-
-                Nothing ->
-                    ( newModel, Command.none )
+            ( { model
+                | time = time
+                , previousKeys = model.pressedKeys
+              }
+            , Command.none
+            )
 
         CreateLobbyPressed ->
-            localChange CreateLobby model
-                |> Tuple.mapFirst (\m -> { m | lastButtonPress = Just model.time })
+            ( model, Command.none )
 
         JoinLobbyPressed lobbyId ->
-            localChange (JoinLobby lobbyId) model
-                |> Tuple.mapFirst (\m -> { m | lastButtonPress = Just model.time })
+            ( model, Command.none )
 
         StartMatchPressed ->
-            localChange (StartMatch model.time) model
-                |> Tuple.mapFirst (\m -> { m | lastButtonPress = Just model.time })
+            ( model, Command.none )
 
         SoundLoaded _ _ ->
             -- Shouldn't happen
@@ -238,118 +212,6 @@ frameIdToTime frame matchState =
 frameDuration : Duration
 frameDuration =
     Duration.seconds (1 / 60)
-
-
-localChange :
-    SessionChange
-    -> FrontendLoaded
-    -> ( FrontendLoaded, Command FrontendOnly ToBackend FrontendMsg_ )
-localChange change model =
-    ( { model
-        | localModel =
-            LocalModel.update
-                localModelConfig
-                model.time
-                (SessionChange change)
-                model.localModel
-      }
-    , Effect.Lamdera.sendToBackend (SessionChange_ change)
-    )
-
-
-localModelConfig : Config ToFrontendChange Local
-localModelConfig =
-    { msgEqual = (==)
-    , update =
-        \msg model ->
-            case msg of
-                SessionChange CreateLobby ->
-                    { model
-                        | lobbies =
-                            IdDict.insert
-                                (IdDict.size model.lobbies |> Id.fromInt)
-                                { users = IdDict.singleton model.userId () }
-                                model.lobbies
-                    }
-
-                BroadcastChange (BroadcastCreateLobby userId) ->
-                    { model
-                        | lobbies =
-                            IdDict.insert
-                                (IdDict.size model.lobbies |> Id.fromInt)
-                                { users = IdDict.singleton userId () }
-                                model.lobbies
-                    }
-
-                SessionChange (JoinLobby lobbyId) ->
-                    { model
-                        | lobbies =
-                            IdDict.update
-                                lobbyId
-                                (Maybe.map (\lobby -> { lobby | users = IdDict.insert model.userId () lobby.users }))
-                                model.lobbies
-                    }
-
-                BroadcastChange (BroadcastJoinLobby userId lobbyId) ->
-                    { model
-                        | lobbies =
-                            IdDict.update
-                                lobbyId
-                                (Maybe.map (\lobby -> { lobby | users = IdDict.insert userId () lobby.users }))
-                                model.lobbies
-                    }
-
-                SessionChange (StartMatch startTime) ->
-                    IdDict.toList model.lobbies
-                        |> List.find (Tuple.second >> .users >> IdDict.member model.userId)
-                        |> Maybe.map
-                            (\( lobbyId, lobby ) ->
-                                { model
-                                    | lobbies = IdDict.remove lobbyId model.lobbies
-                                    , match =
-                                        Just
-                                            { startTime = startTime
-                                            , timeline = []
-                                            , otherUsers = IdDict.keys lobby.users
-                                            }
-                                }
-                            )
-                        |> Maybe.withDefault model
-
-                BroadcastChange (BroadcastStartMatch time lobbyId) ->
-                    case IdDict.get lobbyId model.lobbies of
-                        Just _ ->
-                            { model | lobbies = IdDict.remove lobbyId model.lobbies }
-
-                        Nothing ->
-                            model
-
-                SessionChange (MatchInput frameId input) ->
-                    { model
-                        | match =
-                            Maybe.map
-                                (\match ->
-                                    { match
-                                        | timeline =
-                                            Timeline.addInput_
-                                                frameId
-                                                { userId = model.userId, input = input }
-                                                match.timeline
-                                    }
-                                )
-                                model.match
-                    }
-
-                BroadcastChange (BroadcastMatchInput frame timelineEvent) ->
-                    { model
-                        | match =
-                            Maybe.map
-                                (\match ->
-                                    { match | timeline = Timeline.addInput_ frame timelineEvent match.timeline }
-                                )
-                                model.match
-                    }
-    }
 
 
 windowResizedUpdate : WindowSize -> { b | windowSize : WindowSize } -> ( { b | windowSize : WindowSize }, Command FrontendOnly toMsg FrontendMsg_ )
@@ -392,19 +254,11 @@ updateFromBackend audioData msg model =
 updateLoadedFromBackend : ToFrontend -> FrontendLoaded -> ( FrontendLoaded, Command FrontendOnly toMsg FrontendMsg_ )
 updateLoadedFromBackend msg model =
     case msg of
-        Change change ->
-            ( { model
-                | localModel =
-                    LocalModel.updateFromBackend
-                        localModelConfig
-                        (List.Nonempty.fromElement change)
-                        model.localModel
-              }
-            , Command.none
-            )
-
         ClientInit _ ->
             -- Handled in updateFromBackend
+            ( model, Command.none )
+
+        CreateLobbyResponse id ->
             ( model, Command.none )
 
 
@@ -463,40 +317,27 @@ stepSize =
 
 loadedView : FrontendLoaded -> Html FrontendMsg_
 loadedView model =
-    let
-        localModel =
-            LocalModel.localModel model.localModel
-    in
     Element.layout
-        [ Element.clip
-        , Element.behindContent <|
-            Element.none
-        ]
-        (Element.column
-            [ Element.spacing 16 ]
-            [ case getCurrentLobby localModel of
-                Just _ ->
-                    button StartMatchPressed (Element.text "Start match")
+        []
+        (case model.page of
+            LobbyPage lobby ->
+                Element.column
+                    [ Element.spacing 16 ]
+                    [ button CreateLobbyPressed (Element.text "Create lobby")
+                    , Element.column
+                        [ Element.spacing 8 ]
+                        [ Element.text "Lobbies"
+                        , lobby
+                            |> .lobbies
+                            |> Dict.toList
+                            |> List.map lobbyRowView
+                            |> Element.column []
+                        ]
+                    ]
 
-                Nothing ->
-                    button CreateLobbyPressed (Element.text "Create lobby")
-            , Element.column
-                [ Element.spacing 8 ]
-                [ Element.text "Lobbies"
-                , localModel
-                    |> .lobbies
-                    |> IdDict.toList
-                    |> List.map lobbyRowView
-                    |> Element.column []
-                ]
-            ]
+            MatchPage matchState ->
+                Element.none
         )
-
-
-getCurrentLobby : Local -> Maybe ( Id LobbyId, Lobby )
-getCurrentLobby local =
-    IdDict.toList local.lobbies
-        |> List.find (Tuple.second >> .users >> IdDict.member local.userId)
 
 
 button : msg -> Element msg -> Element msg
@@ -514,7 +355,7 @@ lobbyRowView : ( Id LobbyId, Lobby ) -> Element FrontendMsg_
 lobbyRowView ( lobbyId, lobby ) =
     Element.row
         []
-        [ Element.text <| "Players: " ++ String.fromInt (IdDict.size lobby.users)
+        [ Element.text <| "Players: " ++ String.fromInt (Dict.size lobby.users)
         , button (JoinLobbyPressed lobbyId) (Element.text "Join")
         ]
 

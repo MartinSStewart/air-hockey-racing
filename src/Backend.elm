@@ -1,11 +1,11 @@
 module Backend exposing (app)
 
 import AssocList as Dict
+import AssocSet as Set exposing (Set)
 import Effect.Command as Command exposing (BackendOnly, Command)
 import Effect.Lamdera exposing (ClientId, SessionId)
 import Effect.Subscription as Subscription exposing (Subscription)
 import Id exposing (Id)
-import IdDict
 import Lamdera
 import List.Extra as List
 import Types exposing (..)
@@ -34,9 +34,9 @@ subscriptions model =
 init : BackendModel
 init =
     { userSessions = Dict.empty
-    , users = IdDict.empty
-    , lobbies = IdDict.empty
-    , matches = IdDict.empty
+    , users = Dict.empty
+    , lobbies = Dict.empty
+    , matches = Dict.empty
     }
 
 
@@ -48,7 +48,7 @@ update msg model =
                 { clientIds, userId } =
                     Dict.get sessionId model.userSessions
                         |> Maybe.withDefault
-                            { userId = IdDict.size model.users |> Id.fromInt, clientIds = Dict.empty }
+                            { userId = Dict.size model.users |> Id.fromInt, clientIds = Dict.empty }
             in
             ( { model
                 | userSessions =
@@ -56,7 +56,7 @@ update msg model =
                         sessionId
                         { clientIds = Dict.insert clientId () clientIds, userId = userId }
                         model.userSessions
-                , users = IdDict.insert userId { name = "TempName" } model.users
+                , users = Dict.insert userId { name = "TempName" } model.users
               }
             , ClientInit { lobbies = model.lobbies, userId = userId } |> Effect.Lamdera.sendToFrontend clientId
             )
@@ -81,7 +81,7 @@ getUserFromSessionId : SessionId -> BackendModel -> Maybe ( Id UserId, BackendUs
 getUserFromSessionId sessionId model =
     case Dict.get sessionId model.userSessions of
         Just { userId } ->
-            case IdDict.get userId model.users of
+            case Dict.get userId model.users of
                 Just user ->
                     Just ( userId, user )
 
@@ -98,116 +98,63 @@ updateFromFrontend :
     -> ToBackend
     -> BackendModel
     -> ( BackendModel, Command BackendOnly ToFrontend BackendMsg )
-updateFromFrontend sessionId _ msg model =
+updateFromFrontend sessionId clientId msg model =
     case Dict.get sessionId model.userSessions of
         Just { userId } ->
             case msg of
-                SessionChange_ CreateLobby ->
-                    ( { model
-                        | lobbies =
-                            IdDict.insert
-                                (IdDict.size model.lobbies |> Id.fromInt)
-                                { users = IdDict.singleton userId () }
-                                model.lobbies
-                      }
-                    , broadcastChange CreateLobby (BroadcastCreateLobby userId) userId model
+                CreateLobbyRequest ->
+                    let
+                        lobbyId : Id LobbyId
+                        lobbyId =
+                            Dict.size model.lobbies |> Id.fromInt
+                    in
+                    ( { model | lobbies = Dict.insert lobbyId { owner = userId, users = Set.empty } model.lobbies }
+                    , Command.none
                     )
 
-                SessionChange_ (JoinLobby lobbyId) ->
-                    ( { model
-                        | lobbies =
-                            IdDict.update
-                                lobbyId
-                                (Maybe.map (\lobby -> { lobby | users = IdDict.insert userId () lobby.users }))
-                                model.lobbies
-                      }
-                    , broadcastChange (JoinLobby lobbyId) (BroadcastJoinLobby userId lobbyId) userId model
-                    )
-
-                SessionChange_ (StartMatch time) ->
-                    IdDict.toList model.lobbies
-                        |> List.find (Tuple.second >> .users >> IdDict.member userId)
-                        |> Maybe.map
-                            (\( lobbyId, lobby ) ->
-                                ( { model
-                                    | lobbies =
-                                        IdDict.remove
-                                            lobbyId
-                                            model.lobbies
-                                    , matches =
-                                        IdDict.insert
-                                            (IdDict.size model.matches |> Id.fromInt)
-                                            { users = lobby.users }
-                                            model.matches
-                                  }
-                                , broadcastChange (StartMatch time) (BroadcastStartMatch time lobbyId) userId model
-                                )
+                JoinLobbyRequest lobbyId ->
+                    case Dict.get lobbyId model.lobbies of
+                        Just lobby ->
+                            ( { model
+                                | lobbies =
+                                    Dict.update
+                                        lobbyId
+                                        (\_ -> Just { lobby | users = Set.insert userId lobby.users })
+                                        model.lobbies
+                              }
+                            , Set.toList lobby.users
+                                |> List.concatMap
+                                    (\lobbyUserId ->
+                                        getSessionIdsFromUserId lobbyUserId model
+                                            |> List.map
+                                                (\lobbyUserSessionId ->
+                                                    JoinLobbyBroadcast userId
+                                                        |> Effect.Lamdera.sendToFrontends lobbyUserSessionId
+                                                )
+                                    )
+                                |> Command.batch
                             )
-                        |> Maybe.withDefault ( model, Command.none )
 
-                SessionChange_ (MatchInput frameId input) ->
-                    ( model
-                    , IdDict.toList model.matches
-                        |> List.find (Tuple.second >> .users >> IdDict.member userId)
-                        |> Maybe.map
-                            (\( _, { users } ) ->
-                                broadcastChange
-                                    (MatchInput frameId input)
-                                    (BroadcastMatchInput frameId { userId = userId, input = input })
-                                    userId
-                                    model
+                        Nothing ->
+                            ( model
+                            , Err LobbyNotFound |> JoinLobbyResponse |> Effect.Lamdera.sendToFrontend clientId
                             )
-                        |> Maybe.withDefault Command.none
-                    )
+
+                StartMatchRequest time ->
+                    Debug.todo ""
 
         Nothing ->
             ( model, Command.none )
 
 
-broadcastMatchChange change broadcastChange_ currentUserId model =
-    broadcast
-        (\sessionId _ ->
-            case Dict.get sessionId model.userSessions of
-                Just { userId } ->
-                    if userId == currentUserId then
-                        change |> Just
+getSessionIdsFromUserId : Id UserId -> BackendModel -> List SessionId
+getSessionIdsFromUserId userId model =
+    Dict.toList model.userSessions
+        |> List.filterMap
+            (\( sessionId, data ) ->
+                if userId == data.userId then
+                    Just sessionId
 
-                    else if userMatch userId model == Nothing then
-                        Nothing
-
-                    else
-                        broadcastChange_ |> Just
-
-                Nothing ->
+                else
                     Nothing
-        )
-        model
-
-
-userMatch : Id UserId -> BackendModel -> Maybe (Id MatchId)
-userMatch userId model =
-    IdDict.toList model.matches
-        |> List.find (Tuple.second >> .users >> IdDict.member userId)
-        |> Maybe.map Tuple.first
-
-
-broadcastChange : SessionChange -> BroadcastChange -> Id UserId -> BackendModel -> Command BackendOnly ToFrontend BackendMsg
-broadcastChange change broadcastChange_ userId model =
-    broadcast
-        (\sessionId _ ->
-            if Dict.get sessionId model.userSessions |> Maybe.map .userId |> (==) (Just userId) then
-                Types.SessionChange change |> Change |> Just
-
-            else
-                Types.BroadcastChange broadcastChange_ |> Change |> Just
-        )
-        model
-
-
-broadcast : (SessionId -> ClientId -> Maybe ToFrontend) -> BackendModel -> Command BackendOnly ToFrontend BackendMsg
-broadcast msgFunc model =
-    model.userSessions
-        |> Dict.toList
-        |> List.concatMap (\( sessionId, { clientIds } ) -> Dict.keys clientIds |> List.map (Tuple.pair sessionId))
-        |> List.filterMap (\( sessionId, clientId ) -> msgFunc sessionId clientId |> Maybe.map (Effect.Lamdera.sendToFrontend clientId))
-        |> Command.batch
+            )
