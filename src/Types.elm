@@ -9,7 +9,6 @@ module Types exposing
     , FrontendMsg
     , FrontendMsg_(..)
     , JoinLobbyError(..)
-    , Lobby
     , LobbyData
     , LobbyId
     , MatchId
@@ -32,6 +31,7 @@ import Effect.Time as Time
 import Id exposing (Id)
 import Keyboard
 import Keyboard.Arrows
+import Lobby exposing (Lobby, LobbyPreview)
 import LocalModel exposing (LocalModel)
 import Pixels exposing (Pixels)
 import Quantity exposing (Quantity, Rate)
@@ -91,7 +91,10 @@ type Page
 
 
 type alias LobbyData =
-    { userId : Id UserId, lobbies : Dict (Id LobbyId) Lobby }
+    { userId : Id UserId
+    , lobbies : Dict (Id LobbyId) LobbyPreview
+    , currentLobby : Maybe { id : Id LobbyId, lobby : Lobby }
+    }
 
 
 type alias MatchState =
@@ -108,10 +111,6 @@ type alias BackendModel =
     , lobbies : Dict (Id LobbyId) Lobby
     , matches : Dict (Id MatchId) { users : Dict UserId () }
     }
-
-
-type alias Lobby =
-    { owner : Id UserId, users : Set (Id UserId) }
 
 
 type alias BackendUserData =
@@ -152,7 +151,7 @@ type BackendMsg
 
 
 type ToFrontend
-    = CreateLobbyResponse (Id LobbyId)
+    = CreateLobbyResponse (Id LobbyId) Lobby
     | ClientInit LobbyData
     | JoinLobbyResponse (Result JoinLobbyError Lobby)
     | JoinLobbyBroadcast (Id UserId)

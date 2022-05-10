@@ -8,6 +8,7 @@ import Effect.Subscription as Subscription exposing (Subscription)
 import Id exposing (Id)
 import Lamdera
 import List.Extra as List
+import Lobby
 import Types exposing (..)
 import User exposing (UserId)
 
@@ -58,7 +59,12 @@ update msg model =
                         model.userSessions
                 , users = Dict.insert userId { name = "TempName" } model.users
               }
-            , ClientInit { lobbies = model.lobbies, userId = userId } |> Effect.Lamdera.sendToFrontend clientId
+            , ClientInit
+                { lobbies = Dict.map (\_ lobby -> Lobby.preview lobby) model.lobbies
+                , userId = userId
+                , currentLobby = Nothing
+                }
+                |> Effect.Lamdera.sendToFrontend clientId
             )
 
         ClientDisconnected sessionId clientId ->
@@ -107,9 +113,12 @@ updateFromFrontend sessionId clientId msg model =
                         lobbyId : Id LobbyId
                         lobbyId =
                             Dict.size model.lobbies |> Id.fromInt
+
+                        lobby =
+                            Lobby.init "New lobby" userId
                     in
-                    ( { model | lobbies = Dict.insert lobbyId { owner = userId, users = Set.empty } model.lobbies }
-                    , Command.none
+                    ( { model | lobbies = Dict.insert lobbyId lobby model.lobbies }
+                    , CreateLobbyResponse lobbyId lobby |> Effect.Lamdera.sendToFrontend clientId
                     )
 
                 JoinLobbyRequest lobbyId ->
@@ -122,17 +131,20 @@ updateFromFrontend sessionId clientId msg model =
                                         (\_ -> Just { lobby | users = Set.insert userId lobby.users })
                                         model.lobbies
                               }
-                            , Set.toList lobby.users
-                                |> List.concatMap
-                                    (\lobbyUserId ->
-                                        getSessionIdsFromUserId lobbyUserId model
-                                            |> List.map
-                                                (\lobbyUserSessionId ->
-                                                    JoinLobbyBroadcast userId
-                                                        |> Effect.Lamdera.sendToFrontends lobbyUserSessionId
-                                                )
-                                    )
-                                |> Command.batch
+                            , Command.batch
+                                [ Ok lobby |> JoinLobbyResponse |> Effect.Lamdera.sendToFrontend clientId
+                                , Set.toList lobby.users
+                                    |> List.concatMap
+                                        (\lobbyUserId ->
+                                            getSessionIdsFromUserId lobbyUserId model
+                                                |> List.map
+                                                    (\lobbyUserSessionId ->
+                                                        JoinLobbyBroadcast userId
+                                                            |> Effect.Lamdera.sendToFrontends lobbyUserSessionId
+                                                    )
+                                        )
+                                    |> Command.batch
+                                ]
                             )
 
                         Nothing ->

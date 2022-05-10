@@ -1,6 +1,7 @@
 module Frontend exposing (app, init, update, updateFromBackend, view)
 
 import AssocList as Dict exposing (Dict)
+import AssocSet as Set
 import Audio exposing (Audio, AudioCmd, AudioData)
 import Browser exposing (UrlRequest(..))
 import Duration exposing (Duration)
@@ -21,6 +22,7 @@ import Id exposing (Id)
 import Keyboard
 import Lamdera
 import List.Extra as List
+import Lobby
 import Pixels exposing (Pixels)
 import Ports
 import Quantity exposing (Quantity(..), Rate)
@@ -260,6 +262,35 @@ updateLoadedFromBackend msg model =
 
         CreateLobbyResponse id ->
             ( model, Command.none )
+
+        JoinLobbyResponse result ->
+            Debug.todo ""
+
+        JoinLobbyBroadcast lobbyId userId ->
+            ( case model.page of
+                LobbyPage lobby ->
+                    { model
+                        | page =
+                            LobbyPage
+                                { lobby
+                                    | currentLobby =
+                                        case lobby.currentLobby of
+                                            Just currentLobby ->
+                                                if currentLobby.id == lobbyId then
+                                                    Just { currentLobby | lobby = Lobby.joinUser userId currentLobby.lobby }
+
+                                                else
+                                                    Just currentLobby
+
+                                            Nothing ->
+                                                Nothing
+                                }
+                    }
+
+                MatchPage matchState ->
+                    model
+            , Command.none
+            )
 
 
 lostConnection : FrontendLoaded -> Bool
