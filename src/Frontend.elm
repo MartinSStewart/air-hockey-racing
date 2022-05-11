@@ -22,7 +22,7 @@ import Id exposing (Id)
 import Keyboard
 import Lamdera
 import List.Extra as List
-import Lobby
+import Lobby exposing (LobbyPreview)
 import Pixels exposing (Pixels)
 import Ports
 import Quantity exposing (Quantity(..), Rate)
@@ -183,13 +183,13 @@ updateLoaded msg model =
             , Command.none
             )
 
-        CreateLobbyPressed ->
-            ( model, Command.none )
+        PressedCreateLobby ->
+            ( model, Effect.Lamdera.sendToBackend CreateLobbyRequest )
 
-        JoinLobbyPressed lobbyId ->
-            ( model, Command.none )
+        PressedJoinLobby lobbyId ->
+            ( model, Effect.Lamdera.sendToBackend (JoinLobbyRequest lobbyId) )
 
-        StartMatchPressed ->
+        PressedStartMatch ->
             ( model, Command.none )
 
         SoundLoaded _ _ ->
@@ -260,21 +260,51 @@ updateLoadedFromBackend msg model =
             -- Handled in updateFromBackend
             ( model, Command.none )
 
-        CreateLobbyResponse id ->
-            ( model, Command.none )
-
-        JoinLobbyResponse result ->
-            Debug.todo ""
-
-        JoinLobbyBroadcast lobbyId userId ->
+        CreateLobbyResponse lobbyId lobby ->
             ( case model.page of
-                LobbyPage lobby ->
+                LobbyPage lobbyData ->
                     { model
                         | page =
                             LobbyPage
-                                { lobby
+                                { lobbyData
+                                    | lobbies = Dict.insert lobbyId (Lobby.preview lobby) lobbyData.lobbies
+                                    , currentLobby = Just { id = lobbyId, lobby = lobby }
+                                }
+                    }
+
+                _ ->
+                    model
+            , Command.none
+            )
+
+        JoinLobbyResponse lobbyId result ->
+            ( case model.page of
+                LobbyPage lobbyData ->
+                    case result of
+                        Ok lobby ->
+                            { model
+                                | page =
+                                    LobbyPage
+                                        { lobbyData | currentLobby = Just { id = lobbyId, lobby = lobby } }
+                            }
+
+                        Err LobbyNotFound ->
+                            model
+
+                _ ->
+                    model
+            , Command.none
+            )
+
+        JoinLobbyBroadcast lobbyId userId ->
+            ( case model.page of
+                LobbyPage lobbyData ->
+                    { model
+                        | page =
+                            LobbyPage
+                                { lobbyData
                                     | currentLobby =
-                                        case lobby.currentLobby of
+                                        case lobbyData.currentLobby of
                                             Just currentLobby ->
                                                 if currentLobby.id == lobbyId then
                                                     Just { currentLobby | lobby = Lobby.joinUser userId currentLobby.lobby }
@@ -288,6 +318,20 @@ updateLoadedFromBackend msg model =
                     }
 
                 MatchPage matchState ->
+                    model
+            , Command.none
+            )
+
+        CreateLobbyBroadcast lobbyId lobbyPreview ->
+            ( case model.page of
+                LobbyPage lobbyData ->
+                    { model
+                        | page =
+                            LobbyPage
+                                { lobbyData | lobbies = Dict.insert lobbyId lobbyPreview lobbyData.lobbies }
+                    }
+
+                _ ->
                     model
             , Command.none
             )
@@ -351,20 +395,33 @@ loadedView model =
     Element.layout
         []
         (case model.page of
-            LobbyPage lobby ->
-                Element.column
-                    [ Element.spacing 16 ]
-                    [ button CreateLobbyPressed (Element.text "Create lobby")
-                    , Element.column
-                        [ Element.spacing 8 ]
-                        [ Element.text "Lobbies"
-                        , lobby
-                            |> .lobbies
-                            |> Dict.toList
-                            |> List.map lobbyRowView
-                            |> Element.column []
-                        ]
-                    ]
+            LobbyPage lobbyData ->
+                case lobbyData.currentLobby of
+                    Just currentLobby ->
+                        Element.column
+                            []
+                            [ button PressedStartMatch (Element.text "Start match")
+                            , Lobby.allUsers currentLobby.lobby
+                                |> List.length
+                                |> String.fromInt
+                                |> (++) "Player count: "
+                                |> Element.text
+                            ]
+
+                    Nothing ->
+                        Element.column
+                            [ Element.spacing 16 ]
+                            [ button PressedCreateLobby (Element.text "Create lobby")
+                            , Element.column
+                                [ Element.spacing 8 ]
+                                [ Element.text "Lobbies"
+                                , lobbyData
+                                    |> .lobbies
+                                    |> Dict.toList
+                                    |> List.map lobbyRowView
+                                    |> Element.column []
+                                ]
+                            ]
 
             MatchPage matchState ->
                 Element.none
@@ -382,12 +439,12 @@ button onPress label =
         }
 
 
-lobbyRowView : ( Id LobbyId, Lobby ) -> Element FrontendMsg_
+lobbyRowView : ( Id LobbyId, LobbyPreview ) -> Element FrontendMsg_
 lobbyRowView ( lobbyId, lobby ) =
     Element.row
         []
-        [ Element.text <| "Players: " ++ String.fromInt (Dict.size lobby.users)
-        , button (JoinLobbyPressed lobbyId) (Element.text "Join")
+        [ Element.text <| "Players: " ++ String.fromInt lobby.userCount
+        , button (PressedJoinLobby lobbyId) (Element.text "Join")
         ]
 
 
@@ -470,7 +527,7 @@ findPixelPerfectSize frontendModel =
 
 
 subscriptions : AudioData -> FrontendModel_ -> Subscription FrontendOnly FrontendMsg_
-subscriptions audioData model =
+subscriptions _ model =
     Subscription.batch
         [ Ports.devicePixelRatioResponse (Quantity.Quantity >> Quantity.per Pixels.pixel >> GotDevicePixelRatio)
         , Effect.Browser.Events.onResize
@@ -479,9 +536,14 @@ subscriptions audioData model =
             Loading _ ->
                 Subscription.none
 
-            Loaded _ ->
+            Loaded loaded ->
                 Subscription.batch
                     [ Subscription.map KeyMsg Keyboard.subscriptions
-                    , Effect.Browser.Events.onAnimationFrame AnimationFrame
+                    , case loaded.page of
+                        LobbyPage _ ->
+                            Subscription.none
+
+                        MatchPage _ ->
+                            Effect.Browser.Events.onAnimationFrame AnimationFrame
                     ]
         ]

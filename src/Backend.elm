@@ -116,9 +116,21 @@ updateFromFrontend sessionId clientId msg model =
 
                         lobby =
                             Lobby.init "New lobby" userId
+
+                        lobbyPreview =
+                            Lobby.preview lobby
                     in
                     ( { model | lobbies = Dict.insert lobbyId lobby model.lobbies }
-                    , CreateLobbyResponse lobbyId lobby |> Effect.Lamdera.sendToFrontend clientId
+                    , Command.batch
+                        [ CreateLobbyResponse lobbyId lobby |> Effect.Lamdera.sendToFrontend clientId
+                        , Dict.keys model.userSessions
+                            |> List.map
+                                (\userSessionId ->
+                                    CreateLobbyBroadcast lobbyId lobbyPreview
+                                        |> Effect.Lamdera.sendToFrontends userSessionId
+                                )
+                            |> Command.batch
+                        ]
                     )
 
                 JoinLobbyRequest lobbyId ->
@@ -128,18 +140,18 @@ updateFromFrontend sessionId clientId msg model =
                                 | lobbies =
                                     Dict.update
                                         lobbyId
-                                        (\_ -> Just { lobby | users = Set.insert userId lobby.users })
+                                        (\_ -> Lobby.joinUser userId lobby |> Just)
                                         model.lobbies
                               }
                             , Command.batch
-                                [ Ok lobby |> JoinLobbyResponse |> Effect.Lamdera.sendToFrontend clientId
-                                , Set.toList lobby.users
+                                [ Ok lobby |> JoinLobbyResponse lobbyId |> Effect.Lamdera.sendToFrontend clientId
+                                , Lobby.allUsers lobby
                                     |> List.concatMap
                                         (\lobbyUserId ->
                                             getSessionIdsFromUserId lobbyUserId model
                                                 |> List.map
                                                     (\lobbyUserSessionId ->
-                                                        JoinLobbyBroadcast userId
+                                                        JoinLobbyBroadcast lobbyId userId
                                                             |> Effect.Lamdera.sendToFrontends lobbyUserSessionId
                                                     )
                                         )
@@ -149,7 +161,7 @@ updateFromFrontend sessionId clientId msg model =
 
                         Nothing ->
                             ( model
-                            , Err LobbyNotFound |> JoinLobbyResponse |> Effect.Lamdera.sendToFrontend clientId
+                            , Err LobbyNotFound |> JoinLobbyResponse lobbyId |> Effect.Lamdera.sendToFrontend clientId
                             )
 
                 StartMatchRequest time ->

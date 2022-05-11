@@ -1,4 +1,4 @@
-module Lobby exposing (Lobby, LobbyData, LobbyPreview, init, joinUser, preview)
+module Lobby exposing (Lobby, LobbyData, LobbyPreview, allUsers, init, joinUser, preview)
 
 import AssocSet as Set exposing (Set)
 import Id exposing (Id)
@@ -10,7 +10,7 @@ type Lobby
 
 
 type alias LobbyPreview =
-    { name : String }
+    { name : String, userCount : Int }
 
 
 type alias LobbyData =
@@ -42,4 +42,9 @@ joinUser userId (Lobby lobby) =
 
 preview : Lobby -> LobbyPreview
 preview (Lobby lobby) =
-    { name = lobby.name }
+    { name = lobby.name, userCount = Set.size lobby.users + 1 }
+
+
+allUsers : Lobby -> List (Id UserId)
+allUsers (Lobby lobby) =
+    lobby.owner :: Set.toList lobby.users

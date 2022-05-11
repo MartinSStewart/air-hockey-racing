@@ -125,9 +125,9 @@ type FrontendMsg_
     | WindowResized WindowSize
     | GotDevicePixelRatio (Quantity Float (Rate WorldPixel Pixels))
     | AnimationFrame Time.Posix
-    | CreateLobbyPressed
-    | JoinLobbyPressed (Id LobbyId)
-    | StartMatchPressed
+    | PressedCreateLobby
+    | PressedJoinLobby (Id LobbyId)
+    | PressedStartMatch
     | SoundLoaded String (Result Audio.LoadError Audio.Source)
 
 
@@ -152,9 +152,10 @@ type BackendMsg
 
 type ToFrontend
     = CreateLobbyResponse (Id LobbyId) Lobby
+    | CreateLobbyBroadcast (Id LobbyId) LobbyPreview
     | ClientInit LobbyData
-    | JoinLobbyResponse (Result JoinLobbyError Lobby)
-    | JoinLobbyBroadcast (Id UserId)
+    | JoinLobbyResponse (Id LobbyId) (Result JoinLobbyError Lobby)
+    | JoinLobbyBroadcast (Id LobbyId) (Id UserId)
 
 
 type JoinLobbyError
