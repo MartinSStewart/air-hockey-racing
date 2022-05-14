@@ -22,6 +22,7 @@ import Id exposing (Id)
 import Keyboard
 import Lamdera
 import List.Extra as List
+import List.Nonempty
 import Lobby exposing (LobbyPreview)
 import Pixels exposing (Pixels)
 import Ports
@@ -31,6 +32,7 @@ import Timeline exposing (FrameId)
 import Types exposing (..)
 import UiColors
 import Url exposing (Url)
+import User exposing (UserId)
 
 
 app =
@@ -70,8 +72,12 @@ audio audioData model =
         |> Audio.offsetBy (Duration.milliseconds 30)
 
 
-loadedInit : FrontendLoading -> Sounds -> LobbyData -> ( FrontendModel_, Command FrontendOnly toMsg FrontendMsg_, AudioCmd FrontendMsg_ )
-loadedInit loading sounds lobbyData =
+loadedInit :
+    FrontendLoading
+    -> Sounds
+    -> ( Id UserId, LobbyData )
+    -> ( FrontendModel_, Command FrontendOnly toMsg FrontendMsg_, AudioCmd FrontendMsg_ )
+loadedInit loading sounds ( userId, lobbyData ) =
     ( Loaded
         { key = loading.key
         , pressedKeys = []
@@ -82,6 +88,7 @@ loadedInit loading sounds lobbyData =
         , page = LobbyPage lobbyData
         , sounds = sounds
         , lastButtonPress = Nothing
+        , userId = userId
         }
     , Command.none
     , Audio.cmdNone
@@ -190,7 +197,7 @@ updateLoaded msg model =
             ( model, Effect.Lamdera.sendToBackend (JoinLobbyRequest lobbyId) )
 
         PressedStartMatch ->
-            ( model, Command.none )
+            ( model, Effect.Lamdera.sendToBackend StartMatchRequest )
 
         SoundLoaded _ _ ->
             -- Shouldn't happen
@@ -243,8 +250,8 @@ updateFromBackend audioData msg model =
             Debug.log "updateFromBackend" msg
     in
     case ( model, msg ) of
-        ( Loading loading, ClientInit initData ) ->
-            { loading | initData = Just initData } |> tryLoadedInit
+        ( Loading loading, ClientInit userId initData ) ->
+            { loading | initData = Just ( userId, initData ) } |> tryLoadedInit
 
         ( Loaded loaded, _ ) ->
             updateLoadedFromBackend msg loaded |> (\( a, b ) -> ( Loaded a, b, Audio.cmdNone ))
@@ -256,7 +263,7 @@ updateFromBackend audioData msg model =
 updateLoadedFromBackend : ToFrontend -> FrontendLoaded -> ( FrontendLoaded, Command FrontendOnly toMsg FrontendMsg_ )
 updateLoadedFromBackend msg model =
     case msg of
-        ClientInit _ ->
+        ClientInit _ _ ->
             -- Handled in updateFromBackend
             ( model, Command.none )
 
@@ -336,6 +343,29 @@ updateLoadedFromBackend msg model =
             , Command.none
             )
 
+        StartMatchBroadcast userIds ->
+            case model.page of
+                LobbyPage lobbyData ->
+                    case lobbyData.currentLobby of
+                        Just _ ->
+                            ( { model
+                                | page =
+                                    MatchPage
+                                        { startTime = model.time
+                                        , timeline = []
+                                        , timelineCache = Timeline.init { players = Dict.empty }
+                                        , userIds = userIds
+                                        }
+                              }
+                            , Command.none
+                            )
+
+                        Nothing ->
+                            ( model, Command.none )
+
+                MatchPage _ ->
+                    ( model, Command.none )
+
 
 lostConnection : FrontendLoaded -> Bool
 lostConnection model =
@@ -393,19 +423,28 @@ stepSize =
 loadedView : FrontendLoaded -> Html FrontendMsg_
 loadedView model =
     Element.layout
-        []
+        [ Id.toInt model.userId
+            |> String.fromInt
+            |> (++) "You are User "
+            |> Element.text
+            |> Element.el [ Element.alignRight, Element.padding 4 ]
+            |> Element.inFront
+        ]
         (case model.page of
             LobbyPage lobbyData ->
                 case lobbyData.currentLobby of
                     Just currentLobby ->
+                        let
+                            users : List (Id UserId)
+                            users =
+                                Lobby.allUsers currentLobby.lobby |> List.Nonempty.toList
+                        in
                         Element.column
                             []
                             [ button PressedStartMatch (Element.text "Start match")
-                            , Lobby.allUsers currentLobby.lobby
-                                |> List.length
-                                |> String.fromInt
-                                |> (++) "Player count: "
-                                |> Element.text
+                            , Element.column
+                                []
+                                (List.map (\userId -> Id.toInt userId |> String.fromInt |> (++) "User " |> Element.text) users)
                             ]
 
                     Nothing ->
@@ -424,7 +463,13 @@ loadedView model =
                             ]
 
             MatchPage matchState ->
-                Element.none
+                Element.column
+                    []
+                    [ Element.text "Players: "
+                    , List.Nonempty.toList matchState.userIds
+                        |> List.map (Id.toInt >> String.fromInt >> (++) "User " >> Element.text)
+                        |> Element.column [ Element.spacing 4 ]
+                    ]
         )
 
 
@@ -539,11 +584,6 @@ subscriptions _ model =
             Loaded loaded ->
                 Subscription.batch
                     [ Subscription.map KeyMsg Keyboard.subscriptions
-                    , case loaded.page of
-                        LobbyPage _ ->
-                            Subscription.none
-
-                        MatchPage _ ->
-                            Effect.Browser.Events.onAnimationFrame AnimationFrame
+                    , Effect.Browser.Events.onAnimationFrame AnimationFrame
                     ]
         ]

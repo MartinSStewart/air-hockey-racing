@@ -8,7 +8,8 @@ import Effect.Subscription as Subscription exposing (Subscription)
 import Id exposing (Id)
 import Lamdera
 import List.Extra as List
-import Lobby
+import List.Nonempty exposing (Nonempty)
+import Lobby exposing (Lobby)
 import Types exposing (..)
 import User exposing (UserId)
 
@@ -60,8 +61,8 @@ update msg model =
                 , users = Dict.insert userId { name = "TempName" } model.users
               }
             , ClientInit
+                userId
                 { lobbies = Dict.map (\_ lobby -> Lobby.preview lobby) model.lobbies
-                , userId = userId
                 , currentLobby = Nothing
                 }
                 |> Effect.Lamdera.sendToFrontend clientId
@@ -146,6 +147,7 @@ updateFromFrontend sessionId clientId msg model =
                             , Command.batch
                                 [ Ok lobby |> JoinLobbyResponse lobbyId |> Effect.Lamdera.sendToFrontend clientId
                                 , Lobby.allUsers lobby
+                                    |> List.Nonempty.toList
                                     |> List.concatMap
                                         (\lobbyUserId ->
                                             getSessionIdsFromUserId lobbyUserId model
@@ -164,11 +166,38 @@ updateFromFrontend sessionId clientId msg model =
                             , Err LobbyNotFound |> JoinLobbyResponse lobbyId |> Effect.Lamdera.sendToFrontend clientId
                             )
 
-                StartMatchRequest time ->
-                    Debug.todo ""
+                StartMatchRequest ->
+                    case getUserOwnedLobby userId model of
+                        Just ( lobbyId, lobby ) ->
+                            let
+                                users : Nonempty (Id UserId)
+                                users =
+                                    Lobby.allUsers lobby
+                            in
+                            ( { model | lobbies = Dict.remove lobbyId model.lobbies }
+                            , List.Nonempty.toList users
+                                |> List.concatMap
+                                    (\lobbyUserId ->
+                                        getSessionIdsFromUserId lobbyUserId model
+                                            |> List.map
+                                                (\lobbySessionId ->
+                                                    StartMatchBroadcast users |> Effect.Lamdera.sendToFrontends lobbySessionId
+                                                )
+                                    )
+                                |> Command.batch
+                            )
+
+                        Nothing ->
+                            ( model, Command.none )
 
         Nothing ->
             ( model, Command.none )
+
+
+getUserOwnedLobby : Id UserId -> BackendModel -> Maybe ( Id LobbyId, Lobby )
+getUserOwnedLobby userId model =
+    Dict.toList model.lobbies
+        |> List.find (\( _, lobby ) -> Lobby.isOwner userId lobby)
 
 
 getSessionIdsFromUserId : Id UserId -> BackendModel -> List SessionId

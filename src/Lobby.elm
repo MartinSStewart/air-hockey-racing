@@ -1,7 +1,8 @@
-module Lobby exposing (Lobby, LobbyData, LobbyPreview, allUsers, init, joinUser, preview)
+module Lobby exposing (Lobby, LobbyData, LobbyPreview, allUsers, init, isOwner, joinUser, preview)
 
 import AssocSet as Set exposing (Set)
 import Id exposing (Id)
+import List.Nonempty exposing (Nonempty(..))
 import User exposing (UserId)
 
 
@@ -40,11 +41,16 @@ joinUser userId (Lobby lobby) =
         |> Lobby
 
 
+isOwner : Id UserId -> Lobby -> Bool
+isOwner userId (Lobby lobby) =
+    lobby.owner == userId
+
+
 preview : Lobby -> LobbyPreview
 preview (Lobby lobby) =
     { name = lobby.name, userCount = Set.size lobby.users + 1 }
 
 
-allUsers : Lobby -> List (Id UserId)
+allUsers : Lobby -> Nonempty (Id UserId)
 allUsers (Lobby lobby) =
-    lobby.owner :: Set.toList lobby.users
+    Nonempty lobby.owner (Set.toList lobby.users)

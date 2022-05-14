@@ -31,6 +31,7 @@ import Effect.Time as Time
 import Id exposing (Id)
 import Keyboard
 import Keyboard.Arrows
+import List.Nonempty exposing (Nonempty)
 import Lobby exposing (Lobby, LobbyPreview)
 import LocalModel exposing (LocalModel)
 import Pixels exposing (Pixels)
@@ -63,7 +64,7 @@ type alias FrontendLoading =
     , windowSize : WindowSize
     , devicePixelRatio : Quantity Float (Rate WorldPixel Pixels)
     , time : Time.Posix
-    , initData : Maybe LobbyData
+    , initData : Maybe ( Id UserId, LobbyData )
     , sounds : Dict String (Result Audio.LoadError Audio.Source)
     }
 
@@ -82,6 +83,7 @@ type alias FrontendLoaded =
     , page : Page
     , sounds : Sounds
     , lastButtonPress : Maybe Time.Posix
+    , userId : Id UserId
     }
 
 
@@ -91,14 +93,17 @@ type Page
 
 
 type alias LobbyData =
-    { userId : Id UserId
-    , lobbies : Dict (Id LobbyId) LobbyPreview
+    { lobbies : Dict (Id LobbyId) LobbyPreview
     , currentLobby : Maybe { id : Id LobbyId, lobby : Lobby }
     }
 
 
 type alias MatchState =
-    { startTime : Time.Posix, timeline : Timeline TimelineEvent, otherUsers : List (Id UserId) }
+    { startTime : Time.Posix
+    , timeline : Timeline TimelineEvent
+    , timelineCache : TimelineCache { players : Dict (Id UserId) ( Int, Int ) }
+    , userIds : Nonempty (Id UserId)
+    }
 
 
 type alias TimelineEvent =
@@ -142,7 +147,7 @@ type MatchId
 type ToBackend
     = CreateLobbyRequest
     | JoinLobbyRequest (Id LobbyId)
-    | StartMatchRequest Time.Posix
+    | StartMatchRequest
 
 
 type BackendMsg
@@ -153,9 +158,10 @@ type BackendMsg
 type ToFrontend
     = CreateLobbyResponse (Id LobbyId) Lobby
     | CreateLobbyBroadcast (Id LobbyId) LobbyPreview
-    | ClientInit LobbyData
+    | ClientInit (Id UserId) LobbyData
     | JoinLobbyResponse (Id LobbyId) (Result JoinLobbyError Lobby)
     | JoinLobbyBroadcast (Id LobbyId) (Id UserId)
+    | StartMatchBroadcast (Nonempty (Id UserId))
 
 
 type JoinLobbyError
