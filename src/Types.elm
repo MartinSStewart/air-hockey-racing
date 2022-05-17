@@ -103,6 +103,7 @@ type alias MatchState =
     , timeline : Timeline TimelineEvent
     , timelineCache : TimelineCache { players : Dict (Id UserId) ( Int, Int ) }
     , userIds : Nonempty (Id UserId)
+    , matchId : Id MatchId
     }
 
 
@@ -114,7 +115,8 @@ type alias BackendModel =
     { userSessions : Dict SessionId { clientIds : Dict ClientId (), userId : Id UserId }
     , users : Dict (Id UserId) BackendUserData
     , lobbies : Dict (Id LobbyId) Lobby
-    , matches : Dict (Id MatchId) { users : Dict UserId () }
+    , matches : Dict (Id MatchId) { users : Nonempty (Id UserId) }
+    , counter : Int
     }
 
 
@@ -148,6 +150,7 @@ type ToBackend
     = CreateLobbyRequest
     | JoinLobbyRequest (Id LobbyId)
     | StartMatchRequest
+    | MatchInputRequest (Id MatchId) Time.Posix Keyboard.Arrows.Direction
 
 
 type BackendMsg
@@ -161,7 +164,8 @@ type ToFrontend
     | ClientInit (Id UserId) LobbyData
     | JoinLobbyResponse (Id LobbyId) (Result JoinLobbyError Lobby)
     | JoinLobbyBroadcast (Id LobbyId) (Id UserId)
-    | StartMatchBroadcast (Nonempty (Id UserId))
+    | StartMatchBroadcast (Id MatchId) (Nonempty (Id UserId))
+    | MatchInputBroadcast (Id MatchId) (Id UserId) Time.Posix Keyboard.Arrows.Direction
 
 
 type JoinLobbyError

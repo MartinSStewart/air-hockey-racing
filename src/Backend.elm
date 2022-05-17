@@ -39,6 +39,7 @@ init =
     , users = Dict.empty
     , lobbies = Dict.empty
     , matches = Dict.empty
+    , counter = 0
     }
 
 
@@ -173,15 +174,21 @@ updateFromFrontend sessionId clientId msg model =
                                 users : Nonempty (Id UserId)
                                 users =
                                     Lobby.allUsers lobby
+
+                                ( matchId, model2 ) =
+                                    getId model
                             in
-                            ( { model | lobbies = Dict.remove lobbyId model.lobbies }
+                            ( { model2
+                                | lobbies = Dict.remove lobbyId model2.lobbies
+                                , matches = Dict.insert matchId { users = users } model2.matches
+                              }
                             , List.Nonempty.toList users
                                 |> List.concatMap
                                     (\lobbyUserId ->
-                                        getSessionIdsFromUserId lobbyUserId model
+                                        getSessionIdsFromUserId lobbyUserId model2
                                             |> List.map
                                                 (\lobbySessionId ->
-                                                    StartMatchBroadcast users |> Effect.Lamdera.sendToFrontends lobbySessionId
+                                                    StartMatchBroadcast matchId users |> Effect.Lamdera.sendToFrontends lobbySessionId
                                                 )
                                     )
                                 |> Command.batch
@@ -190,8 +197,37 @@ updateFromFrontend sessionId clientId msg model =
                         Nothing ->
                             ( model, Command.none )
 
+                MatchInputRequest matchId time direction ->
+                    case Dict.get matchId model.matches of
+                        Just match ->
+                            if List.Nonempty.any ((==) userId) match.users then
+                                ( model
+                                , List.Nonempty.toList match.users
+                                    |> List.concatMap
+                                        (\matchUserId ->
+                                            getSessionIdsFromUserId matchUserId model
+                                                |> List.map
+                                                    (\matchSessionId ->
+                                                        MatchInputBroadcast matchId userId time direction
+                                                            |> Effect.Lamdera.sendToFrontends matchSessionId
+                                                    )
+                                        )
+                                    |> Command.batch
+                                )
+
+                            else
+                                ( model, Command.none )
+
+                        Nothing ->
+                            ( model, Command.none )
+
         Nothing ->
             ( model, Command.none )
+
+
+getId : BackendModel -> ( Id a, BackendModel )
+getId model =
+    ( Id.fromInt model.counter, { model | counter = model.counter + 1 } )
 
 
 getUserOwnedLobby : Id UserId -> BackendModel -> Maybe ( Id LobbyId, Lobby )

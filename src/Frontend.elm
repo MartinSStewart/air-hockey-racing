@@ -19,7 +19,9 @@ import Element.Border
 import Element.Input
 import Html exposing (Html)
 import Id exposing (Id)
+import Json.Decode
 import Keyboard
+import Keyboard.Arrows
 import Lamdera
 import List.Extra as List
 import List.Nonempty
@@ -183,12 +185,39 @@ updateLoaded msg model =
             devicePixelRatioUpdate devicePixelRatio model
 
         AnimationFrame time ->
-            ( { model
-                | time = time
-                , previousKeys = model.pressedKeys
-              }
-            , Command.none
-            )
+            let
+                model2 =
+                    { model | time = time, previousKeys = model.pressedKeys }
+            in
+            case model2.page of
+                MatchPage match ->
+                    let
+                        input : Keyboard.Arrows.Direction
+                        input =
+                            Keyboard.Arrows.arrowsDirection model2.pressedKeys
+                    in
+                    if input == Keyboard.Arrows.arrowsDirection model.previousKeys then
+                        ( model2, Command.none )
+
+                    else
+                        let
+                            ( newCache, newTimeline ) =
+                                Timeline.addInput
+                                    (timeToFrameId model2.time match)
+                                    { userId = model2.userId, input = input }
+                                    match.timelineCache
+                                    match.timeline
+                        in
+                        ( { model2
+                            | page =
+                                MatchPage
+                                    { match | timeline = newTimeline, timelineCache = newCache }
+                          }
+                        , Effect.Lamdera.sendToBackend (MatchInputRequest match.matchId time input)
+                        )
+
+                LobbyPage _ ->
+                    ( model2, Command.none )
 
         PressedCreateLobby ->
             ( model, Effect.Lamdera.sendToBackend CreateLobbyRequest )
@@ -343,7 +372,7 @@ updateLoadedFromBackend msg model =
             , Command.none
             )
 
-        StartMatchBroadcast userIds ->
+        StartMatchBroadcast matchId userIds ->
             case model.page of
                 LobbyPage lobbyData ->
                     case lobbyData.currentLobby of
@@ -352,9 +381,10 @@ updateLoadedFromBackend msg model =
                                 | page =
                                     MatchPage
                                         { startTime = model.time
-                                        , timeline = []
+                                        , timeline = Set.empty
                                         , timelineCache = Timeline.init { players = Dict.empty }
                                         , userIds = userIds
+                                        , matchId = matchId
                                         }
                               }
                             , Command.none
@@ -365,6 +395,28 @@ updateLoadedFromBackend msg model =
 
                 MatchPage _ ->
                     ( model, Command.none )
+
+        MatchInputBroadcast matchId userId time direction ->
+            ( case model.page of
+                MatchPage match ->
+                    if match.matchId == matchId then
+                        let
+                            ( newCache, newTimeline ) =
+                                Timeline.addInput
+                                    (timeToFrameId time match)
+                                    { userId = userId, input = direction }
+                                    match.timelineCache
+                                    match.timeline
+                        in
+                        { model | page = MatchPage { match | timelineCache = newCache, timeline = newTimeline } }
+
+                    else
+                        model
+
+                LobbyPage _ ->
+                    model
+            , Command.none
+            )
 
 
 lostConnection : FrontendLoaded -> Bool
@@ -469,6 +521,44 @@ loadedView model =
                     , List.Nonempty.toList matchState.userIds
                         |> List.map (Id.toInt >> String.fromInt >> (++) "User " >> Element.text)
                         |> Element.column [ Element.spacing 4 ]
+                    , List.map
+                        (\( frameId, { userId, input } ) ->
+                            String.fromInt (Id.toInt frameId)
+                                ++ ", User "
+                                ++ String.fromInt (Id.toInt userId)
+                                ++ ", "
+                                ++ (case input of
+                                        Keyboard.Arrows.North ->
+                                            "North"
+
+                                        Keyboard.Arrows.NorthEast ->
+                                            "NorthEast"
+
+                                        Keyboard.Arrows.East ->
+                                            "East"
+
+                                        Keyboard.Arrows.SouthEast ->
+                                            "SouthEast"
+
+                                        Keyboard.Arrows.South ->
+                                            "South"
+
+                                        Keyboard.Arrows.SouthWest ->
+                                            "SouthWest"
+
+                                        Keyboard.Arrows.West ->
+                                            "West"
+
+                                        Keyboard.Arrows.NorthWest ->
+                                            "NorthWest"
+
+                                        Keyboard.Arrows.NoDirection ->
+                                            "NoDirection"
+                                   )
+                                |> Element.text
+                        )
+                        (Set.toList matchState.timeline)
+                        |> Element.column []
                     ]
         )
 
