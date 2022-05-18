@@ -13,11 +13,13 @@ import Effect.Lamdera
 import Effect.Subscription as Subscription exposing (Subscription)
 import Effect.Task
 import Effect.Time
+import Effect.WebGL as WebGL exposing (Shader)
 import Element exposing (Element)
 import Element.Background
 import Element.Border
 import Element.Input
 import Html exposing (Html)
+import Html.Attributes
 import Id exposing (Id)
 import Json.Decode
 import Keyboard
@@ -26,6 +28,9 @@ import Lamdera
 import List.Extra as List
 import List.Nonempty
 import Lobby exposing (LobbyPreview)
+import Math.Matrix4 as Mat4 exposing (Mat4)
+import Math.Vector2 exposing (Vec2)
+import Math.Vector4 exposing (Vec4)
 import Pixels exposing (Pixels)
 import Ports
 import Quantity exposing (Quantity(..), Rate)
@@ -481,6 +486,8 @@ loadedView model =
             |> Element.text
             |> Element.el [ Element.alignRight, Element.padding 4 ]
             |> Element.inFront
+        , canvasView model |> Element.behindContent
+        , Element.clip
         ]
         (case model.page of
             LobbyPage lobbyData ->
@@ -625,40 +632,85 @@ findPixelPerfectSize frontendModel =
     { canvasSize = ( Pixels.pixels w, Pixels.pixels h ), actualCanvasSize = ( actualW, actualH ) }
 
 
+canvasView : FrontendLoaded -> Element msg
+canvasView model =
+    let
+        ( windowWidth, windowHeight ) =
+            actualCanvasSize
 
---canvasView : FrontendLoaded -> Html FrontendMsg
---canvasView model =
---    let
---        ( windowWidth, windowHeight ) =
---            actualCanvasSize
---
---        ( cssWindowWidth, cssWindowHeight ) =
---            canvasSize
---
---        { canvasSize, actualCanvasSize } =
---            findPixelPerfectSize model
---
---        { x, y } =
---            { x = 0, y = 0 }
---
---        zoomFactor =
---            1
---
---        viewMatrix =
---            Mat4.makeScale3 (toFloat zoomFactor * 2 / toFloat windowWidth) (toFloat zoomFactor * -2 / toFloat windowHeight) 1
---                |> Mat4.translate3
---                    (negate <| toFloat <| round x)
---                    (negate <| toFloat <| round y)
---                    0
---    in
---    WebGL.toHtmlWith
---        [ WebGL.alpha False, WebGL.antialias ]
---        [ Html.Attributes.width windowWidth
---        , Html.Attributes.height windowHeight
---        , Html.Attributes.style "width" (String.fromInt cssWindowWidth ++ "px")
---        , Html.Attributes.style "height" (String.fromInt cssWindowHeight ++ "px")
---        ]
---        []
+        ( cssWindowWidth, cssWindowHeight ) =
+            canvasSize
+
+        { canvasSize, actualCanvasSize } =
+            findPixelPerfectSize model
+
+        { x, y } =
+            { x = 0, y = 0 }
+
+        zoomFactor =
+            100
+
+        viewMatrix =
+            Mat4.makeScale3 (toFloat zoomFactor * 2 / toFloat windowWidth) (toFloat zoomFactor * -2 / toFloat windowHeight) 1
+                |> Mat4.translate3
+                    (negate <| toFloat <| round x)
+                    (negate <| toFloat <| round y)
+                    0
+    in
+    WebGL.toHtmlWith
+        [ WebGL.alpha False, WebGL.antialias ]
+        [ Html.Attributes.width windowWidth
+        , Html.Attributes.height windowHeight
+        , Html.Attributes.style "width" (String.fromInt (Pixels.inPixels cssWindowWidth) ++ "px")
+        , Html.Attributes.style "height" (String.fromInt (Pixels.inPixels cssWindowHeight) ++ "px")
+        ]
+        [ WebGL.entity vertexShader fragmentShader square { view = viewMatrix }
+        ]
+        |> Element.html
+
+
+square : WebGL.Mesh { position : Vec2 }
+square =
+    WebGL.triangleFan
+        [ { position = Math.Vector2.vec2 0 0 }
+        , { position = Math.Vector2.vec2 1 0 }
+        , { position = Math.Vector2.vec2 1 1 }
+        , { position = Math.Vector2.vec2 0 1 }
+        ]
+
+
+type alias Vertex =
+    { position : Vec2 }
+
+
+vertexShader : Shader Vertex { view : Mat4 } { vcolor : Vec4 }
+vertexShader =
+    [glsl|
+attribute vec2 position;
+varying vec4 vcolor;
+uniform mat4 view;
+
+void main () {
+    gl_Position = view * vec4(position, 0.0, 1.0);
+
+    vcolor = vec4(0.0,0.0,0.0,1.0);
+
+
+}
+
+|]
+
+
+fragmentShader : Shader {} { view : Mat4 } { vcolor : Vec4 }
+fragmentShader =
+    [glsl|
+        precision mediump float;
+        varying vec4 vcolor;
+
+        void main () {
+            gl_FragColor = vcolor;
+        }
+    |]
 
 
 subscriptions : AudioData -> FrontendModel_ -> Subscription FrontendOnly FrontendMsg_
