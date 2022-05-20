@@ -12,6 +12,7 @@ module Types exposing
     , LobbyData
     , LobbyId
     , MatchId
+    , MatchPage_
     , MatchState
     , Page(..)
     , TimelineEvent
@@ -89,7 +90,7 @@ type alias FrontendLoaded =
 
 type Page
     = LobbyPage LobbyData
-    | MatchPage MatchState
+    | MatchPage MatchPage_
 
 
 type alias LobbyData =
@@ -98,12 +99,22 @@ type alias LobbyData =
     }
 
 
-type alias MatchState =
+type alias MatchPage_ =
     { startTime : Time.Posix
     , timeline : Timeline TimelineEvent
-    , timelineCache : TimelineCache { players : Dict (Id UserId) ( Int, Int ) }
+    , timelineCache : TimelineCache MatchState
     , userIds : Nonempty (Id UserId)
     , matchId : Id MatchId
+    }
+
+
+type alias MatchState =
+    { players :
+        Dict
+            (Id UserId)
+            { position : ( Float, Float )
+            , input : Keyboard.Arrows.Direction
+            }
     }
 
 

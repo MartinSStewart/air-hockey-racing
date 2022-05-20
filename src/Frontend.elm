@@ -1,7 +1,7 @@
 module Frontend exposing (app, init, update, updateFromBackend, view)
 
 import AssocList as Dict exposing (Dict)
-import AssocSet as Set
+import AssocSet as Set exposing (Set)
 import Audio exposing (Audio, AudioCmd, AudioData)
 import Browser exposing (UrlRequest(..))
 import Duration exposing (Duration)
@@ -17,6 +17,7 @@ import Effect.WebGL as WebGL exposing (Shader)
 import Element exposing (Element)
 import Element.Background
 import Element.Border
+import Element.Font
 import Element.Input
 import Html exposing (Html)
 import Html.Attributes
@@ -26,7 +27,7 @@ import Keyboard
 import Keyboard.Arrows
 import Lamdera
 import List.Extra as List
-import List.Nonempty
+import List.Nonempty exposing (Nonempty)
 import Lobby exposing (LobbyPreview)
 import Math.Matrix4 as Mat4 exposing (Mat4)
 import Math.Vector2 exposing (Vec2)
@@ -200,26 +201,38 @@ updateLoaded msg model =
                         input : Keyboard.Arrows.Direction
                         input =
                             Keyboard.Arrows.arrowsDirection model2.pressedKeys
-                    in
-                    if input == Keyboard.Arrows.arrowsDirection model.previousKeys then
-                        ( model2, Command.none )
 
-                    else
-                        let
-                            ( newCache, newTimeline ) =
-                                Timeline.addInput
+                        ( cache, _ ) =
+                            Timeline.getStateAt
+                                gameUpdate
+                                (timeToFrameId time match)
+                                match.timelineCache
+                                newTimeline
+
+                        inputUnchanged =
+                            input == Keyboard.Arrows.arrowsDirection model.previousKeys
+
+                        newTimeline =
+                            if inputUnchanged then
+                                match.timeline
+
+                            else
+                                Timeline.addInput_
                                     (timeToFrameId model2.time match)
                                     { userId = model2.userId, input = input }
-                                    match.timelineCache
                                     match.timeline
-                        in
-                        ( { model2
-                            | page =
-                                MatchPage
-                                    { match | timeline = newTimeline, timelineCache = newCache }
-                          }
-                        , Effect.Lamdera.sendToBackend (MatchInputRequest match.matchId time input)
-                        )
+                    in
+                    ( { model2
+                        | page =
+                            MatchPage
+                                { match | timeline = newTimeline, timelineCache = cache }
+                      }
+                    , if inputUnchanged then
+                        Command.none
+
+                      else
+                        Effect.Lamdera.sendToBackend (MatchInputRequest match.matchId time input)
+                    )
 
                 LobbyPage _ ->
                     ( model2, Command.none )
@@ -238,7 +251,7 @@ updateLoaded msg model =
             ( model, Command.none )
 
 
-timeToFrameId : Effect.Time.Posix -> MatchState -> Id FrameId
+timeToFrameId : Effect.Time.Posix -> MatchPage_ -> Id FrameId
 timeToFrameId time matchState =
     Duration.from matchState.startTime time
         |> (\a -> Quantity.ratio a frameDuration)
@@ -246,7 +259,7 @@ timeToFrameId time matchState =
         |> Id.fromInt
 
 
-frameIdToTime : Id FrameId -> MatchState -> Effect.Time.Posix
+frameIdToTime : Id FrameId -> MatchPage_ -> Effect.Time.Posix
 frameIdToTime frame matchState =
     Quantity.multiplyBy (Id.toInt frame |> toFloat) frameDuration
         |> Duration.addTo matchState.startTime
@@ -387,7 +400,7 @@ updateLoadedFromBackend msg model =
                                     MatchPage
                                         { startTime = model.time
                                         , timeline = Set.empty
-                                        , timelineCache = Timeline.init { players = Dict.empty }
+                                        , timelineCache = initMatch userIds |> Timeline.init
                                         , userIds = userIds
                                         , matchId = matchId
                                         }
@@ -422,6 +435,20 @@ updateLoadedFromBackend msg model =
                     model
             , Command.none
             )
+
+
+initMatch : Nonempty (Id UserId) -> MatchState
+initMatch userIds =
+    { players =
+        List.Nonempty.toList userIds
+            |> List.map
+                (\userId ->
+                    ( userId
+                    , { position = ( 0, 0 ), input = Keyboard.Arrows.NoDirection }
+                    )
+                )
+            |> Dict.fromList
+    }
 
 
 lostConnection : FrontendLoaded -> Bool
@@ -503,7 +530,10 @@ loadedView model =
                             [ button PressedStartMatch (Element.text "Start match")
                             , Element.column
                                 []
-                                (List.map (\userId -> Id.toInt userId |> String.fromInt |> (++) "User " |> Element.text) users)
+                                (List.map
+                                    (\userId -> Id.toInt userId |> String.fromInt |> (++) "User " |> Element.text)
+                                    users
+                                )
                             ]
 
                     Nothing ->
@@ -521,53 +551,65 @@ loadedView model =
                                 ]
                             ]
 
-            MatchPage matchState ->
+            MatchPage matchPage ->
                 Element.column
                     []
                     [ Element.text "Players: "
-                    , List.Nonempty.toList matchState.userIds
+                    , List.Nonempty.toList matchPage.userIds
                         |> List.map (Id.toInt >> String.fromInt >> (++) "User " >> Element.text)
                         |> Element.column [ Element.spacing 4 ]
-                    , List.map
-                        (\( frameId, { userId, input } ) ->
-                            String.fromInt (Id.toInt frameId)
-                                ++ ", User "
-                                ++ String.fromInt (Id.toInt userId)
-                                ++ ", "
-                                ++ (case input of
-                                        Keyboard.Arrows.North ->
-                                            "North"
-
-                                        Keyboard.Arrows.NorthEast ->
-                                            "NorthEast"
-
-                                        Keyboard.Arrows.East ->
-                                            "East"
-
-                                        Keyboard.Arrows.SouthEast ->
-                                            "SouthEast"
-
-                                        Keyboard.Arrows.South ->
-                                            "South"
-
-                                        Keyboard.Arrows.SouthWest ->
-                                            "SouthWest"
-
-                                        Keyboard.Arrows.West ->
-                                            "West"
-
-                                        Keyboard.Arrows.NorthWest ->
-                                            "NorthWest"
-
-                                        Keyboard.Arrows.NoDirection ->
-                                            "NoDirection"
-                                   )
-                                |> Element.text
-                        )
-                        (Set.toList matchState.timeline)
-                        |> Element.column []
+                    , Element.row
+                        [ Element.Font.size 14, Element.spacing 16 ]
+                        [ inputsView matchPage
+                        , List.map
+                            (\( frameId, _ ) -> Id.toInt frameId |> String.fromInt |> Element.text)
+                            matchPage.timelineCache.cache
+                            |> Element.column [ Element.alignTop ]
+                        ]
                     ]
         )
+
+
+inputsView : MatchPage_ -> Element msg
+inputsView matchPage =
+    List.map
+        (\( frameId, { userId, input } ) ->
+            String.fromInt (Id.toInt frameId)
+                ++ ", User "
+                ++ String.fromInt (Id.toInt userId)
+                ++ ", "
+                ++ (case input of
+                        Keyboard.Arrows.North ->
+                            "North"
+
+                        Keyboard.Arrows.NorthEast ->
+                            "NorthEast"
+
+                        Keyboard.Arrows.East ->
+                            "East"
+
+                        Keyboard.Arrows.SouthEast ->
+                            "SouthEast"
+
+                        Keyboard.Arrows.South ->
+                            "South"
+
+                        Keyboard.Arrows.SouthWest ->
+                            "SouthWest"
+
+                        Keyboard.Arrows.West ->
+                            "West"
+
+                        Keyboard.Arrows.NorthWest ->
+                            "NorthWest"
+
+                        Keyboard.Arrows.NoDirection ->
+                            "NoDirection"
+                   )
+                |> Element.text
+        )
+        (Set.toList matchPage.timeline)
+        |> Element.column [ Element.alignTop ]
 
 
 button : msg -> Element msg -> Element msg
@@ -651,7 +693,7 @@ canvasView model =
             100
 
         viewMatrix =
-            Mat4.makeScale3 (toFloat zoomFactor * 2 / toFloat windowWidth) (toFloat zoomFactor * -2 / toFloat windowHeight) 1
+            Mat4.makeScale3 (toFloat zoomFactor * 2 / toFloat windowWidth) (toFloat zoomFactor * 2 / toFloat windowHeight) 1
                 |> Mat4.translate3
                     (negate <| toFloat <| round x)
                     (negate <| toFloat <| round y)
@@ -664,9 +706,91 @@ canvasView model =
         , Html.Attributes.style "width" (String.fromInt (Pixels.inPixels cssWindowWidth) ++ "px")
         , Html.Attributes.style "height" (String.fromInt (Pixels.inPixels cssWindowHeight) ++ "px")
         ]
-        [ WebGL.entity vertexShader fragmentShader square { view = viewMatrix }
-        ]
+        (case model.page of
+            MatchPage match ->
+                let
+                    ( _, state ) =
+                        Timeline.getStateAt gameUpdate (timeToFrameId model.time match) match.timelineCache match.timeline
+                in
+                List.map
+                    (\player ->
+                        WebGL.entity vertexShader
+                            fragmentShader
+                            square
+                            { view = viewMatrix
+                            , model = tupleToMatrix player.position
+                            }
+                    )
+                    (Dict.values state.players)
+
+            LobbyPage _ ->
+                []
+        )
         |> Element.html
+
+
+gameUpdate : List TimelineEvent -> MatchState -> MatchState
+gameUpdate inputs model =
+    let
+        newModel =
+            List.foldl
+                (\{ userId, input } model2 ->
+                    { players = Dict.update userId (Maybe.map (\a -> { a | input = input })) model2.players }
+                )
+                model
+                inputs
+    in
+    { players =
+        Dict.map
+            (\_ a -> { a | position = directionToOffset a.input |> scaleTuple 0.1 |> addTuple a.position })
+            newModel.players
+    }
+
+
+tupleToMatrix : ( Float, Float ) -> Mat4
+tupleToMatrix ( x, y ) =
+    Mat4.makeTranslate3 x y 0
+
+
+scaleTuple : Float -> ( Float, Float ) -> ( Float, Float )
+scaleTuple scalar ( x, y ) =
+    ( scalar * x, scalar * y )
+
+
+addTuple : ( Float, Float ) -> ( Float, Float ) -> ( Float, Float )
+addTuple ( x0, y0 ) ( x1, y1 ) =
+    ( x0 + x1, y0 + y1 )
+
+
+directionToOffset : Keyboard.Arrows.Direction -> ( Float, Float )
+directionToOffset direction =
+    case direction of
+        Keyboard.Arrows.North ->
+            ( 0, 1 )
+
+        Keyboard.Arrows.NorthEast ->
+            ( 1, 1 )
+
+        Keyboard.Arrows.East ->
+            ( 1, 0 )
+
+        Keyboard.Arrows.SouthEast ->
+            ( 1, -1 )
+
+        Keyboard.Arrows.South ->
+            ( 0, -1 )
+
+        Keyboard.Arrows.SouthWest ->
+            ( -1, -1 )
+
+        Keyboard.Arrows.West ->
+            ( -1, 0 )
+
+        Keyboard.Arrows.NorthWest ->
+            ( -1, 1 )
+
+        Keyboard.Arrows.NoDirection ->
+            ( 0, 0 )
 
 
 square : WebGL.Mesh { position : Vec2 }
@@ -683,15 +807,20 @@ type alias Vertex =
     { position : Vec2 }
 
 
-vertexShader : Shader Vertex { view : Mat4 } { vcolor : Vec4 }
+type alias Uniforms =
+    { view : Mat4, model : Mat4 }
+
+
+vertexShader : Shader Vertex Uniforms { vcolor : Vec4 }
 vertexShader =
     [glsl|
 attribute vec2 position;
 varying vec4 vcolor;
 uniform mat4 view;
+uniform mat4 model;
 
 void main () {
-    gl_Position = view * vec4(position, 0.0, 1.0);
+    gl_Position = view * model * vec4(position, 0.0, 1.0);
 
     vcolor = vec4(0.0,0.0,0.0,1.0);
 
@@ -701,7 +830,7 @@ void main () {
 |]
 
 
-fragmentShader : Shader {} { view : Mat4 } { vcolor : Vec4 }
+fragmentShader : Shader {} Uniforms { vcolor : Vec4 }
 fragmentShader =
     [glsl|
         precision mediump float;
