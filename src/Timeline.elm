@@ -91,7 +91,13 @@ getStateAt updateFunc frame timelineCache timeline =
                             newState =
                                 updateFunc input state
                         in
-                        ( ( Id.fromInt (frameId + 1), newState ) :: cache, newState )
+                        ( if modBy 4 frameId == 0 then
+                            ( Id.fromInt (frameId + 1), newState ) :: cache
+
+                          else
+                            cache
+                        , newState
+                        )
                     )
                     ( [], startState )
     in
@@ -100,7 +106,7 @@ getStateAt updateFunc frame timelineCache timeline =
             newCache
                 ++ timelineCache.cache
                 |> List.sortBy (Tuple.first >> Id.toInt >> negate)
-                |> List.take 60
+                |> List.take 40
       }
     , finalState
     )
