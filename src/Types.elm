@@ -2,38 +2,38 @@ module Types exposing
     ( BackendModel
     , BackendMsg(..)
     , BackendUserData
-    , BroadcastChange(..)
-    , ClientInitData
     , FrontendLoaded
     , FrontendLoading
     , FrontendModel
     , FrontendModel_(..)
     , FrontendMsg
     , FrontendMsg_(..)
-    , Lobby
+    , JoinLobbyError(..)
+    , LobbyData
     , LobbyId
-    , Local
     , MatchId
+    , MatchPage_
     , MatchState
-    , SessionChange(..)
+    , Page(..)
     , TimelineEvent
     , ToBackend(..)
     , ToFrontend(..)
-    , ToFrontendChange(..)
     , WindowSize
     , WorldPixel
     )
 
 import AssocList as Dict exposing (Dict)
+import AssocSet as Set exposing (Set)
 import Audio
 import Browser
 import Effect.Browser.Navigation
 import Effect.Lamdera exposing (ClientId, SessionId)
-import Effect.Time
+import Effect.Time as Time
 import Id exposing (Id)
-import IdDict exposing (IdDict)
 import Keyboard
 import Keyboard.Arrows
+import List.Nonempty exposing (Nonempty)
+import Lobby exposing (Lobby, LobbyPreview)
 import LocalModel exposing (LocalModel)
 import Pixels exposing (Pixels)
 import Quantity exposing (Quantity, Rate)
@@ -64,8 +64,8 @@ type alias FrontendLoading =
     { key : Effect.Browser.Navigation.Key
     , windowSize : WindowSize
     , devicePixelRatio : Quantity Float (Rate WorldPixel Pixels)
-    , time : Effect.Time.Posix
-    , initData : Maybe ClientInitData
+    , time : Time.Posix
+    , initData : Maybe ( Id UserId, LobbyData )
     , sounds : Dict String (Result Audio.LoadError Audio.Source)
     }
 
@@ -80,22 +80,42 @@ type alias FrontendLoaded =
     , pressedKeys : List Keyboard.Key
     , previousKeys : List Keyboard.Key
     , devicePixelRatio : Quantity Float (Rate WorldPixel Pixels)
-    , time : Effect.Time.Posix
-    , localModel : LocalModel ToFrontendChange Local
+    , time : Time.Posix
+    , page : Page
     , sounds : Sounds
-    , lastButtonPress : Maybe Effect.Time.Posix
+    , lastButtonPress : Maybe Time.Posix
+    , userId : Id UserId
     }
 
 
-type alias Local =
-    { lobbies : IdDict LobbyId Lobby
-    , userId : Id UserId
-    , match : Maybe MatchState
+type Page
+    = LobbyPage LobbyData
+    | MatchPage MatchPage_
+
+
+type alias LobbyData =
+    { lobbies : Dict (Id LobbyId) LobbyPreview
+    , currentLobby : Maybe { id : Id LobbyId, lobby : Lobby }
+    }
+
+
+type alias MatchPage_ =
+    { startTime : Time.Posix
+    , timeline : Timeline TimelineEvent
+    , timelineCache : TimelineCache MatchState
+    , userIds : Nonempty (Id UserId)
+    , matchId : Id MatchId
     }
 
 
 type alias MatchState =
-    { startTime : Effect.Time.Posix, timeline : Timeline TimelineEvent, otherUsers : List (Id UserId) }
+    { players :
+        Dict
+            (Id UserId)
+            { position : ( Float, Float )
+            , input : Keyboard.Arrows.Direction
+            }
+    }
 
 
 type alias TimelineEvent =
@@ -104,22 +124,15 @@ type alias TimelineEvent =
 
 type alias BackendModel =
     { userSessions : Dict SessionId { clientIds : Dict ClientId (), userId : Id UserId }
-    , users : IdDict UserId BackendUserData
-    , lobbies : IdDict LobbyId Lobby
-    , matches : IdDict MatchId { users : IdDict UserId () }
+    , users : Dict (Id UserId) BackendUserData
+    , lobbies : Dict (Id LobbyId) Lobby
+    , matches : Dict (Id MatchId) { users : Nonempty (Id UserId) }
+    , counter : Int
     }
-
-
-type alias Lobby =
-    { users : IdDict UserId () }
 
 
 type alias BackendUserData =
     { name : String }
-
-
-type alias ClientInitData =
-    { lobbies : IdDict LobbyId Lobby, userId : Id UserId }
 
 
 type FrontendMsg_
@@ -129,10 +142,10 @@ type FrontendMsg_
     | KeyMsg Keyboard.Msg
     | WindowResized WindowSize
     | GotDevicePixelRatio (Quantity Float (Rate WorldPixel Pixels))
-    | AnimationFrame Effect.Time.Posix
-    | CreateLobbyPressed
-    | JoinLobbyPressed (Id LobbyId)
-    | StartMatchPressed
+    | AnimationFrame Time.Posix
+    | PressedCreateLobby
+    | PressedJoinLobby (Id LobbyId)
+    | PressedStartMatch
     | SoundLoaded String (Result Audio.LoadError Audio.Source)
 
 
@@ -145,7 +158,10 @@ type MatchId
 
 
 type ToBackend
-    = SessionChange_ SessionChange
+    = CreateLobbyRequest
+    | JoinLobbyRequest (Id LobbyId)
+    | StartMatchRequest
+    | MatchInputRequest (Id MatchId) Time.Posix Keyboard.Arrows.Direction
 
 
 type BackendMsg
@@ -154,24 +170,14 @@ type BackendMsg
 
 
 type ToFrontend
-    = Change ToFrontendChange
-    | ClientInit ClientInitData
+    = CreateLobbyResponse (Id LobbyId) Lobby
+    | CreateLobbyBroadcast (Id LobbyId) LobbyPreview
+    | ClientInit (Id UserId) LobbyData
+    | JoinLobbyResponse (Id LobbyId) (Result JoinLobbyError Lobby)
+    | JoinLobbyBroadcast (Id LobbyId) (Id UserId)
+    | StartMatchBroadcast (Id MatchId) (Nonempty (Id UserId))
+    | MatchInputBroadcast (Id MatchId) (Id UserId) Time.Posix Keyboard.Arrows.Direction
 
 
-type ToFrontendChange
-    = BroadcastChange BroadcastChange
-    | SessionChange SessionChange
-
-
-type BroadcastChange
-    = BroadcastCreateLobby (Id UserId)
-    | BroadcastJoinLobby (Id UserId) (Id LobbyId)
-    | BroadcastStartMatch Effect.Time.Posix (Id LobbyId)
-    | BroadcastMatchInput (Id FrameId) TimelineEvent
-
-
-type SessionChange
-    = CreateLobby
-    | JoinLobby (Id LobbyId)
-    | StartMatch Effect.Time.Posix
-    | MatchInput (Id FrameId) Keyboard.Arrows.Direction
+type JoinLobbyError
+    = LobbyNotFound

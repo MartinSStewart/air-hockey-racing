@@ -1,5 +1,6 @@
 module Timeline exposing (FrameId, Timeline, TimelineCache, addInput, addInput_, getStateAt, init)
 
+import AssocSet as Set exposing (Set)
 import Id exposing (Id)
 import List.Extra as List
 
@@ -15,7 +16,7 @@ type alias TimelineCache state =
 
 
 type alias Timeline input =
-    List ( Id FrameId, input )
+    Set ( Id FrameId, input )
 
 
 init : state -> TimelineCache state
@@ -37,7 +38,7 @@ addInput frame input timelineCache timeline =
                     timelineCache.cache
           , initialState = timelineCache.initialState
           }
-        , ( frame, input ) :: timeline
+        , Set.insert ( frame, input ) timeline
         )
 
 
@@ -47,7 +48,7 @@ addInput_ frame input timeline =
         timeline
 
     else
-        ( frame, input ) :: timeline
+        Set.insert ( frame, input ) timeline
 
 
 isBefore : Id FrameId -> Id FrameId -> Bool
@@ -79,7 +80,9 @@ getStateAt updateFunc frame timelineCache timeline =
                 |> List.map
                     (\frameId ->
                         ( frameId
-                        , List.filter (Tuple.first >> Id.toInt >> (==) frameId) timeline |> List.map Tuple.second
+                        , Set.toList timeline
+                            |> List.filter (Tuple.first >> Id.toInt >> (==) frameId)
+                            |> List.map Tuple.second
                         )
                     )
                 |> List.foldl
@@ -92,4 +95,12 @@ getStateAt updateFunc frame timelineCache timeline =
                     )
                     ( [], startState )
     in
-    ( { timelineCache | cache = newCache ++ timelineCache.cache }, finalState )
+    ( { timelineCache
+        | cache =
+            newCache
+                ++ timelineCache.cache
+                |> List.sortBy (Tuple.first >> Id.toInt >> negate)
+                |> List.take 60
+      }
+    , finalState
+    )
