@@ -292,10 +292,6 @@ keyDown key { pressedKeys } =
 
 updateFromBackend : AudioData -> ToFrontend -> FrontendModel_ -> ( FrontendModel_, Command FrontendOnly toMsg FrontendMsg_, AudioCmd FrontendMsg_ )
 updateFromBackend audioData msg model =
-    let
-        _ =
-            Debug.log "updateFromBackend" msg
-    in
     case ( model, msg ) of
         ( Loading loading, ClientInit userId initData ) ->
             { loading | initData = Just ( userId, initData ) } |> tryLoadedInit
