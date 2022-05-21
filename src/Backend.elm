@@ -4,11 +4,14 @@ import AssocList as Dict
 import Effect.Command as Command exposing (BackendOnly, Command)
 import Effect.Lamdera exposing (ClientId, SessionId)
 import Effect.Subscription as Subscription exposing (Subscription)
+import Effect.Task as Task
+import Effect.Time
 import Id exposing (Id)
 import Lamdera
 import List.Extra as List
 import List.Nonempty exposing (Nonempty)
 import Lobby exposing (Lobby)
+import Time
 import Types exposing (..)
 import User exposing (UserId)
 
@@ -83,6 +86,9 @@ update msg model =
             , Command.none
             )
 
+        GotTimeForUpdateFromFrontend sessionId clientId toBackend time ->
+            updateFromFrontendWithTime sessionId clientId toBackend model time
+
 
 getUserFromSessionId : SessionId -> BackendModel -> Maybe ( Id UserId, BackendUserData )
 getUserFromSessionId sessionId model =
@@ -106,6 +112,17 @@ updateFromFrontend :
     -> BackendModel
     -> ( BackendModel, Command BackendOnly ToFrontend BackendMsg )
 updateFromFrontend sessionId clientId msg model =
+    ( model, Effect.Time.now |> Task.perform (GotTimeForUpdateFromFrontend sessionId clientId msg) )
+
+
+updateFromFrontendWithTime :
+    SessionId
+    -> ClientId
+    -> ToBackend
+    -> BackendModel
+    -> Time.Posix
+    -> ( BackendModel, Command BackendOnly ToFrontend BackendMsg )
+updateFromFrontendWithTime sessionId clientId msg model time =
     case Dict.get sessionId model.userSessions of
         Just { userId } ->
             case msg of
@@ -186,7 +203,8 @@ updateFromFrontend sessionId clientId msg model =
                                         getSessionIdsFromUserId lobbyUserId model2
                                             |> List.map
                                                 (\lobbySessionId ->
-                                                    StartMatchBroadcast matchId users |> Effect.Lamdera.sendToFrontends lobbySessionId
+                                                    StartMatchBroadcast matchId time users
+                                                        |> Effect.Lamdera.sendToFrontends lobbySessionId
                                                 )
                                     )
                                 |> Command.batch
@@ -195,7 +213,7 @@ updateFromFrontend sessionId clientId msg model =
                         Nothing ->
                             ( model, Command.none )
 
-                MatchInputRequest matchId time direction ->
+                MatchInputRequest matchId userTime direction ->
                     case Dict.get matchId model.matches of
                         Just match ->
                             if List.Nonempty.any ((==) userId) match.users then
@@ -206,7 +224,7 @@ updateFromFrontend sessionId clientId msg model =
                                             getSessionIdsFromUserId matchUserId model
                                                 |> List.map
                                                     (\matchSessionId ->
-                                                        MatchInputBroadcast matchId userId time direction
+                                                        MatchInputBroadcast matchId userId userTime direction
                                                             |> Effect.Lamdera.sendToFrontends matchSessionId
                                                     )
                                         )

@@ -168,6 +168,7 @@ type ToBackend
 type BackendMsg
     = ClientConnected SessionId ClientId
     | ClientDisconnected SessionId ClientId
+    | GotTimeForUpdateFromFrontend SessionId ClientId ToBackend Time.Posix
 
 
 type ToFrontend
@@ -176,7 +177,7 @@ type ToFrontend
     | ClientInit (Id UserId) LobbyData
     | JoinLobbyResponse (Id LobbyId) (Result JoinLobbyError Lobby)
     | JoinLobbyBroadcast (Id LobbyId) (Id UserId)
-    | StartMatchBroadcast (Id MatchId) (Nonempty (Id UserId))
+    | StartMatchBroadcast (Id MatchId) Time.Posix (Nonempty (Id UserId))
     | MatchInputBroadcast (Id MatchId) (Id UserId) Time.Posix Keyboard.Arrows.Direction
 
 

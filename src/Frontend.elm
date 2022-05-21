@@ -387,7 +387,7 @@ updateLoadedFromBackend msg model =
             , Command.none
             )
 
-        StartMatchBroadcast matchId userIds ->
+        StartMatchBroadcast matchId serverStartTime userIds ->
             case model.page of
                 LobbyPage lobbyData ->
                     case lobbyData.currentLobby of
@@ -395,7 +395,7 @@ updateLoadedFromBackend msg model =
                             ( { model
                                 | page =
                                     MatchPage
-                                        { startTime = model.time
+                                        { startTime = serverStartTime
                                         , localStartTime = model.time
                                         , timeline = Set.empty
                                         , timelineCache = initMatch userIds |> Timeline.init
