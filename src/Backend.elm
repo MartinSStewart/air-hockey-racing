@@ -237,6 +237,9 @@ updateFromFrontendWithTime sessionId clientId msg model time =
                         Nothing ->
                             ( model, Command.none )
 
+                PingRequest ->
+                    ( model, PingResponse time |> Effect.Lamdera.sendToFrontend clientId )
+
         Nothing ->
             ( model, Command.none )
 

@@ -15,6 +15,7 @@ module Types exposing
     , MatchPage_
     , MatchState
     , Page(..)
+    , PingData
     , TimelineEvent
     , ToBackend(..)
     , ToFrontend(..)
@@ -26,6 +27,7 @@ import AssocList as Dict exposing (Dict)
 import AssocSet as Set exposing (Set)
 import Audio
 import Browser
+import Duration exposing (Duration)
 import Effect.Browser.Navigation
 import Effect.Lamdera exposing (ClientId, SessionId)
 import Effect.Time as Time
@@ -85,6 +87,18 @@ type alias FrontendLoaded =
     , sounds : Sounds
     , lastButtonPress : Maybe Time.Posix
     , userId : Id UserId
+    , pingStartTime : Maybe Time.Posix
+    , pingData : Maybe PingData
+    }
+
+
+type alias PingData =
+    { roundTripTime : Duration
+    , serverTime : Time.Posix
+    , sendTime : Time.Posix
+    , receiveTime : Time.Posix
+    , lowEstimate : Duration
+    , highEstimate : Duration
     }
 
 
@@ -163,6 +177,7 @@ type ToBackend
     | JoinLobbyRequest (Id LobbyId)
     | StartMatchRequest
     | MatchInputRequest (Id MatchId) Time.Posix Keyboard.Arrows.Direction
+    | PingRequest
 
 
 type BackendMsg
@@ -179,6 +194,7 @@ type ToFrontend
     | JoinLobbyBroadcast (Id LobbyId) (Id UserId)
     | StartMatchBroadcast (Id MatchId) Time.Posix (Nonempty (Id UserId))
     | MatchInputBroadcast (Id MatchId) (Id UserId) Time.Posix Keyboard.Arrows.Direction
+    | PingResponse Time.Posix
 
 
 type JoinLobbyError

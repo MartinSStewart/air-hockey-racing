@@ -85,7 +85,7 @@ loadedInit :
     FrontendLoading
     -> Sounds
     -> ( Id UserId, LobbyData )
-    -> ( FrontendModel_, Command FrontendOnly toMsg FrontendMsg_, AudioCmd FrontendMsg_ )
+    -> ( FrontendModel_, Command FrontendOnly ToBackend FrontendMsg_, AudioCmd FrontendMsg_ )
 loadedInit loading sounds ( userId, lobbyData ) =
     ( Loaded
         { key = loading.key
@@ -98,13 +98,15 @@ loadedInit loading sounds ( userId, lobbyData ) =
         , sounds = sounds
         , lastButtonPress = Nothing
         , userId = userId
+        , pingStartTime = Just loading.time
+        , pingData = Nothing
         }
-    , Command.none
+    , Effect.Lamdera.sendToBackend PingRequest
     , Audio.cmdNone
     )
 
 
-tryLoadedInit : FrontendLoading -> ( FrontendModel_, Command FrontendOnly toMsg FrontendMsg_, AudioCmd FrontendMsg_ )
+tryLoadedInit : FrontendLoading -> ( FrontendModel_, Command FrontendOnly ToBackend FrontendMsg_, AudioCmd FrontendMsg_ )
 tryLoadedInit loading =
     Maybe.map2
         (loadedInit loading)
@@ -113,7 +115,7 @@ tryLoadedInit loading =
         |> Maybe.withDefault ( Loading loading, Command.none, Audio.cmdNone )
 
 
-init : Url -> Effect.Browser.Navigation.Key -> ( FrontendModel_, Command FrontendOnly toMsg FrontendMsg_, AudioCmd FrontendMsg_ )
+init : Url -> Effect.Browser.Navigation.Key -> ( FrontendModel_, Command FrontendOnly ToBackend FrontendMsg_, AudioCmd FrontendMsg_ )
 init url key =
     ( Loading
         { key = key
@@ -291,7 +293,7 @@ keyDown key { pressedKeys } =
     List.any ((==) key) pressedKeys
 
 
-updateFromBackend : AudioData -> ToFrontend -> FrontendModel_ -> ( FrontendModel_, Command FrontendOnly toMsg FrontendMsg_, AudioCmd FrontendMsg_ )
+updateFromBackend : AudioData -> ToFrontend -> FrontendModel_ -> ( FrontendModel_, Command FrontendOnly ToBackend FrontendMsg_, AudioCmd FrontendMsg_ )
 updateFromBackend audioData msg model =
     case ( model, msg ) of
         ( Loading loading, ClientInit userId initData ) ->
@@ -304,7 +306,7 @@ updateFromBackend audioData msg model =
             ( model, Command.none, Audio.cmdNone )
 
 
-updateLoadedFromBackend : ToFrontend -> FrontendLoaded -> ( FrontendLoaded, Command FrontendOnly toMsg FrontendMsg_ )
+updateLoadedFromBackend : ToFrontend -> FrontendLoaded -> ( FrontendLoaded, Command FrontendOnly ToBackend FrontendMsg_ )
 updateLoadedFromBackend msg model =
     case msg of
         ClientInit _ _ ->
@@ -434,6 +436,40 @@ updateLoadedFromBackend msg model =
             , Command.none
             )
 
+        PingResponse serverTime ->
+            case model.pingStartTime of
+                Just pingStartTime ->
+                    let
+                        ( newLowEstimate, newHighEstimate ) =
+                            case model.pingData of
+                                Just oldPingData ->
+                                    ( Duration.from pingStartTime serverTime |> Quantity.min oldPingData.lowEstimate
+                                    , Duration.from model.time serverTime |> Quantity.max oldPingData.highEstimate
+                                    )
+
+                                Nothing ->
+                                    ( Duration.from pingStartTime serverTime
+                                    , Duration.from model.time serverTime
+                                    )
+                    in
+                    ( { model
+                        | pingData =
+                            Just
+                                { roundTripTime = Duration.from pingStartTime model.time
+                                , lowEstimate = newLowEstimate
+                                , highEstimate = newHighEstimate
+                                , serverTime = serverTime
+                                , sendTime = pingStartTime
+                                , receiveTime = model.time
+                                }
+                        , pingStartTime = Just model.time
+                      }
+                    , Effect.Lamdera.sendToBackend PingRequest
+                    )
+
+                Nothing ->
+                    ( model, Command.none )
+
 
 initMatch : Nonempty (Id UserId) -> MatchState
 initMatch userIds =
@@ -497,19 +533,36 @@ isErr a =
             False
 
 
-stepSize : Int
-stepSize =
-    33
-
-
 loadedView : FrontendLoaded -> Html FrontendMsg_
 loadedView model =
     Element.layout
-        [ Id.toInt model.userId
-            |> String.fromInt
-            |> (++) "You are User "
-            |> Element.text
-            |> Element.el [ Element.alignRight, Element.padding 4 ]
+        [ Element.column
+            [ Element.alignRight, Element.padding 4, Element.spacing 4 ]
+            [ Id.toInt model.userId
+                |> String.fromInt
+                |> (++) "You are User "
+                |> Element.text
+            , case model.pingData of
+                Just pingData ->
+                    Element.column
+                        [ Element.spacing 4 ]
+                        [ "Ping (ms): "
+                            ++ String.fromInt (round (Duration.inMilliseconds pingData.roundTripTime))
+                            |> Element.text
+                        , "Server offset (low): "
+                            ++ String.fromInt (round (Duration.inMilliseconds pingData.lowEstimate))
+                            |> Element.text
+                        , "Server offset (high): "
+                            ++ String.fromInt (round (Duration.inMilliseconds pingData.highEstimate))
+                            |> Element.text
+                        , "Send time: " ++ timestamp pingData.sendTime |> Element.text
+                        , "Receive time: " ++ timestamp pingData.receiveTime |> Element.text
+                        , "Server time: " ++ timestamp pingData.serverTime |> Element.text
+                        ]
+
+                Nothing ->
+                    Element.text "No ping"
+            ]
             |> Element.inFront
         , canvasView model |> Element.behindContent
         , Element.clip
