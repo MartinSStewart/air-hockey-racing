@@ -1,7 +1,6 @@
 module Backend exposing (app)
 
 import AssocList as Dict
-import AssocSet as Set exposing (Set)
 import Effect.Command as Command exposing (BackendOnly, Command)
 import Effect.Lamdera exposing (ClientId, SessionId)
 import Effect.Subscription as Subscription exposing (Subscription)
@@ -112,9 +111,8 @@ updateFromFrontend sessionId clientId msg model =
             case msg of
                 CreateLobbyRequest ->
                     let
-                        lobbyId : Id LobbyId
-                        lobbyId =
-                            Dict.size model.lobbies |> Id.fromInt
+                        ( lobbyId, model2 ) =
+                            getId model
 
                         lobby =
                             Lobby.init "New lobby" userId
@@ -122,10 +120,10 @@ updateFromFrontend sessionId clientId msg model =
                         lobbyPreview =
                             Lobby.preview lobby
                     in
-                    ( { model | lobbies = Dict.insert lobbyId lobby model.lobbies }
+                    ( { model2 | lobbies = Dict.insert lobbyId lobby model2.lobbies }
                     , Command.batch
                         [ CreateLobbyResponse lobbyId lobby |> Effect.Lamdera.sendToFrontend clientId
-                        , Dict.keys model.userSessions
+                        , Dict.keys model2.userSessions
                             |> List.map
                                 (\userSessionId ->
                                     CreateLobbyBroadcast lobbyId lobbyPreview

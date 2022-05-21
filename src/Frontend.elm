@@ -36,6 +36,7 @@ import Pixels exposing (Pixels)
 import Ports
 import Quantity exposing (Quantity(..), Rate)
 import Sounds exposing (Sounds)
+import Time
 import Timeline exposing (FrameId)
 import Types exposing (..)
 import UiColors
@@ -395,6 +396,7 @@ updateLoadedFromBackend msg model =
                                 | page =
                                     MatchPage
                                         { startTime = model.time
+                                        , localStartTime = model.time
                                         , timeline = Set.empty
                                         , timelineCache = initMatch userIds |> Timeline.init
                                         , userIds = userIds
@@ -551,9 +553,17 @@ loadedView model =
                 Element.column
                     []
                     [ Element.text "Players: "
-                    , List.Nonempty.toList matchPage.userIds
-                        |> List.map (Id.toInt >> String.fromInt >> (++) "User " >> Element.text)
-                        |> Element.column [ Element.spacing 4 ]
+                    , Element.row
+                        [ Element.spacing 16 ]
+                        [ List.Nonempty.toList matchPage.userIds
+                            |> List.map (Id.toInt >> String.fromInt >> (++) "User " >> Element.text)
+                            |> Element.column [ Element.spacing 4 ]
+                        , Element.column
+                            []
+                            [ "Start time:  " ++ timestamp matchPage.startTime |> Element.text
+                            , "Local time: " ++ timestamp matchPage.localStartTime |> Element.text
+                            ]
+                        ]
                     , Element.row
                         [ Element.Font.size 14, Element.spacing 16 ]
                         [ inputsView matchPage
@@ -564,6 +574,17 @@ loadedView model =
                         ]
                     ]
         )
+
+
+timestamp : Time.Posix -> String
+timestamp time =
+    String.fromInt (Time.toHour Time.utc time)
+        ++ ":"
+        ++ String.padLeft 2 '0' (String.fromInt (Time.toMinute Time.utc time))
+        ++ ":"
+        ++ String.padLeft 2 '0' (String.fromInt (Time.toSecond Time.utc time))
+        ++ "."
+        ++ String.padLeft 4 '0' (String.fromInt (Time.toMillis Time.utc time))
 
 
 inputsView : MatchPage_ -> Element msg

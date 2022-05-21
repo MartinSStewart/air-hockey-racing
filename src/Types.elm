@@ -101,6 +101,7 @@ type alias LobbyData =
 
 type alias MatchPage_ =
     { startTime : Time.Posix
+    , localStartTime : Time.Posix
     , timeline : Timeline TimelineEvent
     , timelineCache : TimelineCache MatchState
     , userIds : Nonempty (Id UserId)
