@@ -758,19 +758,6 @@ canvasView model =
 
         { canvasSize, actualCanvasSize } =
             findPixelPerfectSize model
-
-        { x, y } =
-            { x = 0, y = 0 }
-
-        zoomFactor =
-            100
-
-        viewMatrix =
-            Mat4.makeScale3 (toFloat zoomFactor * 2 / toFloat windowWidth) (toFloat zoomFactor * 2 / toFloat windowHeight) 1
-                |> Mat4.translate3
-                    (negate <| toFloat <| round x)
-                    (negate <| toFloat <| round y)
-                    0
     in
     WebGL.toHtmlWith
         [ WebGL.alpha False, WebGL.antialias ]
@@ -784,17 +771,42 @@ canvasView model =
                 let
                     ( _, state ) =
                         Timeline.getStateAt gameUpdate (timeToFrameId model.time match) match.timelineCache match.timeline
+
+                    { x, y } =
+                        case Dict.get model.userId state.players of
+                            Just player ->
+                                Point2d.toMeters player.position
+
+                            Nothing ->
+                                { x = 0, y = 0 }
+
+                    zoomFactor =
+                        100
+
+                    viewMatrix =
+                        Mat4.makeScale3
+                            (toFloat zoomFactor * 2 / toFloat windowWidth)
+                            (toFloat zoomFactor * 2 / toFloat windowHeight)
+                            1
+                            |> Mat4.translate3 -x -y 0
                 in
-                List.map
-                    (\player ->
-                        WebGL.entity vertexShader
-                            fragmentShader
-                            square
-                            { view = viewMatrix
-                            , model = pointToMatrix player.position
-                            }
-                    )
-                    (Dict.values state.players)
+                WebGL.entity
+                    backgroundVertexShader
+                    backgroundFragmentShader
+                    square
+                    { view = Math.Vector2.vec2 x y
+                    , windowSize = Math.Vector2.vec2 (toFloat windowWidth) (toFloat windowHeight)
+                    }
+                    :: List.map
+                        (\player ->
+                            WebGL.entity vertexShader
+                                fragmentShader
+                                square
+                                { view = viewMatrix
+                                , model = pointToMatrix player.position
+                                }
+                        )
+                        (Dict.values state.players)
 
             LobbyPage _ ->
                 []
@@ -819,7 +831,7 @@ gameUpdate inputs model =
                 { a
                     | position =
                         Point2d.translateBy
-                            (directionToOffset a.input |> Vector2d.scaleBy 0.1)
+                            (directionToOffset a.input |> Vector2d.scaleBy 1)
                             a.position
                 }
             )
@@ -870,10 +882,10 @@ directionToOffset direction =
 square : WebGL.Mesh { position : Vec2 }
 square =
     WebGL.triangleFan
-        [ { position = Math.Vector2.vec2 0 0 }
-        , { position = Math.Vector2.vec2 1 0 }
+        [ { position = Math.Vector2.vec2 -1 -1 }
+        , { position = Math.Vector2.vec2 1 -1 }
         , { position = Math.Vector2.vec2 1 1 }
-        , { position = Math.Vector2.vec2 0 1 }
+        , { position = Math.Vector2.vec2 -1 1 }
         ]
 
 
@@ -912,6 +924,47 @@ fragmentShader =
 
         void main () {
             gl_FragColor = vcolor;
+        }
+    |]
+
+
+backgroundVertexShader : Shader Vertex { view : Vec2, windowSize : Vec2 } { worldCoordinate : Vec2 }
+backgroundVertexShader =
+    [glsl|
+attribute vec2 position;
+varying vec2 worldCoordinate;
+uniform vec2 view;
+uniform vec2 windowSize;
+
+void main () {
+    gl_Position = vec4(position, 0.0, 1.0);
+
+    worldCoordinate = windowSize * position + view;
+}
+
+|]
+
+
+backgroundFragmentShader : Shader {} { a | windowSize : Vec2 } { worldCoordinate : Vec2 }
+backgroundFragmentShader =
+    [glsl|
+        precision mediump float;
+        varying vec2 worldCoordinate;
+
+        float modI(float a,float b) {
+            float m=a-floor((a+0.5)/b)*b;
+            return floor(m+0.5);
+        }
+
+        void main () {
+            float primaryThickness = 9.0;
+            float secondaryThickness = 3.0;
+            int x0 = modI(worldCoordinate.x + primaryThickness * 0.5, 800.0) <= primaryThickness ? 1 : 0;
+            int y0 = modI(worldCoordinate.y + primaryThickness * 0.5, 800.0) <= primaryThickness ? 1 : 0;
+            int x1 = modI(worldCoordinate.x + secondaryThickness * 0.5, 200.0) <= secondaryThickness ? 1 : 0;
+            int y1 = modI(worldCoordinate.y + secondaryThickness * 0.5, 200.0) <= secondaryThickness ? 1 : 0;
+            float value = x0 + y0 >= 1 ? 0.3 : x1 + y1 >= 1 ? 0.7 : 1.0;
+            gl_FragColor = vec4(value, value, value, 1.0);
         }
     |]
 
