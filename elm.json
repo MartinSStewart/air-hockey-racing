@@ -40,7 +40,7 @@
             "danfishgold/base64-bytes": "1.1.0",
             "elm/file": "1.0.5",
             "elm/parser": "1.1.0",
-            "elm/virtual-dom": "1.0.2",
+            "elm/virtual-dom": "1.0.3",
             "elm-explorations/test": "1.2.2",
             "folkertdev/elm-sha2": "1.0.0",
             "ianmackenzie/elm-interval": "2.0.0",
