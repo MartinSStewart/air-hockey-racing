@@ -28,6 +28,7 @@ import AssocList as Dict exposing (Dict)
 import AssocSet as Set exposing (Set)
 import Audio
 import Browser
+import Direction2d exposing (Direction2d)
 import Duration exposing (Duration)
 import Effect.Browser.Navigation
 import Effect.Lamdera exposing (ClientId, SessionId)
@@ -134,7 +135,7 @@ type alias MatchState =
             (Id UserId)
             { position : Point2d Meters WorldCoordinate
             , velocity : Vector2d Meters WorldCoordinate
-            , input : Keyboard.Arrows.Direction
+            , input : Maybe (Direction2d WorldCoordinate)
             }
     }
 
@@ -144,7 +145,7 @@ type WorldCoordinate
 
 
 type alias TimelineEvent =
-    { userId : Id UserId, input : Keyboard.Arrows.Direction }
+    { userId : Id UserId, input : Maybe (Direction2d WorldCoordinate) }
 
 
 type alias BackendModel =
@@ -172,6 +173,7 @@ type FrontendMsg_
     | PressedJoinLobby (Id LobbyId)
     | PressedStartMatch
     | SoundLoaded String (Result Audio.LoadError Audio.Source)
+    | MouseMoved Float Float
 
 
 type LobbyId
@@ -186,7 +188,7 @@ type ToBackend
     = CreateLobbyRequest
     | JoinLobbyRequest (Id LobbyId)
     | StartMatchRequest
-    | MatchInputRequest (Id MatchId) Time.Posix Keyboard.Arrows.Direction
+    | MatchInputRequest (Id MatchId) Time.Posix (Maybe (Direction2d WorldCoordinate))
     | PingRequest
 
 
@@ -203,7 +205,7 @@ type ToFrontend
     | JoinLobbyResponse (Id LobbyId) (Result JoinLobbyError Lobby)
     | JoinLobbyBroadcast (Id LobbyId) (Id UserId)
     | StartMatchBroadcast (Id MatchId) Time.Posix (Nonempty (Id UserId))
-    | MatchInputBroadcast (Id MatchId) (Id UserId) Time.Posix Keyboard.Arrows.Direction
+    | MatchInputBroadcast (Id MatchId) Time.Posix TimelineEvent
     | PingResponse Time.Posix
 
 

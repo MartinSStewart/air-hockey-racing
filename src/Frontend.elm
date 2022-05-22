@@ -1,9 +1,11 @@
 module Frontend exposing (app, init, update, updateFromBackend, view)
 
+import Angle
 import AssocList as Dict exposing (Dict)
 import AssocSet as Set exposing (Set)
 import Audio exposing (Audio, AudioCmd, AudioData)
 import Browser exposing (UrlRequest(..))
+import Direction2d exposing (Direction2d)
 import Duration exposing (Duration)
 import Effect.Browser.Dom
 import Effect.Browser.Events
@@ -32,6 +34,7 @@ import List.Nonempty exposing (Nonempty)
 import Lobby exposing (LobbyPreview)
 import Math.Matrix4 as Mat4 exposing (Mat4)
 import Math.Vector2 exposing (Vec2)
+import Math.Vector3 exposing (Vec3)
 import Math.Vector4 exposing (Vec4)
 import Pixels exposing (Pixels)
 import Point2d exposing (Point2d)
@@ -45,6 +48,7 @@ import UiColors
 import Url exposing (Url)
 import User exposing (UserId)
 import Vector2d exposing (Vector2d)
+import WebGL.Settings
 
 
 app =
@@ -225,6 +229,7 @@ updateLoaded msg model =
                             else
                                 match.zoom
 
+                        inputUnchanged : Bool
                         inputUnchanged =
                             input == Keyboard.Arrows.arrowsDirection model.previousKeys
 
@@ -235,7 +240,7 @@ updateLoaded msg model =
                             else
                                 Timeline.addInput_
                                     (timeToFrameId model2.time match)
-                                    { userId = model2.userId, input = input }
+                                    { userId = model2.userId, input = directionToOffset input }
                                     match.timeline
                     in
                     ( { model2
@@ -247,7 +252,7 @@ updateLoaded msg model =
                         Command.none
 
                       else
-                        Effect.Lamdera.sendToBackend (MatchInputRequest match.matchId time input)
+                        Effect.Lamdera.sendToBackend (MatchInputRequest match.matchId time (directionToOffset input))
                     )
 
                 LobbyPage _ ->
@@ -265,6 +270,26 @@ updateLoaded msg model =
         SoundLoaded _ _ ->
             -- Shouldn't happen
             ( model, Command.none )
+
+        MouseMoved x y ->
+            case model.page of
+                MatchPage matchPage ->
+                    let
+                        maybeDirection =
+                            Direction2d.from
+                                (Point2d.fromPixels { x = x, y = y })
+                                (Point2d.fromPixels
+                                    { x = toFloat (Pixels.inPixels model.windowSize.width) / 2
+                                    , y = toFloat (Pixels.inPixels model.windowSize.height) / 2
+                                    }
+                                )
+                    in
+                    case maybeDirection of
+                        Just direction ->
+                            0
+
+                LobbyPage _ ->
+                    ( model, Command.none )
 
 
 timeToFrameId : Effect.Time.Posix -> MatchPage_ -> Id FrameId
@@ -428,17 +453,13 @@ updateLoadedFromBackend msg model =
                 MatchPage _ ->
                     ( model, Command.none )
 
-        MatchInputBroadcast matchId userId time direction ->
+        MatchInputBroadcast matchId time event ->
             ( case model.page of
                 MatchPage match ->
                     if match.matchId == matchId then
                         let
                             ( newCache, newTimeline ) =
-                                Timeline.addInput
-                                    (timeToFrameId time match)
-                                    { userId = userId, input = direction }
-                                    match.timelineCache
-                                    match.timeline
+                                Timeline.addInput (timeToFrameId time match) event match.timelineCache match.timeline
                         in
                         { model | page = MatchPage { match | timelineCache = newCache, timeline = newTimeline } }
 
@@ -494,7 +515,7 @@ initMatch userIds =
                     ( userId
                     , { position = Point2d.origin
                       , velocity = Vector2d.zero
-                      , input = Keyboard.Arrows.NoDirection
+                      , input = Nothing
                       }
                     )
                 )
@@ -661,38 +682,17 @@ timestamp time =
 inputsView : MatchPage_ -> Element msg
 inputsView matchPage =
     List.map
-        (\( frameId, { userId, input } ) ->
+        (\( frameId, event ) ->
             String.fromInt (Id.toInt frameId)
                 ++ ", User "
-                ++ String.fromInt (Id.toInt userId)
+                ++ String.fromInt (Id.toInt event.userId)
                 ++ ", "
-                ++ (case input of
-                        Keyboard.Arrows.North ->
-                            "North"
+                ++ (case event.input of
+                        Just input ->
+                            Direction2d.toAngle input |> Angle.inDegrees |> round |> String.fromInt |> (\a -> a ++ "°")
 
-                        Keyboard.Arrows.NorthEast ->
-                            "NorthEast"
-
-                        Keyboard.Arrows.East ->
-                            "East"
-
-                        Keyboard.Arrows.SouthEast ->
-                            "SouthEast"
-
-                        Keyboard.Arrows.South ->
-                            "South"
-
-                        Keyboard.Arrows.SouthWest ->
-                            "SouthWest"
-
-                        Keyboard.Arrows.West ->
-                            "West"
-
-                        Keyboard.Arrows.NorthWest ->
-                            "NorthWest"
-
-                        Keyboard.Arrows.NoDirection ->
-                            "NoDirection"
+                        Nothing ->
+                            "No input"
                    )
                 |> Element.text
         )
@@ -802,7 +802,8 @@ canvasView model =
                             1
                             |> Mat4.translate3 -x -y 0
                 in
-                WebGL.entity
+                WebGL.entityWith
+                    [ WebGL.Settings.cullFace WebGL.Settings.back ]
                     backgroundVertexShader
                     backgroundFragmentShader
                     square
@@ -812,13 +813,14 @@ canvasView model =
                     }
                     :: List.map
                         (\player ->
-                            WebGL.entity vertexShader
-                                fragmentShader
-                                square
+                            WebGL.entityWith
+                                [ WebGL.Settings.cullFace WebGL.Settings.back ]
+                                playerVertexShader
+                                playerFragmentShader
+                                circle
                                 { view = viewMatrix
-                                , model =
-                                    pointToMatrix player.position
-                                        |> Mat4.scale3 100 100 100
+                                , model = pointToMatrix player.position |> Mat4.scale3 100 100 100
+                                , color = Math.Vector3.vec3 0.2 0.3 0
                                 }
                         )
                         (Dict.values state.players)
@@ -827,6 +829,10 @@ canvasView model =
                 []
         )
         |> Element.html
+
+
+wall =
+    []
 
 
 gameUpdate : List TimelineEvent -> MatchState -> MatchState
@@ -846,9 +852,17 @@ gameUpdate inputs model =
                 { a
                     | position = Point2d.translateBy a.velocity a.position
                     , velocity =
-                        Vector2d.plus
-                            (directionToOffset a.input |> Vector2d.scaleBy 0.5)
-                            a.velocity
+                        (case a.input of
+                            Just input ->
+                                Direction2d.toVector input
+                                    |> Vector2d.scaleBy 0.5
+                                    |> Vector2d.unwrap
+                                    |> Vector2d.unsafe
+
+                            Nothing ->
+                                Vector2d.zero
+                        )
+                            |> Vector2d.plus a.velocity
                             |> Vector2d.scaleBy 0.99
                 }
             )
@@ -865,35 +879,35 @@ pointToMatrix point =
     Mat4.makeTranslate3 x y 0
 
 
-directionToOffset : Keyboard.Arrows.Direction -> Vector2d Meters WorldCoordinate
+directionToOffset : Keyboard.Arrows.Direction -> Maybe (Direction2d WorldCoordinate)
 directionToOffset direction =
     case direction of
         Keyboard.Arrows.North ->
-            Vector2d.meters 0 1
+            Vector2d.meters 0 1 |> Vector2d.direction
 
         Keyboard.Arrows.NorthEast ->
-            Vector2d.meters 1 1
+            Vector2d.meters 1 1 |> Vector2d.direction
 
         Keyboard.Arrows.East ->
-            Vector2d.meters 1 0
+            Vector2d.meters 1 0 |> Vector2d.direction
 
         Keyboard.Arrows.SouthEast ->
-            Vector2d.meters 1 -1
+            Vector2d.meters 1 -1 |> Vector2d.direction
 
         Keyboard.Arrows.South ->
-            Vector2d.meters 0 -1
+            Vector2d.meters 0 -1 |> Vector2d.direction
 
         Keyboard.Arrows.SouthWest ->
-            Vector2d.meters -1 -1
+            Vector2d.meters -1 -1 |> Vector2d.direction
 
         Keyboard.Arrows.West ->
-            Vector2d.meters -1 0
+            Vector2d.meters -1 0 |> Vector2d.direction
 
         Keyboard.Arrows.NorthWest ->
-            Vector2d.meters -1 1
+            Vector2d.meters -1 1 |> Vector2d.direction
 
         Keyboard.Arrows.NoDirection ->
-            Vector2d.meters 0 0
+            Nothing
 
 
 square : WebGL.Mesh { position : Vec2 }
@@ -906,26 +920,44 @@ square =
         ]
 
 
+circle =
+    let
+        detail =
+            64
+    in
+    List.range 0 (detail - 1)
+        |> List.map
+            (\index ->
+                let
+                    t =
+                        pi * 2 * toFloat index / detail
+                in
+                { position = Math.Vector2.vec2 (cos t) (sin t) }
+            )
+        |> WebGL.triangleFan
+
+
 type alias Vertex =
     { position : Vec2 }
 
 
-type alias Uniforms =
-    { view : Mat4, model : Mat4 }
+type alias PlayerUniforms =
+    { view : Mat4, model : Mat4, color : Vec3 }
 
 
-vertexShader : Shader Vertex Uniforms { vcolor : Vec4 }
-vertexShader =
+playerVertexShader : Shader Vertex PlayerUniforms { vcolor : Vec4 }
+playerVertexShader =
     [glsl|
 attribute vec2 position;
 varying vec4 vcolor;
 uniform mat4 view;
 uniform mat4 model;
+uniform vec3 color;
 
 void main () {
     gl_Position = view * model * vec4(position, 0.0, 1.0);
 
-    vcolor = vec4(0.0,0.0,0.0,1.0);
+    vcolor = vec4(color.xyz,1.0);
 
 
 }
@@ -933,8 +965,8 @@ void main () {
 |]
 
 
-fragmentShader : Shader {} Uniforms { vcolor : Vec4 }
-fragmentShader =
+playerFragmentShader : Shader {} PlayerUniforms { vcolor : Vec4 }
+playerFragmentShader =
     [glsl|
         precision mediump float;
         varying vec4 vcolor;
@@ -1001,5 +1033,10 @@ subscriptions _ model =
                 Subscription.batch
                     [ Subscription.map KeyMsg Keyboard.subscriptions
                     , Effect.Browser.Events.onAnimationFrame AnimationFrame
+                    , Effect.Browser.Events.onMouseMove
+                        (Json.Decode.map2 (\x y -> MouseMoved x y)
+                            (Json.Decode.field "screenX" Json.Decode.float)
+                            (Json.Decode.field "screenY" Json.Decode.float)
+                        )
                     ]
         ]
