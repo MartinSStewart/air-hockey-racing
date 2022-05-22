@@ -26,6 +26,7 @@ import Json.Decode
 import Keyboard
 import Keyboard.Arrows
 import Lamdera
+import Length exposing (Meters)
 import List.Extra as List
 import List.Nonempty exposing (Nonempty)
 import Lobby exposing (LobbyPreview)
@@ -33,6 +34,7 @@ import Math.Matrix4 as Mat4 exposing (Mat4)
 import Math.Vector2 exposing (Vec2)
 import Math.Vector4 exposing (Vec4)
 import Pixels exposing (Pixels)
+import Point2d exposing (Point2d)
 import Ports
 import Quantity exposing (Quantity(..), Rate)
 import Sounds exposing (Sounds)
@@ -42,6 +44,7 @@ import Types exposing (..)
 import UiColors
 import Url exposing (Url)
 import User exposing (UserId)
+import Vector2d exposing (Vector2d)
 
 
 app =
@@ -478,7 +481,7 @@ initMatch userIds =
             |> List.map
                 (\userId ->
                     ( userId
-                    , { position = ( 0, 0 ), input = Keyboard.Arrows.NoDirection }
+                    , { position = Point2d.origin, input = Keyboard.Arrows.NoDirection }
                     )
                 )
             |> Dict.fromList
@@ -788,7 +791,7 @@ canvasView model =
                             fragmentShader
                             square
                             { view = viewMatrix
-                            , model = tupleToMatrix player.position
+                            , model = pointToMatrix player.position
                             }
                     )
                     (Dict.values state.players)
@@ -812,55 +815,56 @@ gameUpdate inputs model =
     in
     { players =
         Dict.map
-            (\_ a -> { a | position = directionToOffset a.input |> scaleTuple 0.1 |> addTuple a.position })
+            (\_ a ->
+                { a
+                    | position =
+                        Point2d.translateBy
+                            (directionToOffset a.input |> Vector2d.scaleBy 0.1)
+                            a.position
+                }
+            )
             newModel.players
     }
 
 
-tupleToMatrix : ( Float, Float ) -> Mat4
-tupleToMatrix ( x, y ) =
+pointToMatrix : Point2d units coordinates -> Mat4
+pointToMatrix point =
+    let
+        { x, y } =
+            Point2d.unwrap point
+    in
     Mat4.makeTranslate3 x y 0
 
 
-scaleTuple : Float -> ( Float, Float ) -> ( Float, Float )
-scaleTuple scalar ( x, y ) =
-    ( scalar * x, scalar * y )
-
-
-addTuple : ( Float, Float ) -> ( Float, Float ) -> ( Float, Float )
-addTuple ( x0, y0 ) ( x1, y1 ) =
-    ( x0 + x1, y0 + y1 )
-
-
-directionToOffset : Keyboard.Arrows.Direction -> ( Float, Float )
+directionToOffset : Keyboard.Arrows.Direction -> Vector2d Meters WorldCoordinate
 directionToOffset direction =
     case direction of
         Keyboard.Arrows.North ->
-            ( 0, 1 )
+            Vector2d.meters 0 1
 
         Keyboard.Arrows.NorthEast ->
-            ( 1, 1 )
+            Vector2d.meters 1 1
 
         Keyboard.Arrows.East ->
-            ( 1, 0 )
+            Vector2d.meters 1 0
 
         Keyboard.Arrows.SouthEast ->
-            ( 1, -1 )
+            Vector2d.meters 1 -1
 
         Keyboard.Arrows.South ->
-            ( 0, -1 )
+            Vector2d.meters 0 -1
 
         Keyboard.Arrows.SouthWest ->
-            ( -1, -1 )
+            Vector2d.meters -1 -1
 
         Keyboard.Arrows.West ->
-            ( -1, 0 )
+            Vector2d.meters -1 0
 
         Keyboard.Arrows.NorthWest ->
-            ( -1, 1 )
+            Vector2d.meters -1 1
 
         Keyboard.Arrows.NoDirection ->
-            ( 0, 0 )
+            Vector2d.meters 0 0
 
 
 square : WebGL.Mesh { position : Vec2 }

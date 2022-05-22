@@ -20,6 +20,7 @@ module Types exposing
     , ToBackend(..)
     , ToFrontend(..)
     , WindowSize
+    , WorldCoordinate
     , WorldPixel
     )
 
@@ -34,10 +35,12 @@ import Effect.Time as Time
 import Id exposing (Id)
 import Keyboard
 import Keyboard.Arrows
+import Length exposing (Meters)
 import List.Nonempty exposing (Nonempty)
 import Lobby exposing (Lobby, LobbyPreview)
 import LocalModel exposing (LocalModel)
 import Pixels exposing (Pixels)
+import Point2d exposing (Point2d)
 import Quantity exposing (Quantity, Rate)
 import Sounds exposing (Sounds)
 import Timeline exposing (FrameId, Timeline, TimelineCache)
@@ -127,10 +130,14 @@ type alias MatchState =
     { players :
         Dict
             (Id UserId)
-            { position : ( Float, Float )
+            { position : Point2d Meters WorldCoordinate
             , input : Keyboard.Arrows.Direction
             }
     }
+
+
+type WorldCoordinate
+    = WorldCoordinate Never
 
 
 type alias TimelineEvent =

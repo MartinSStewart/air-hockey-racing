@@ -3,7 +3,8 @@
     "source-directories": [
         "src",
         "packages/MartinSStewart/elm-audio/4.0.0/src",
-        "packages/ohanhi/keyboard/2.0.1/src"
+        "packages/ohanhi/keyboard/2.0.1/src",
+        "packages/ianmackenzie/elm-geometry/3.9.1/src"
     ],
     "elm-version": "0.19.1",
     "dependencies": {
@@ -26,9 +27,10 @@
             "erlandsona/assoc-set": "1.1.0",
             "ianmackenzie/elm-1d-parameter": "1.0.1",
             "ianmackenzie/elm-float-extra": "1.1.0",
-            "ianmackenzie/elm-geometry": "3.9.1",
             "ianmackenzie/elm-triangular-mesh": "1.1.0",
             "ianmackenzie/elm-units": "2.9.0",
+            "ianmackenzie/elm-interval": "2.0.0",
+            "ianmackenzie/elm-units-interval": "2.3.0",
             "lamdera/codecs": "1.0.0",
             "lamdera/core": "1.0.0",
             "lamdera/program-test": "1.0.0",
@@ -43,8 +45,7 @@
             "elm/virtual-dom": "1.0.3",
             "elm-explorations/test": "1.2.2",
             "folkertdev/elm-sha2": "1.0.0",
-            "ianmackenzie/elm-interval": "2.0.0",
-            "ianmackenzie/elm-units-interval": "2.3.0",
+
             "justinmimbs/date": "3.2.1",
             "rtfeldman/elm-hex": "1.0.0"
         }
