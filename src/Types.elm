@@ -46,6 +46,7 @@ import Sounds exposing (Sounds)
 import Timeline exposing (FrameId, Timeline, TimelineCache)
 import Url exposing (Url)
 import User exposing (UserId)
+import Vector2d exposing (Vector2d)
 
 
 type alias FrontendModel =
@@ -82,7 +83,7 @@ type alias WindowSize =
 type alias FrontendLoaded =
     { key : Effect.Browser.Navigation.Key
     , windowSize : WindowSize
-    , pressedKeys : List Keyboard.Key
+    , currentKeys : List Keyboard.Key
     , previousKeys : List Keyboard.Key
     , devicePixelRatio : Quantity Float (Rate WorldPixel Pixels)
     , time : Time.Posix
@@ -123,6 +124,7 @@ type alias MatchPage_ =
     , timelineCache : TimelineCache MatchState
     , userIds : Nonempty (Id UserId)
     , matchId : Id MatchId
+    , zoom : Float
     }
 
 
@@ -131,6 +133,7 @@ type alias MatchState =
         Dict
             (Id UserId)
             { position : Point2d Meters WorldCoordinate
+            , velocity : Vector2d Meters WorldCoordinate
             , input : Keyboard.Arrows.Direction
             }
     }

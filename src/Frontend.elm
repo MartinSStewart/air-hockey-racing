@@ -23,7 +23,7 @@ import Html exposing (Html)
 import Html.Attributes
 import Id exposing (Id)
 import Json.Decode
-import Keyboard
+import Keyboard exposing (Key(..))
 import Keyboard.Arrows
 import Lamdera
 import Length exposing (Meters)
@@ -92,7 +92,7 @@ loadedInit :
 loadedInit loading sounds ( userId, lobbyData ) =
     ( Loaded
         { key = loading.key
-        , pressedKeys = []
+        , currentKeys = []
         , previousKeys = []
         , windowSize = loading.windowSize
         , devicePixelRatio = loading.devicePixelRatio
@@ -186,7 +186,7 @@ updateLoaded msg model =
             ( model, Command.none )
 
         KeyMsg keyMsg ->
-            ( { model | pressedKeys = Keyboard.update keyMsg model.pressedKeys }
+            ( { model | currentKeys = Keyboard.update keyMsg model.currentKeys }
             , Command.none
             )
 
@@ -199,14 +199,14 @@ updateLoaded msg model =
         AnimationFrame time ->
             let
                 model2 =
-                    { model | time = time, previousKeys = model.pressedKeys }
+                    { model | time = time, previousKeys = model.currentKeys }
             in
             case model2.page of
                 MatchPage match ->
                     let
                         input : Keyboard.Arrows.Direction
                         input =
-                            Keyboard.Arrows.arrowsDirection model2.pressedKeys
+                            Keyboard.Arrows.arrowsDirection model2.currentKeys
 
                         ( cache, _ ) =
                             Timeline.getStateAt
@@ -214,6 +214,16 @@ updateLoaded msg model =
                                 (timeToFrameId time match)
                                 match.timelineCache
                                 newTimeline
+
+                        newZoom =
+                            if keyPressed (Character "Q") model then
+                                match.zoom * 2
+
+                            else if keyPressed (Character "W") model then
+                                match.zoom / 2
+
+                            else
+                                match.zoom
 
                         inputUnchanged =
                             input == Keyboard.Arrows.arrowsDirection model.previousKeys
@@ -231,7 +241,7 @@ updateLoaded msg model =
                     ( { model2
                         | page =
                             MatchPage
-                                { match | timeline = newTimeline, timelineCache = cache }
+                                { match | timeline = newTimeline, timelineCache = cache, zoom = newZoom }
                       }
                     , if inputUnchanged then
                         Command.none
@@ -291,9 +301,9 @@ devicePixelRatioUpdate devicePixelRatio model =
     )
 
 
-keyDown : Keyboard.Key -> { a | pressedKeys : List Keyboard.Key } -> Bool
-keyDown key { pressedKeys } =
-    List.any ((==) key) pressedKeys
+keyPressed : Keyboard.Key -> { a | currentKeys : List Keyboard.Key, previousKeys : List Keyboard.Key } -> Bool
+keyPressed key { currentKeys, previousKeys } =
+    List.any ((==) key) currentKeys && not (List.any ((==) key) previousKeys)
 
 
 updateFromBackend : AudioData -> ToFrontend -> FrontendModel_ -> ( FrontendModel_, Command FrontendOnly ToBackend FrontendMsg_, AudioCmd FrontendMsg_ )
@@ -406,6 +416,7 @@ updateLoadedFromBackend msg model =
                                         , timelineCache = initMatch userIds |> Timeline.init
                                         , userIds = userIds
                                         , matchId = matchId
+                                        , zoom = 1
                                         }
                               }
                             , Command.none
@@ -481,7 +492,10 @@ initMatch userIds =
             |> List.map
                 (\userId ->
                     ( userId
-                    , { position = Point2d.origin, input = Keyboard.Arrows.NoDirection }
+                    , { position = Point2d.origin
+                      , velocity = Vector2d.zero
+                      , input = Keyboard.Arrows.NoDirection
+                      }
                     )
                 )
             |> Dict.fromList
@@ -606,29 +620,30 @@ loadedView model =
                             ]
 
             MatchPage matchPage ->
-                Element.column
-                    []
-                    [ Element.text "Players: "
-                    , Element.row
-                        [ Element.spacing 16 ]
-                        [ List.Nonempty.toList matchPage.userIds
-                            |> List.map (Id.toInt >> String.fromInt >> (++) "User " >> Element.text)
-                            |> Element.column [ Element.spacing 4 ]
-                        , Element.column
-                            []
-                            [ "Start time:  " ++ timestamp matchPage.startTime |> Element.text
-                            , "Local time: " ++ timestamp matchPage.localStartTime |> Element.text
-                            ]
-                        ]
-                    , Element.row
-                        [ Element.Font.size 14, Element.spacing 16 ]
-                        [ inputsView matchPage
-                        , List.map
-                            (\( frameId, _ ) -> Id.toInt frameId |> String.fromInt |> Element.text)
-                            matchPage.timelineCache.cache
-                            |> Element.column [ Element.alignTop ]
-                        ]
-                    ]
+                Element.none
+         --Element.column
+         --    []
+         --    [ Element.text "Players: "
+         --    , Element.row
+         --        [ Element.spacing 16 ]
+         --        [ List.Nonempty.toList matchPage.userIds
+         --            |> List.map (Id.toInt >> String.fromInt >> (++) "User " >> Element.text)
+         --            |> Element.column [ Element.spacing 4 ]
+         --        , Element.column
+         --            []
+         --            [ "Start time:  " ++ timestamp matchPage.startTime |> Element.text
+         --            , "Local time: " ++ timestamp matchPage.localStartTime |> Element.text
+         --            ]
+         --        ]
+         --    , Element.row
+         --        [ Element.Font.size 14, Element.spacing 16 ]
+         --        [ inputsView matchPage
+         --        , List.map
+         --            (\( frameId, _ ) -> Id.toInt frameId |> String.fromInt |> Element.text)
+         --            matchPage.timelineCache.cache
+         --            |> Element.column [ Element.alignTop ]
+         --        ]
+         --    ]
         )
 
 
@@ -780,13 +795,10 @@ canvasView model =
                             Nothing ->
                                 { x = 0, y = 0 }
 
-                    zoomFactor =
-                        100
-
                     viewMatrix =
                         Mat4.makeScale3
-                            (toFloat zoomFactor * 2 / toFloat windowWidth)
-                            (toFloat zoomFactor * 2 / toFloat windowHeight)
+                            (match.zoom * 2 / toFloat windowWidth)
+                            (match.zoom * 2 / toFloat windowHeight)
                             1
                             |> Mat4.translate3 -x -y 0
                 in
@@ -795,6 +807,7 @@ canvasView model =
                     backgroundFragmentShader
                     square
                     { view = Math.Vector2.vec2 x y
+                    , viewZoom = match.zoom
                     , windowSize = Math.Vector2.vec2 (toFloat windowWidth) (toFloat windowHeight)
                     }
                     :: List.map
@@ -803,7 +816,9 @@ canvasView model =
                                 fragmentShader
                                 square
                                 { view = viewMatrix
-                                , model = pointToMatrix player.position
+                                , model =
+                                    pointToMatrix player.position
+                                        |> Mat4.scale3 100 100 100
                                 }
                         )
                         (Dict.values state.players)
@@ -829,10 +844,12 @@ gameUpdate inputs model =
         Dict.map
             (\_ a ->
                 { a
-                    | position =
-                        Point2d.translateBy
-                            (directionToOffset a.input |> Vector2d.scaleBy 1)
-                            a.position
+                    | position = Point2d.translateBy a.velocity a.position
+                    , velocity =
+                        Vector2d.plus
+                            (directionToOffset a.input |> Vector2d.scaleBy 0.5)
+                            a.velocity
+                            |> Vector2d.scaleBy 0.99
                 }
             )
             newModel.players
@@ -928,18 +945,19 @@ fragmentShader =
     |]
 
 
-backgroundVertexShader : Shader Vertex { view : Vec2, windowSize : Vec2 } { worldCoordinate : Vec2 }
+backgroundVertexShader : Shader Vertex { view : Vec2, viewZoom : Float, windowSize : Vec2 } { worldCoordinate : Vec2 }
 backgroundVertexShader =
     [glsl|
 attribute vec2 position;
 varying vec2 worldCoordinate;
 uniform vec2 view;
+uniform float viewZoom;
 uniform vec2 windowSize;
 
 void main () {
     gl_Position = vec4(position, 0.0, 1.0);
 
-    worldCoordinate = windowSize * position + view;
+    worldCoordinate = windowSize * position / viewZoom + view * 2.0;
 }
 
 |]
