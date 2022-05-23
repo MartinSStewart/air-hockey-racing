@@ -288,7 +288,7 @@ updateLoaded msg model =
                             MatchPage
                                 { matchPage
                                     | touchPosition =
-                                        case event.targetTouches ++ event.changedTouches ++ event.touches |> Debug.log "touch" of
+                                        case event.targetTouches ++ event.changedTouches ++ event.touches of
                                             head :: _ ->
                                                 Point2d.fromTuple Pixels.pixels head.clientPos |> Just
 
