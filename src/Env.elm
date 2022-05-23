@@ -4,8 +4,6 @@ module Env exposing (..)
 -- See https://dashboard.lamdera.app/docs/environment for more info.
 
 
-
-
 isProduction_ : String
 isProduction_ =
     "False"
@@ -22,11 +20,6 @@ isProduction =
 
         _ ->
             False
-
-
-
-
-
 
 
 domain : String

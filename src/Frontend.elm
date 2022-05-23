@@ -21,6 +21,7 @@ import Element exposing (Element)
 import Element.Background
 import Element.Border
 import Element.Input
+import Env
 import Html exposing (Html)
 import Html.Attributes
 import Html.Events.Extra.Pointer
@@ -646,33 +647,38 @@ isErr a =
 loadedView : FrontendLoaded -> Html FrontendMsg_
 loadedView model =
     Element.layout
-        [ Element.column
-            [ Element.alignRight, Element.padding 4, Element.spacing 4 ]
-            [ Id.toInt model.userId
-                |> String.fromInt
-                |> (++) "You are User "
-                |> Element.text
-            , case model.pingData of
-                Just pingData ->
-                    Element.column
-                        [ Element.spacing 4 ]
-                        [ "Ping (ms): "
-                            ++ String.fromInt (round (Duration.inMilliseconds pingData.roundTripTime))
-                            |> Element.text
-                        , "Server offset (low): "
-                            ++ String.fromInt (round (Duration.inMilliseconds pingData.lowEstimate))
-                            |> Element.text
-                        , "Server offset (high): "
-                            ++ String.fromInt (round (Duration.inMilliseconds pingData.highEstimate))
-                            |> Element.text
-                        , "Send time: " ++ timestamp pingData.sendTime |> Element.text
-                        , "Receive time: " ++ timestamp pingData.receiveTime |> Element.text
-                        , "Server time: " ++ timestamp pingData.serverTime |> Element.text
-                        ]
+        [ (if Env.isProduction then
+            Element.none
 
-                Nothing ->
-                    Element.text "No ping"
-            ]
+           else
+            Element.column
+                [ Element.alignRight, Element.padding 4, Element.spacing 4 ]
+                [ Id.toInt model.userId
+                    |> String.fromInt
+                    |> (++) "You are User "
+                    |> Element.text
+                , case model.pingData of
+                    Just pingData ->
+                        Element.column
+                            [ Element.spacing 4 ]
+                            [ "Ping (ms): "
+                                ++ String.fromInt (round (Duration.inMilliseconds pingData.roundTripTime))
+                                |> Element.text
+                            , "Server offset (low): "
+                                ++ String.fromInt (round (Duration.inMilliseconds pingData.lowEstimate))
+                                |> Element.text
+                            , "Server offset (high): "
+                                ++ String.fromInt (round (Duration.inMilliseconds pingData.highEstimate))
+                                |> Element.text
+                            , "Send time: " ++ timestamp pingData.sendTime |> Element.text
+                            , "Receive time: " ++ timestamp pingData.receiveTime |> Element.text
+                            , "Server time: " ++ timestamp pingData.serverTime |> Element.text
+                            ]
+
+                    Nothing ->
+                        Element.text "No ping"
+                ]
+          )
             |> Element.inFront
         , canvasView model |> Element.behindContent
         , Element.clip
