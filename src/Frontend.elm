@@ -868,7 +868,7 @@ canvasView model =
             findPixelPerfectSize model
     in
     WebGL.toHtmlWith
-        [ WebGL.alpha False, WebGL.antialias ]
+        [ WebGL.alpha False ]
         [ Html.Attributes.width windowWidth
         , Html.Attributes.height windowHeight
         , Html.Attributes.style "width" (String.fromInt (Pixels.inPixels cssWindowWidth) ++ "px")
