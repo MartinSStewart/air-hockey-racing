@@ -310,7 +310,13 @@ updateLoaded msg model =
                         | page =
                             MatchPage
                                 { matchPage
-                                    | touchPosition = Point2d.fromTuple Pixels.pixels event.pointer.clientPos |> Just
+                                    | touchPosition =
+                                        case event.targetTouches ++ event.changedTouches ++ event.touches of
+                                            head :: _ ->
+                                                Point2d.fromTuple Pixels.pixels head.clientPos |> Just
+
+                                            _ ->
+                                                matchPage.touchPosition
                                 }
                       }
                     , Command.none
@@ -723,12 +729,11 @@ loadedView model =
                     (Element.width Element.fill
                         :: Element.height Element.fill
                         :: Element.htmlAttribute (Html.Events.Extra.Touch.onStart PointerDown)
-                        :: Element.htmlAttribute (Html.Events.Extra.Pointer.onCancel PointerUp)
-                        :: Element.htmlAttribute (Html.Events.Extra.Pointer.onLeave PointerUp)
-                        :: Element.htmlAttribute (Html.Events.Extra.Pointer.onUp PointerUp)
+                        :: Element.htmlAttribute (Html.Events.Extra.Touch.onCancel PointerUp)
+                        :: Element.htmlAttribute (Html.Events.Extra.Touch.onEnd PointerUp)
                         :: (case matchPage.touchPosition of
                                 Just _ ->
-                                    [ Element.htmlAttribute (Html.Events.Extra.Pointer.onMove PointerMoved) ]
+                                    [ Element.htmlAttribute (Html.Events.Extra.Touch.onMove PointerMoved) ]
 
                                 Nothing ->
                                     []

@@ -183,8 +183,8 @@ type FrontendMsg_
     | PressedStartMatch
     | SoundLoaded String (Result Audio.LoadError Audio.Source)
     | PointerDown Html.Events.Extra.Touch.Event
-    | PointerUp Html.Events.Extra.Pointer.Event
-    | PointerMoved Html.Events.Extra.Pointer.Event
+    | PointerUp Html.Events.Extra.Touch.Event
+    | PointerMoved Html.Events.Extra.Touch.Event
 
 
 type LobbyId
