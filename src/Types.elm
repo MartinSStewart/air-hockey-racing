@@ -16,6 +16,7 @@ module Types exposing
     , MatchState
     , Page(..)
     , PingData
+    , ScreenCoordinate
     , TimelineEvent
     , ToBackend(..)
     , ToFrontend(..)
@@ -33,6 +34,7 @@ import Duration exposing (Duration)
 import Effect.Browser.Navigation
 import Effect.Lamdera exposing (ClientId, SessionId)
 import Effect.Time as Time
+import Html.Events.Extra.Pointer
 import Id exposing (Id)
 import Keyboard
 import Keyboard.Arrows
@@ -126,7 +128,13 @@ type alias MatchPage_ =
     , userIds : Nonempty (Id UserId)
     , matchId : Id MatchId
     , zoom : Float
+    , touchPosition : Maybe (Point2d Pixels ScreenCoordinate)
+    , previousTouchPosition : Maybe (Point2d Pixels ScreenCoordinate)
     }
+
+
+type ScreenCoordinate
+    = ScreenCoordinate Never
 
 
 type alias MatchState =
@@ -173,7 +181,9 @@ type FrontendMsg_
     | PressedJoinLobby (Id LobbyId)
     | PressedStartMatch
     | SoundLoaded String (Result Audio.LoadError Audio.Source)
-    | MouseMoved Float Float
+    | PointerDown Html.Events.Extra.Pointer.Event
+    | PointerUp Html.Events.Extra.Pointer.Event
+    | PointerMoved Html.Events.Extra.Pointer.Event
 
 
 type LobbyId

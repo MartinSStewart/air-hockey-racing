@@ -4,6 +4,7 @@ import Angle
 import AssocList as Dict exposing (Dict)
 import AssocSet as Set exposing (Set)
 import Audio exposing (Audio, AudioCmd, AudioData)
+import Axis2d
 import Browser exposing (UrlRequest(..))
 import Direction2d exposing (Direction2d)
 import Duration exposing (Duration)
@@ -19,16 +20,14 @@ import Effect.WebGL as WebGL exposing (Shader)
 import Element exposing (Element)
 import Element.Background
 import Element.Border
-import Element.Font
 import Element.Input
 import Html exposing (Html)
 import Html.Attributes
+import Html.Events.Extra.Pointer
 import Id exposing (Id)
-import Json.Decode
 import Keyboard exposing (Key(..))
 import Keyboard.Arrows
 import Lamdera
-import Length exposing (Meters)
 import List.Extra as List
 import List.Nonempty exposing (Nonempty)
 import Lobby exposing (LobbyPreview)
@@ -208,10 +207,6 @@ updateLoaded msg model =
             case model2.page of
                 MatchPage match ->
                     let
-                        input : Keyboard.Arrows.Direction
-                        input =
-                            Keyboard.Arrows.arrowsDirection model2.currentKeys
-
                         ( cache, _ ) =
                             Timeline.getStateAt
                                 gameUpdate
@@ -229,9 +224,17 @@ updateLoaded msg model =
                             else
                                 match.zoom
 
+                        previousInput : Maybe (Direction2d WorldCoordinate)
+                        previousInput =
+                            getInputDirection model.windowSize model.previousKeys match.previousTouchPosition
+
+                        input : Maybe (Direction2d WorldCoordinate)
+                        input =
+                            getInputDirection model.windowSize model.currentKeys match.touchPosition
+
                         inputUnchanged : Bool
                         inputUnchanged =
-                            input == Keyboard.Arrows.arrowsDirection model.previousKeys
+                            previousInput == input
 
                         newTimeline =
                             if inputUnchanged then
@@ -240,19 +243,24 @@ updateLoaded msg model =
                             else
                                 Timeline.addInput_
                                     (timeToFrameId model2.time match)
-                                    { userId = model2.userId, input = directionToOffset input }
+                                    { userId = model2.userId, input = input }
                                     match.timeline
                     in
                     ( { model2
                         | page =
                             MatchPage
-                                { match | timeline = newTimeline, timelineCache = cache, zoom = newZoom }
+                                { match
+                                    | timeline = newTimeline
+                                    , timelineCache = cache
+                                    , zoom = newZoom
+                                    , previousTouchPosition = match.touchPosition
+                                }
                       }
                     , if inputUnchanged then
                         Command.none
 
                       else
-                        Effect.Lamdera.sendToBackend (MatchInputRequest match.matchId time (directionToOffset input))
+                        Effect.Lamdera.sendToBackend (MatchInputRequest match.matchId time input)
                     )
 
                 LobbyPage _ ->
@@ -271,25 +279,80 @@ updateLoaded msg model =
             -- Shouldn't happen
             ( model, Command.none )
 
-        MouseMoved x y ->
+        PointerDown event ->
             case model.page of
                 MatchPage matchPage ->
-                    let
-                        maybeDirection =
-                            Direction2d.from
-                                (Point2d.fromPixels { x = x, y = y })
-                                (Point2d.fromPixels
-                                    { x = toFloat (Pixels.inPixels model.windowSize.width) / 2
-                                    , y = toFloat (Pixels.inPixels model.windowSize.height) / 2
-                                    }
-                                )
-                    in
-                    case maybeDirection of
-                        Just direction ->
-                            0
+                    ( { model
+                        | page =
+                            MatchPage
+                                { matchPage
+                                    | touchPosition = Point2d.fromTuple Pixels.pixels event.pointer.clientPos |> Just
+                                }
+                      }
+                    , Command.none
+                    )
 
                 LobbyPage _ ->
                     ( model, Command.none )
+
+        PointerMoved event ->
+            case model.page of
+                MatchPage matchPage ->
+                    ( { model
+                        | page =
+                            MatchPage
+                                { matchPage
+                                    | touchPosition = Point2d.fromTuple Pixels.pixels event.pointer.clientPos |> Just
+                                }
+                      }
+                    , Command.none
+                    )
+
+                LobbyPage _ ->
+                    ( model, Command.none )
+
+        PointerUp _ ->
+            case model.page of
+                MatchPage matchPage ->
+                    ( { model | page = MatchPage { matchPage | touchPosition = Nothing } }
+                    , Command.none
+                    )
+
+                LobbyPage _ ->
+                    ( model, Command.none )
+
+
+getInputDirection : WindowSize -> List Key -> Maybe (Point2d Pixels ScreenCoordinate) -> Maybe (Direction2d WorldCoordinate)
+getInputDirection windowSize keys maybeTouchPosition =
+    let
+        input : Keyboard.Arrows.Direction
+        input =
+            Keyboard.Arrows.arrowsDirection keys
+    in
+    if input == Keyboard.Arrows.NoDirection then
+        case maybeTouchPosition of
+            Just touchPosition ->
+                Direction2d.from
+                    ({ x = toFloat (Pixels.inPixels windowSize.width) / 2
+                     , y = toFloat (Pixels.inPixels windowSize.height) / 2
+                     }
+                        |> Point2d.fromPixels
+                    )
+                    touchPosition
+                    |> Maybe.map
+                        (Direction2d.mirrorAcross Axis2d.y
+                            >> Direction2d.toAngle
+                            >> Angle.inDegrees
+                            >> round
+                            >> toFloat
+                            >> Direction2d.degrees
+                        )
+
+            Nothing ->
+                Nothing
+
+    else
+        directionToOffset input
 
 
 timeToFrameId : Effect.Time.Posix -> MatchPage_ -> Id FrameId
@@ -442,6 +505,8 @@ updateLoadedFromBackend msg model =
                                         , userIds = userIds
                                         , matchId = matchId
                                         , zoom = 1
+                                        , touchPosition = Nothing
+                                        , previousTouchPosition = Nothing
                                         }
                               }
                             , Command.none
@@ -641,7 +706,22 @@ loadedView model =
                             ]
 
             MatchPage matchPage ->
-                Element.none
+                Element.el
+                    (Element.width Element.fill
+                        :: Element.height Element.fill
+                        :: Element.htmlAttribute (Html.Events.Extra.Pointer.onDown PointerDown)
+                        :: Element.htmlAttribute (Html.Events.Extra.Pointer.onCancel PointerUp)
+                        :: Element.htmlAttribute (Html.Events.Extra.Pointer.onLeave PointerUp)
+                        :: Element.htmlAttribute (Html.Events.Extra.Pointer.onUp PointerUp)
+                        :: (case matchPage.touchPosition of
+                                Just _ ->
+                                    [ Element.htmlAttribute (Html.Events.Extra.Pointer.onMove PointerMoved) ]
+
+                                Nothing ->
+                                    []
+                           )
+                    )
+                    Element.none
          --Element.column
          --    []
          --    [ Element.text "Players: "
@@ -1033,10 +1113,5 @@ subscriptions _ model =
                 Subscription.batch
                     [ Subscription.map KeyMsg Keyboard.subscriptions
                     , Effect.Browser.Events.onAnimationFrame AnimationFrame
-                    , Effect.Browser.Events.onMouseMove
-                        (Json.Decode.map2 (\x y -> MouseMoved x y)
-                            (Json.Decode.field "screenX" Json.Decode.float)
-                            (Json.Decode.field "screenY" Json.Decode.float)
-                        )
                     ]
         ]
