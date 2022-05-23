@@ -35,6 +35,7 @@ import Effect.Browser.Navigation
 import Effect.Lamdera exposing (ClientId, SessionId)
 import Effect.Time as Time
 import Html.Events.Extra.Pointer
+import Html.Events.Extra.Touch
 import Id exposing (Id)
 import Keyboard
 import Keyboard.Arrows
@@ -181,7 +182,7 @@ type FrontendMsg_
     | PressedJoinLobby (Id LobbyId)
     | PressedStartMatch
     | SoundLoaded String (Result Audio.LoadError Audio.Source)
-    | PointerDown Html.Events.Extra.Pointer.Event
+    | PointerDown Html.Events.Extra.Touch.Event
     | PointerUp Html.Events.Extra.Pointer.Event
     | PointerMoved Html.Events.Extra.Pointer.Event
 

@@ -24,6 +24,7 @@ import Element.Input
 import Html exposing (Html)
 import Html.Attributes
 import Html.Events.Extra.Pointer
+import Html.Events.Extra.Touch
 import Id exposing (Id)
 import Keyboard exposing (Key(..))
 import Keyboard.Arrows
@@ -286,7 +287,13 @@ updateLoaded msg model =
                         | page =
                             MatchPage
                                 { matchPage
-                                    | touchPosition = Point2d.fromTuple Pixels.pixels event.pointer.clientPos |> Just
+                                    | touchPosition =
+                                        case event.targetTouches ++ event.changedTouches ++ event.touches |> Debug.log "touch" of
+                                            head :: _ ->
+                                                Point2d.fromTuple Pixels.pixels head.clientPos |> Just
+
+                                            _ ->
+                                                matchPage.touchPosition
                                 }
                       }
                     , Command.none
@@ -709,7 +716,7 @@ loadedView model =
                 Element.el
                     (Element.width Element.fill
                         :: Element.height Element.fill
-                        :: Element.htmlAttribute (Html.Events.Extra.Pointer.onDown PointerDown)
+                        :: Element.htmlAttribute (Html.Events.Extra.Touch.onStart PointerDown)
                         :: Element.htmlAttribute (Html.Events.Extra.Pointer.onCancel PointerUp)
                         :: Element.htmlAttribute (Html.Events.Extra.Pointer.onLeave PointerUp)
                         :: Element.htmlAttribute (Html.Events.Extra.Pointer.onUp PointerUp)
