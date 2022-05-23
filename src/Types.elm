@@ -16,6 +16,7 @@ module Types exposing
     , MatchState
     , Page(..)
     , PingData
+    , ScreenCoordinate
     , TimelineEvent
     , ToBackend(..)
     , ToFrontend(..)
@@ -28,10 +29,12 @@ import AssocList as Dict exposing (Dict)
 import AssocSet as Set exposing (Set)
 import Audio
 import Browser
+import Direction2d exposing (Direction2d)
 import Duration exposing (Duration)
 import Effect.Browser.Navigation
 import Effect.Lamdera exposing (ClientId, SessionId)
 import Effect.Time as Time
+import Html.Events.Extra.Pointer
 import Id exposing (Id)
 import Keyboard
 import Keyboard.Arrows
@@ -125,7 +128,13 @@ type alias MatchPage_ =
     , userIds : Nonempty (Id UserId)
     , matchId : Id MatchId
     , zoom : Float
+    , touchPosition : Maybe (Point2d Pixels ScreenCoordinate)
+    , previousTouchPosition : Maybe (Point2d Pixels ScreenCoordinate)
     }
+
+
+type ScreenCoordinate
+    = ScreenCoordinate Never
 
 
 type alias MatchState =
@@ -134,7 +143,7 @@ type alias MatchState =
             (Id UserId)
             { position : Point2d Meters WorldCoordinate
             , velocity : Vector2d Meters WorldCoordinate
-            , input : Keyboard.Arrows.Direction
+            , input : Maybe (Direction2d WorldCoordinate)
             }
     }
 
@@ -144,7 +153,7 @@ type WorldCoordinate
 
 
 type alias TimelineEvent =
-    { userId : Id UserId, input : Keyboard.Arrows.Direction }
+    { userId : Id UserId, input : Maybe (Direction2d WorldCoordinate) }
 
 
 type alias BackendModel =
@@ -172,6 +181,9 @@ type FrontendMsg_
     | PressedJoinLobby (Id LobbyId)
     | PressedStartMatch
     | SoundLoaded String (Result Audio.LoadError Audio.Source)
+    | PointerDown Html.Events.Extra.Pointer.Event
+    | PointerUp Html.Events.Extra.Pointer.Event
+    | PointerMoved Html.Events.Extra.Pointer.Event
 
 
 type LobbyId
@@ -186,7 +198,7 @@ type ToBackend
     = CreateLobbyRequest
     | JoinLobbyRequest (Id LobbyId)
     | StartMatchRequest
-    | MatchInputRequest (Id MatchId) Time.Posix Keyboard.Arrows.Direction
+    | MatchInputRequest (Id MatchId) Time.Posix (Maybe (Direction2d WorldCoordinate))
     | PingRequest
 
 
@@ -203,7 +215,7 @@ type ToFrontend
     | JoinLobbyResponse (Id LobbyId) (Result JoinLobbyError Lobby)
     | JoinLobbyBroadcast (Id LobbyId) (Id UserId)
     | StartMatchBroadcast (Id MatchId) Time.Posix (Nonempty (Id UserId))
-    | MatchInputBroadcast (Id MatchId) (Id UserId) Time.Posix Keyboard.Arrows.Direction
+    | MatchInputBroadcast (Id MatchId) Time.Posix TimelineEvent
     | PingResponse Time.Posix
 
 

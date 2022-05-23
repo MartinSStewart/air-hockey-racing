@@ -27,15 +27,16 @@
             "erlandsona/assoc-set": "1.1.0",
             "ianmackenzie/elm-1d-parameter": "1.0.1",
             "ianmackenzie/elm-float-extra": "1.1.0",
+            "ianmackenzie/elm-interval": "2.0.0",
             "ianmackenzie/elm-triangular-mesh": "1.1.0",
             "ianmackenzie/elm-units": "2.9.0",
-            "ianmackenzie/elm-interval": "2.0.0",
             "ianmackenzie/elm-units-interval": "2.3.0",
             "lamdera/codecs": "1.0.0",
             "lamdera/core": "1.0.0",
             "lamdera/program-test": "1.0.0",
             "mdgriffith/elm-ui": "1.1.8",
             "mgold/elm-nonempty-list": "4.2.0",
+            "mpizenberg/elm-pointer-events": "4.0.2",
             "pzp1997/assoc-list": "1.0.0"
         },
         "indirect": {
@@ -45,7 +46,6 @@
             "elm/virtual-dom": "1.0.3",
             "elm-explorations/test": "1.2.2",
             "folkertdev/elm-sha2": "1.0.0",
-
             "justinmimbs/date": "3.2.1",
             "rtfeldman/elm-hex": "1.0.0"
         }
