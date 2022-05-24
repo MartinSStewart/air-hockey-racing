@@ -24,7 +24,6 @@ import Element.Input
 import Env
 import Html exposing (Html)
 import Html.Attributes
-import Html.Events.Extra.Pointer
 import Html.Events.Extra.Touch
 import Id exposing (Id)
 import Keyboard exposing (Key(..))
@@ -33,11 +32,12 @@ import Lamdera
 import Length exposing (Meters)
 import List.Extra as List
 import List.Nonempty exposing (Nonempty)
-import Lobby exposing (LobbyPreview)
+import Lobby exposing (Lobby, LobbyPreview)
 import Math.Matrix4 as Mat4 exposing (Mat4)
 import Math.Vector2 exposing (Vec2)
 import Math.Vector3 exposing (Vec3)
 import Math.Vector4 exposing (Vec4)
+import NetworkModel
 import Pixels exposing (Pixels)
 import Point2d exposing (Point2d)
 import Ports
@@ -275,6 +275,9 @@ updateLoaded msg model =
                         Effect.Lamdera.sendToBackend (MatchInputRequest match.matchId time input)
                     )
 
+                MatchSetupPage _ ->
+                    ( model2, Command.none )
+
                 LobbyPage _ ->
                     ( model2, Command.none )
 
@@ -291,62 +294,55 @@ updateLoaded msg model =
             -- Shouldn't happen
             ( model, Command.none )
 
-        PointerDown event ->
-            case model.page of
-                MatchPage matchPage ->
-                    ( { model
-                        | page =
-                            MatchPage
-                                { matchPage
-                                    | touchPosition =
-                                        case event.targetTouches ++ event.changedTouches ++ event.touches of
-                                            head :: _ ->
-                                                Point2d.fromTuple Pixels.pixels head.clientPos |> Just
-
-                                            _ ->
-                                                matchPage.touchPosition
-                                }
-                      }
-                    , Command.none
-                    )
-
-                LobbyPage _ ->
-                    ( model, Command.none )
-
-        PointerMoved event ->
-            case model.page of
-                MatchPage matchPage ->
-                    ( { model
-                        | page =
-                            MatchPage
-                                { matchPage
-                                    | touchPosition =
-                                        case event.targetTouches ++ event.changedTouches ++ event.touches of
-                                            head :: _ ->
-                                                Point2d.fromTuple Pixels.pixels head.clientPos |> Just
-
-                                            _ ->
-                                                matchPage.touchPosition
-                                }
-                      }
-                    , Command.none
-                    )
-
-                LobbyPage _ ->
-                    ( model, Command.none )
-
-        PointerUp _ ->
-            case model.page of
-                MatchPage matchPage ->
-                    ( { model | page = MatchPage { matchPage | touchPosition = Nothing } }
-                    , Command.none
-                    )
-
-                LobbyPage _ ->
-                    ( model, Command.none )
-
         GotTime _ ->
             ( model, Command.none )
+
+        MatchMsg matchMsg ->
+            case model.page of
+                MatchPage matchPage ->
+                    ( { model | page = matchUpdate matchMsg matchPage |> MatchPage }, Command.none )
+
+                _ ->
+                    ( model, Command.none )
+
+
+matchUpdate : MatchMsg -> MatchPage_ -> MatchPage_
+matchUpdate msg model =
+    case msg of
+        PointerDown event ->
+            { model
+                | touchPosition =
+                    case event.targetTouches ++ event.changedTouches ++ event.touches of
+                        head :: _ ->
+                            Point2d.fromTuple Pixels.pixels head.clientPos |> Just
+
+                        _ ->
+                            model.touchPosition
+            }
+
+        PointerUp _ ->
+            { model | touchPosition = Nothing }
+
+        PointerMoved event ->
+            { model
+                | touchPosition =
+                    case event.targetTouches ++ event.changedTouches ++ event.touches of
+                        head :: _ ->
+                            Point2d.fromTuple Pixels.pixels head.clientPos |> Just
+
+                        _ ->
+                            model.touchPosition
+            }
+
+
+matchSetupUpdate : MatchSetupMsg -> Lobby -> Lobby
+matchSetupUpdate msg lobby =
+    case msg of
+        JoinMatchSetup userId ->
+            Lobby.joinUser userId lobby
+
+        LeaveMatchSetup userId ->
+            Lobby.leaveUser userId lobby |> Maybe.withDefault lobby
 
 
 getInputDirection : WindowSize -> List Key -> Maybe (Point2d Pixels ScreenCoordinate) -> Maybe (Direction2d WorldCoordinate)
@@ -443,15 +439,8 @@ updateLoadedFromBackend msg model =
 
         CreateLobbyResponse lobbyId lobby ->
             ( case model.page of
-                LobbyPage lobbyData ->
-                    { model
-                        | page =
-                            LobbyPage
-                                { lobbyData
-                                    | lobbies = Dict.insert lobbyId (Lobby.preview lobby) lobbyData.lobbies
-                                    , currentLobby = Just { id = lobbyId, lobby = lobby }
-                                }
-                    }
+                LobbyPage _ ->
+                    { model | page = MatchSetupPage { lobbyId = lobbyId, networkModel = NetworkModel.init lobby } }
 
                 _ ->
                     model
@@ -460,45 +449,19 @@ updateLoadedFromBackend msg model =
 
         JoinLobbyResponse lobbyId result ->
             ( case model.page of
-                LobbyPage lobbyData ->
+                LobbyPage _ ->
                     case result of
                         Ok lobby ->
                             { model
                                 | page =
-                                    LobbyPage
-                                        { lobbyData | currentLobby = Just { id = lobbyId, lobby = lobby } }
+                                    MatchSetupPage
+                                        { lobbyId = lobbyId, networkModel = NetworkModel.init lobby }
                             }
 
                         Err LobbyNotFound ->
                             model
 
                 _ ->
-                    model
-            , Command.none
-            )
-
-        JoinLobbyBroadcast lobbyId userId ->
-            ( case model.page of
-                LobbyPage lobbyData ->
-                    { model
-                        | page =
-                            LobbyPage
-                                { lobbyData
-                                    | currentLobby =
-                                        case lobbyData.currentLobby of
-                                            Just currentLobby ->
-                                                if currentLobby.id == lobbyId then
-                                                    Just { currentLobby | lobby = Lobby.joinUser userId currentLobby.lobby }
-
-                                                else
-                                                    Just currentLobby
-
-                                            Nothing ->
-                                                Nothing
-                                }
-                    }
-
-                MatchPage matchState ->
                     model
             , Command.none
             )
@@ -519,28 +482,26 @@ updateLoadedFromBackend msg model =
 
         StartMatchBroadcast matchId serverStartTime userIds ->
             case model.page of
-                LobbyPage lobbyData ->
-                    case lobbyData.currentLobby of
-                        Just _ ->
-                            ( { model
-                                | page =
-                                    MatchPage
-                                        { startTime = serverStartTime
-                                        , localStartTime = model.time
-                                        , timeline = Set.empty
-                                        , timelineCache = initMatch userIds |> Timeline.init
-                                        , userIds = userIds
-                                        , matchId = matchId
-                                        , zoom = 1
-                                        , touchPosition = Nothing
-                                        , previousTouchPosition = Nothing
-                                        }
-                              }
-                            , Command.none
-                            )
+                MatchSetupPage _ ->
+                    ( { model
+                        | page =
+                            MatchPage
+                                { startTime = serverStartTime
+                                , localStartTime = model.time
+                                , timeline = Set.empty
+                                , timelineCache = initMatch userIds |> Timeline.init
+                                , userIds = userIds
+                                , matchId = matchId
+                                , zoom = 1
+                                , touchPosition = Nothing
+                                , previousTouchPosition = Nothing
+                                }
+                      }
+                    , Command.none
+                    )
 
-                        Nothing ->
-                            ( model, Command.none )
+                LobbyPage _ ->
+                    ( model, Command.none )
 
                 MatchPage _ ->
                     ( model, Command.none )
@@ -559,6 +520,9 @@ updateLoadedFromBackend msg model =
                         model
 
                 LobbyPage _ ->
+                    model
+
+                MatchSetupPage _ ->
                     model
             , Command.none
             )
@@ -595,6 +559,34 @@ updateLoadedFromBackend msg model =
                     )
 
                 Nothing ->
+                    ( model, Command.none )
+
+        MatchSetupBroadcast lobbyId matchSetupMsg ->
+            case model.page of
+                MatchSetupPage matchSetup ->
+                    ( { model
+                        | page =
+                            (if lobbyId == matchSetup.lobbyId then
+                                { matchSetup
+                                    | networkModel =
+                                        NetworkModel.updateFromBackend
+                                            matchSetupUpdate
+                                            matchSetupMsg
+                                            matchSetup.networkModel
+                                }
+
+                             else
+                                matchSetup
+                            )
+                                |> MatchSetupPage
+                      }
+                    , Command.none
+                    )
+
+                LobbyPage _ ->
+                    ( model, Command.none )
+
+                MatchPage _ ->
                     ( model, Command.none )
 
 
@@ -707,39 +699,40 @@ loadedView model =
         , Element.clip
         ]
         (case model.page of
-            LobbyPage lobbyData ->
-                case lobbyData.currentLobby of
-                    Just currentLobby ->
-                        let
-                            users : List (Id UserId)
-                            users =
-                                Lobby.allUsers currentLobby.lobby |> List.Nonempty.toList
-                        in
-                        Element.column
-                            []
-                            [ button PressedStartMatch (Element.text "Start match")
-                            , Element.column
-                                []
-                                (List.map
-                                    (\userId -> Id.toInt userId |> String.fromInt |> (++) "User " |> Element.text)
-                                    users
-                                )
-                            ]
+            MatchSetupPage matchSetup ->
+                let
+                    lobby =
+                        NetworkModel.localState matchSetupUpdate matchSetup.networkModel
 
-                    Nothing ->
-                        Element.column
-                            [ Element.spacing 16 ]
-                            [ button PressedCreateLobby (Element.text "Create lobby")
-                            , Element.column
-                                [ Element.spacing 8 ]
-                                [ Element.text "Lobbies"
-                                , lobbyData
-                                    |> .lobbies
-                                    |> Dict.toList
-                                    |> List.map lobbyRowView
-                                    |> Element.column []
-                                ]
-                            ]
+                    users : List (Id UserId)
+                    users =
+                        Lobby.allUsers lobby |> List.Nonempty.toList
+                in
+                Element.column
+                    []
+                    [ button PressedStartMatch (Element.text "Start match")
+                    , Element.column
+                        []
+                        (List.map
+                            (\userId -> Id.toInt userId |> String.fromInt |> (++) "User " |> Element.text)
+                            users
+                        )
+                    ]
+
+            LobbyPage lobbyData ->
+                Element.column
+                    [ Element.spacing 16 ]
+                    [ button PressedCreateLobby (Element.text "Create lobby")
+                    , Element.column
+                        [ Element.spacing 8 ]
+                        [ Element.text "Lobbies"
+                        , lobbyData
+                            |> .lobbies
+                            |> Dict.toList
+                            |> List.map lobbyRowView
+                            |> Element.column []
+                        ]
+                    ]
 
             MatchPage matchPage ->
                 Element.el
@@ -757,6 +750,7 @@ loadedView model =
                            )
                     )
                     Element.none
+                    |> Element.map MatchMsg
          --Element.column
          --    []
          --    [ Element.text "Players: "
@@ -972,6 +966,9 @@ canvasView model =
                        )
 
             LobbyPage _ ->
+                []
+
+            MatchSetupPage matchSetup ->
                 []
         )
         |> Element.html

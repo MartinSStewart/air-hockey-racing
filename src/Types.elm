@@ -12,7 +12,9 @@ module Types exposing
     , LobbyData
     , LobbyId
     , MatchId
+    , MatchMsg(..)
     , MatchPage_
+    , MatchSetupMsg(..)
     , MatchState
     , Page(..)
     , PingData
@@ -26,8 +28,7 @@ module Types exposing
     , WorldPixel
     )
 
-import AssocList as Dict exposing (Dict)
-import AssocSet as Set exposing (Set)
+import AssocList exposing (Dict)
 import Audio
 import Browser
 import Direction2d exposing (Direction2d)
@@ -35,15 +36,13 @@ import Duration exposing (Duration)
 import Effect.Browser.Navigation
 import Effect.Lamdera exposing (ClientId, SessionId)
 import Effect.Time as Time
-import Html.Events.Extra.Pointer
 import Html.Events.Extra.Touch
 import Id exposing (Id)
 import Keyboard
-import Keyboard.Arrows
 import Length exposing (Meters)
 import List.Nonempty exposing (Nonempty)
 import Lobby exposing (Lobby, LobbyPreview)
-import LocalModel exposing (LocalModel)
+import NetworkModel exposing (NetworkModel)
 import Pixels exposing (Pixels)
 import Point2d exposing (Point2d)
 import Quantity exposing (Quantity, Rate)
@@ -113,12 +112,23 @@ type alias PingData =
 
 type Page
     = LobbyPage LobbyData
+    | MatchSetupPage MatchSetup
     | MatchPage MatchPage_
+
+
+type alias MatchSetup =
+    { lobbyId : Id LobbyId
+    , networkModel : NetworkModel MatchSetupMsg Lobby
+    }
+
+
+type MatchSetupMsg
+    = JoinMatchSetup (Id UserId)
+    | LeaveMatchSetup (Id UserId)
 
 
 type alias LobbyData =
     { lobbies : Dict (Id LobbyId) LobbyPreview
-    , currentLobby : Maybe { id : Id LobbyId, lobby : Lobby }
     }
 
 
@@ -183,10 +193,14 @@ type FrontendMsg_
     | PressedJoinLobby (Id LobbyId)
     | PressedStartMatch
     | SoundLoaded String (Result Audio.LoadError Audio.Source)
-    | PointerDown Html.Events.Extra.Touch.Event
+    | MatchMsg MatchMsg
+    | GotTime Time.Posix
+
+
+type MatchMsg
+    = PointerDown Html.Events.Extra.Touch.Event
     | PointerUp Html.Events.Extra.Touch.Event
     | PointerMoved Html.Events.Extra.Touch.Event
-    | GotTime Time.Posix
 
 
 type LobbyId
@@ -216,10 +230,10 @@ type ToFrontend
     | CreateLobbyBroadcast (Id LobbyId) LobbyPreview
     | ClientInit (Id UserId) LobbyData
     | JoinLobbyResponse (Id LobbyId) (Result JoinLobbyError Lobby)
-    | JoinLobbyBroadcast (Id LobbyId) (Id UserId)
     | StartMatchBroadcast (Id MatchId) Time.Posix (Nonempty (Id UserId))
     | MatchInputBroadcast (Id MatchId) Time.Posix TimelineEvent
     | PingResponse Time.Posix
+    | MatchSetupBroadcast (Id LobbyId) MatchSetupMsg
 
 
 type JoinLobbyError

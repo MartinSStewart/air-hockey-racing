@@ -65,9 +65,7 @@ update msg model =
               }
             , ClientInit
                 userId
-                { lobbies = Dict.map (\_ lobby -> Lobby.preview lobby) model.lobbies
-                , currentLobby = Nothing
-                }
+                { lobbies = Dict.map (\_ lobby -> Lobby.preview lobby) model.lobbies }
                 |> Effect.Lamdera.sendToFrontend clientId
             )
 
@@ -169,7 +167,8 @@ updateFromFrontendWithTime sessionId clientId msg model time =
                                             getSessionIdsFromUserId lobbyUserId model
                                                 |> List.map
                                                     (\lobbyUserSessionId ->
-                                                        JoinLobbyBroadcast lobbyId userId
+                                                        JoinMatchSetup userId
+                                                            |> MatchSetupBroadcast lobbyId
                                                             |> Effect.Lamdera.sendToFrontends lobbyUserSessionId
                                                     )
                                         )

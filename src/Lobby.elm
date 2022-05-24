@@ -1,4 +1,4 @@
-module Lobby exposing (Lobby, LobbyData, LobbyPreview, allUsers, init, isOwner, joinUser, preview)
+module Lobby exposing (Lobby, LobbyData, LobbyPreview, allUsers, init, isOwner, joinUser, leaveUser, preview)
 
 import AssocSet as Set exposing (Set)
 import Id exposing (Id)
@@ -39,6 +39,24 @@ joinUser userId (Lobby lobby) =
         { lobby | users = Set.insert userId lobby.users }
     )
         |> Lobby
+
+
+leaveUser : Id UserId -> Lobby -> Maybe Lobby
+leaveUser userId (Lobby lobby) =
+    if userId == lobby.owner then
+        let
+            users =
+                Set.toList lobby.users
+        in
+        case users of
+            newOwner :: _ ->
+                { lobby | owner = newOwner, users = List.drop 1 users |> Set.fromList } |> Lobby |> Just
+
+            [] ->
+                Nothing
+
+    else
+        { lobby | users = Set.remove userId lobby.users } |> Lobby |> Just
 
 
 isOwner : Id UserId -> Lobby -> Bool
