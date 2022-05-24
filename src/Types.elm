@@ -16,6 +16,7 @@ module Types exposing
     , MatchState
     , Page(..)
     , PingData
+    , Player
     , ScreenCoordinate
     , TimelineEvent
     , ToBackend(..)
@@ -139,13 +140,13 @@ type ScreenCoordinate
 
 
 type alias MatchState =
-    { players :
-        Dict
-            (Id UserId)
-            { position : Point2d Meters WorldCoordinate
-            , velocity : Vector2d Meters WorldCoordinate
-            , input : Maybe (Direction2d WorldCoordinate)
-            }
+    { players : Dict (Id UserId) Player }
+
+
+type alias Player =
+    { position : Point2d Meters WorldCoordinate
+    , velocity : Vector2d Meters WorldCoordinate
+    , input : Maybe (Direction2d WorldCoordinate)
     }
 
 

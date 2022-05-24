@@ -30,6 +30,7 @@ import Id exposing (Id)
 import Keyboard exposing (Key(..))
 import Keyboard.Arrows
 import Lamdera
+import Length exposing (Meters)
 import List.Extra as List
 import List.Nonempty exposing (Nonempty)
 import Lobby exposing (LobbyPreview)
@@ -589,10 +590,14 @@ initMatch : Nonempty (Id UserId) -> MatchState
 initMatch userIds =
     { players =
         List.Nonempty.toList userIds
-            |> List.map
-                (\userId ->
+            |> List.indexedMap
+                (\index userId ->
                     ( userId
-                    , { position = Point2d.origin
+                    , { position =
+                            Point2d.fromMeters
+                                { x = toFloat index * Length.inMeters playerRadius * 2.1
+                                , y = 0
+                                }
                       , velocity = Vector2d.zero
                       , input = Nothing
                       }
@@ -899,6 +904,10 @@ canvasView model =
                             (match.zoom * 2 / toFloat windowHeight)
                             1
                             |> Mat4.translate3 -x -y 0
+
+                    playerRadius_ : Float
+                    playerRadius_ =
+                        Length.inMeters playerRadius
                 in
                 WebGL.entityWith
                     [ WebGL.Settings.cullFace WebGL.Settings.back ]
@@ -917,7 +926,9 @@ canvasView model =
                                 playerFragmentShader
                                 circle
                                 { view = viewMatrix
-                                , model = pointToMatrix player.position |> Mat4.scale3 100 100 100
+                                , model =
+                                    pointToMatrix player.position
+                                        |> Mat4.scale3 playerRadius_ playerRadius_ playerRadius_
                                 , color = Math.Vector3.vec3 0.2 0.3 0
                                 }
                         )
@@ -943,29 +954,115 @@ gameUpdate inputs model =
                 )
                 model
                 inputs
+
+        updatedVelocities =
+            Dict.map
+                (\_ a ->
+                    { a
+                        | position = Point2d.translateBy a.velocity a.position
+                        , velocity =
+                            (case a.input of
+                                Just input ->
+                                    Direction2d.toVector input
+                                        |> Vector2d.scaleBy 0.5
+                                        |> Vector2d.unwrap
+                                        |> Vector2d.unsafe
+
+                                Nothing ->
+                                    Vector2d.zero
+                            )
+                                |> Vector2d.plus a.velocity
+                                |> Vector2d.scaleBy 0.99
+                    }
+                )
+                newModel.players
     in
     { players =
         Dict.map
-            (\_ a ->
-                { a
-                    | position = Point2d.translateBy a.velocity a.position
-                    , velocity =
-                        (case a.input of
-                            Just input ->
-                                Direction2d.toVector input
-                                    |> Vector2d.scaleBy 0.5
-                                    |> Vector2d.unwrap
-                                    |> Vector2d.unsafe
-
-                            Nothing ->
-                                Vector2d.zero
-                        )
-                            |> Vector2d.plus a.velocity
-                            |> Vector2d.scaleBy 0.99
-                }
+            (\id player ->
+                Dict.remove id updatedVelocities
+                    |> Dict.values
+                    |> List.foldl (\a b -> handleCollision b a |> Tuple.first) player
             )
-            newModel.players
+            updatedVelocities
     }
+
+
+playerRadius =
+    Length.meters 50
+
+
+handleCollision : Player -> Player -> ( Player, Player )
+handleCollision playerA playerB =
+    let
+        distance : Quantity Float Meters
+        distance =
+            Point2d.distanceFrom playerA.position playerB.position
+    in
+    if distance |> Quantity.lessThan (Quantity.multiplyBy 2 playerRadius) then
+        let
+            ( v1, v2 ) =
+                solveCollision playerA.position playerA.velocity playerB.position playerB.velocity
+        in
+        ( { playerA | velocity = v1 }, { playerB | velocity = v2 } )
+
+    else
+        ( playerA, playerB )
+
+
+solveCollision :
+    Point2d Meters WorldCoordinate
+    -> Vector2d Meters WorldCoordinate
+    -> Point2d Meters WorldCoordinate
+    -> Vector2d Meters WorldCoordinate
+    -> ( Vector2d Meters WorldCoordinate, Vector2d Meters WorldCoordinate )
+solveCollision p1 v1 p2 v2 =
+    let
+        ( circle1Vx, circle1Vy ) =
+            Vector2d.toTuple Length.inMeters v1
+
+        ( circle2Vx, circle2Vy ) =
+            Vector2d.toTuple Length.inMeters v2
+
+        ( cx1, cy1 ) =
+            Point2d.toTuple Length.inMeters p1
+
+        ( cx2, cy2 ) =
+            Point2d.toTuple Length.inMeters p2
+
+        d =
+            sqrt ((cx1 - cx2) ^ 2 + (cy1 - cy2) ^ 2)
+
+        circle1Mass =
+            1
+
+        circle2Mass =
+            1
+
+        nx =
+            (cx2 - cx1) / d
+
+        ny =
+            (cy2 - cy1) / d
+
+        p =
+            2
+                * (circle1Vx * nx + circle1Vy * ny - circle2Vx * nx - circle2Vy * ny)
+                / (circle1Mass + circle2Mass)
+
+        vx1 =
+            circle1Vx - p * circle1Mass * nx
+
+        vy1 =
+            circle1Vy - p * circle1Mass * ny
+
+        vx2 =
+            circle2Vx + p * circle2Mass * nx
+
+        vy2 =
+            circle2Vy + p * circle2Mass * ny
+    in
+    ( Vector2d.fromMeters { x = vx1, y = vy1 }, Vector2d.fromMeters { x = vx2, y = vy2 } )
 
 
 pointToMatrix : Point2d units coordinates -> Mat4
