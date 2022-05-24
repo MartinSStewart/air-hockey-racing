@@ -908,6 +908,10 @@ canvasView model =
                     playerRadius_ : Float
                     playerRadius_ =
                         Length.inMeters playerRadius
+
+                    input : Maybe (Direction2d WorldCoordinate)
+                    input =
+                        getInputDirection model.windowSize model.currentKeys match.touchPosition
                 in
                 WebGL.entityWith
                     [ WebGL.Settings.cullFace WebGL.Settings.back ]
@@ -933,6 +937,27 @@ canvasView model =
                                 }
                         )
                         (Dict.values state.players)
+                    ++ (case ( Dict.get model.userId state.players, input ) of
+                            ( Just player, Just direction ) ->
+                                [ WebGL.entityWith
+                                    [ WebGL.Settings.cullFace WebGL.Settings.back ]
+                                    playerVertexShader
+                                    playerFragmentShader
+                                    arrow
+                                    { view = viewMatrix
+                                    , model =
+                                        pointToMatrix player.position
+                                            |> Mat4.scale3 30 30 30
+                                            |> Mat4.rotate
+                                                (Direction2d.toAngle direction |> Angle.inRadians |> (+) (pi / 2))
+                                                (Math.Vector3.vec3 0 0 1)
+                                    , color = Math.Vector3.vec3 1 0.8 0.1
+                                    }
+                                ]
+
+                            _ ->
+                                []
+                       )
 
             LobbyPage _ ->
                 []
@@ -990,6 +1015,22 @@ gameUpdate inputs model =
 
 playerRadius =
     Length.meters 50
+
+
+arrow : WebGL.Mesh Vertex
+arrow =
+    [ { v0 = ( -1, 1 ), v1 = ( 0, 0 ), v2 = ( 1, 1 ) }
+    , { v0 = ( -0.5, 1 ), v1 = ( 0.5, 1 ), v2 = ( 0.5, 2 ) }
+    , { v0 = ( -0.5, 2 ), v1 = ( -0.5, 1 ), v2 = ( 0.5, 2 ) }
+    ]
+        |> List.map
+            (\{ v0, v1, v2 } ->
+                ( { position = Math.Vector2.vec2 (Tuple.first v0) (Tuple.second v0) }
+                , { position = Math.Vector2.vec2 (Tuple.first v1) (Tuple.second v1) }
+                , { position = Math.Vector2.vec2 (Tuple.first v2) (Tuple.second v2) }
+                )
+            )
+        |> WebGL.triangles
 
 
 handleCollision : Player -> Player -> ( Player, Player )
