@@ -92,22 +92,23 @@ audio audioData model =
 
 loadedInit :
     FrontendLoading
+    -> Time.Posix
     -> Sounds
     -> ( Id UserId, LobbyData )
     -> ( FrontendModel_, Command FrontendOnly ToBackend FrontendMsg_, AudioCmd FrontendMsg_ )
-loadedInit loading sounds ( userId, lobbyData ) =
+loadedInit loading time sounds ( userId, lobbyData ) =
     ( Loaded
         { key = loading.key
         , currentKeys = []
         , previousKeys = []
         , windowSize = loading.windowSize
         , devicePixelRatio = loading.devicePixelRatio
-        , time = loading.time
+        , time = time
         , page = LobbyPage lobbyData
         , sounds = sounds
         , lastButtonPress = Nothing
         , userId = userId
-        , pingStartTime = Just loading.time
+        , pingStartTime = Just time
         , pingData = Nothing
         }
     , Effect.Lamdera.sendToBackend PingRequest
@@ -117,8 +118,9 @@ loadedInit loading sounds ( userId, lobbyData ) =
 
 tryLoadedInit : FrontendLoading -> ( FrontendModel_, Command FrontendOnly ToBackend FrontendMsg_, AudioCmd FrontendMsg_ )
 tryLoadedInit loading =
-    Maybe.map2
+    Maybe.map3
         (loadedInit loading)
+        loading.time
         (Sounds.loadingFinished loading.sounds)
         loading.initData
         |> Maybe.withDefault ( Loading loading, Command.none, Audio.cmdNone )
@@ -130,18 +132,21 @@ init url key =
         { key = key
         , windowSize = { width = Pixels.pixels 1920, height = Pixels.pixels 1080 }
         , devicePixelRatio = Quantity 1
-        , time = Effect.Time.millisToPosix 0
+        , time = Nothing
         , initData = Nothing
         , sounds = Dict.empty
         }
-    , Effect.Task.perform
-        (\{ viewport } ->
-            WindowResized
-                { width = round viewport.width |> Pixels.pixels
-                , height = round viewport.height |> Pixels.pixels
-                }
-        )
-        Effect.Browser.Dom.getViewport
+    , Command.batch
+        [ Effect.Task.perform
+            (\{ viewport } ->
+                WindowResized
+                    { width = round viewport.width |> Pixels.pixels
+                    , height = round viewport.height |> Pixels.pixels
+                    }
+            )
+            Effect.Browser.Dom.getViewport
+        , Effect.Time.now |> Effect.Task.perform GotTime
+        ]
     , Sounds.requestSounds SoundLoaded
     )
 
@@ -160,6 +165,10 @@ update audioData msg model =
 
                 SoundLoaded url result ->
                     { loadingModel | sounds = Dict.insert url result loadingModel.sounds }
+                        |> tryLoadedInit
+
+                GotTime time ->
+                    { loadingModel | time = Just time }
                         |> tryLoadedInit
 
                 _ ->
@@ -335,6 +344,9 @@ updateLoaded msg model =
 
                 LobbyPage _ ->
                     ( model, Command.none )
+
+        GotTime _ ->
+            ( model, Command.none )
 
 
 getInputDirection : WindowSize -> List Key -> Maybe (Point2d Pixels ScreenCoordinate) -> Maybe (Direction2d WorldCoordinate)

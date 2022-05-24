@@ -75,7 +75,7 @@ type alias FrontendLoading =
     { key : Effect.Browser.Navigation.Key
     , windowSize : WindowSize
     , devicePixelRatio : Quantity Float (Rate WorldPixel Pixels)
-    , time : Time.Posix
+    , time : Maybe Time.Posix
     , initData : Maybe ( Id UserId, LobbyData )
     , sounds : Dict String (Result Audio.LoadError Audio.Source)
     }
@@ -186,6 +186,7 @@ type FrontendMsg_
     | PointerDown Html.Events.Extra.Touch.Event
     | PointerUp Html.Events.Extra.Touch.Event
     | PointerMoved Html.Events.Extra.Touch.Event
+    | GotTime Time.Posix
 
 
 type LobbyId
