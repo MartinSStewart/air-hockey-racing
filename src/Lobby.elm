@@ -1,4 +1,16 @@
-module Lobby exposing (Lobby, LobbyData, LobbyPreview, allUsers, init, isOwner, joinUser, leaveUser, preview)
+module Lobby exposing
+    ( Lobby
+    , LobbyData
+    , LobbyPreview
+    , MatchSetupMsg(..)
+    , allUsers
+    , init
+    , isOwner
+    , joinUser
+    , leaveUser
+    , matchSetupUpdate
+    , preview
+    )
 
 import AssocSet as Set exposing (Set)
 import Id exposing (Id)
@@ -19,6 +31,11 @@ type alias LobbyData =
     , owner : Id UserId
     , users : Set (Id UserId)
     }
+
+
+type MatchSetupMsg
+    = JoinMatchSetup
+    | LeaveMatchSetup
 
 
 init : String -> Id UserId -> Lobby
@@ -72,3 +89,13 @@ preview (Lobby lobby) =
 allUsers : Lobby -> Nonempty (Id UserId)
 allUsers (Lobby lobby) =
     Nonempty lobby.owner (Set.toList lobby.users)
+
+
+matchSetupUpdate : { userId : Id UserId, msg : MatchSetupMsg } -> Lobby -> Lobby
+matchSetupUpdate { userId, msg } lobby =
+    case msg of
+        JoinMatchSetup ->
+            joinUser userId lobby
+
+        LeaveMatchSetup ->
+            leaveUser userId lobby |> Maybe.withDefault lobby

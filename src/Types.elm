@@ -14,7 +14,6 @@ module Types exposing
     , MatchId
     , MatchMsg(..)
     , MatchPage_
-    , MatchSetupMsg(..)
     , MatchState
     , Page(..)
     , PingData
@@ -41,7 +40,7 @@ import Id exposing (Id)
 import Keyboard
 import Length exposing (Meters)
 import List.Nonempty exposing (Nonempty)
-import Lobby exposing (Lobby, LobbyPreview)
+import Lobby exposing (Lobby, LobbyPreview, MatchSetupMsg)
 import NetworkModel exposing (NetworkModel)
 import Pixels exposing (Pixels)
 import Point2d exposing (Point2d)
@@ -118,13 +117,8 @@ type Page
 
 type alias MatchSetup =
     { lobbyId : Id LobbyId
-    , networkModel : NetworkModel MatchSetupMsg Lobby
+    , networkModel : NetworkModel { userId : Id UserId, msg : MatchSetupMsg } Lobby
     }
-
-
-type MatchSetupMsg
-    = JoinMatchSetup (Id UserId)
-    | LeaveMatchSetup (Id UserId)
 
 
 type alias LobbyData =
@@ -191,7 +185,8 @@ type FrontendMsg_
     | AnimationFrame Time.Posix
     | PressedCreateLobby
     | PressedJoinLobby (Id LobbyId)
-    | PressedStartMatch
+    | PressedStartMatchSetup
+    | PressedLeaveMatchSetup
     | SoundLoaded String (Result Audio.LoadError Audio.Source)
     | MatchMsg MatchMsg
     | GotTime Time.Posix
@@ -213,7 +208,7 @@ type MatchId
 
 type ToBackend
     = CreateLobbyRequest
-    | JoinLobbyRequest (Id LobbyId)
+    | MatchSetupRequest (Id LobbyId) MatchSetupMsg
     | StartMatchRequest
     | MatchInputRequest (Id MatchId) Time.Posix (Maybe (Direction2d WorldCoordinate))
     | PingRequest
@@ -233,7 +228,7 @@ type ToFrontend
     | StartMatchBroadcast (Id MatchId) Time.Posix (Nonempty (Id UserId))
     | MatchInputBroadcast (Id MatchId) Time.Posix TimelineEvent
     | PingResponse Time.Posix
-    | MatchSetupBroadcast (Id LobbyId) MatchSetupMsg
+    | MatchSetupBroadcast (Id LobbyId) (Id UserId) MatchSetupMsg (Maybe LobbyData)
 
 
 type JoinLobbyError

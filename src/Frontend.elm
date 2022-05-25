@@ -32,7 +32,7 @@ import Lamdera
 import Length exposing (Meters)
 import List.Extra as List
 import List.Nonempty exposing (Nonempty)
-import Lobby exposing (Lobby, LobbyPreview)
+import Lobby exposing (Lobby, LobbyPreview, MatchSetupMsg(..))
 import Math.Matrix4 as Mat4 exposing (Mat4)
 import Math.Vector2 exposing (Vec2)
 import Math.Vector3 exposing (Vec3)
@@ -285,10 +285,13 @@ updateLoaded msg model =
             ( model, Effect.Lamdera.sendToBackend CreateLobbyRequest )
 
         PressedJoinLobby lobbyId ->
-            ( model, Effect.Lamdera.sendToBackend (JoinLobbyRequest lobbyId) )
+            ( model, MatchSetupRequest lobbyId JoinMatchSetup |> Effect.Lamdera.sendToBackend )
 
-        PressedStartMatch ->
+        PressedStartMatchSetup ->
             ( model, Effect.Lamdera.sendToBackend StartMatchRequest )
+
+        PressedLeaveMatchSetup ->
+            matchSetupUpdate LeaveMatchSetup model
 
         SoundLoaded _ _ ->
             -- Shouldn't happen
@@ -304,6 +307,30 @@ updateLoaded msg model =
 
                 _ ->
                     ( model, Command.none )
+
+
+matchSetupUpdate : MatchSetupMsg -> FrontendLoaded -> ( FrontendLoaded, Command FrontendOnly ToBackend FrontendMsg_ )
+matchSetupUpdate msg model =
+    case model.page of
+        LobbyPage _ ->
+            ( model, Command.none )
+
+        MatchSetupPage matchSetup ->
+            ( { model
+                | page =
+                    { matchSetup
+                        | networkModel =
+                            NetworkModel.updateFromUser
+                                { userId = model.userId, msg = msg }
+                                matchSetup.networkModel
+                    }
+                        |> MatchSetupPage
+              }
+            , MatchSetupRequest matchSetup.lobbyId msg |> Effect.Lamdera.sendToBackend
+            )
+
+        MatchPage _ ->
+            ( model, Command.none )
 
 
 matchUpdate : MatchMsg -> MatchPage_ -> MatchPage_
@@ -333,16 +360,6 @@ matchUpdate msg model =
                         _ ->
                             model.touchPosition
             }
-
-
-matchSetupUpdate : MatchSetupMsg -> Lobby -> Lobby
-matchSetupUpdate msg lobby =
-    case msg of
-        JoinMatchSetup userId ->
-            Lobby.joinUser userId lobby
-
-        LeaveMatchSetup userId ->
-            Lobby.leaveUser userId lobby |> Maybe.withDefault lobby
 
 
 getInputDirection : WindowSize -> List Key -> Maybe (Point2d Pixels ScreenCoordinate) -> Maybe (Direction2d WorldCoordinate)
@@ -561,24 +578,29 @@ updateLoadedFromBackend msg model =
                 Nothing ->
                     ( model, Command.none )
 
-        MatchSetupBroadcast lobbyId matchSetupMsg ->
+        MatchSetupBroadcast lobbyId userId matchSetupMsg maybeLobbyData ->
             case model.page of
                 MatchSetupPage matchSetup ->
                     ( { model
                         | page =
-                            (if lobbyId == matchSetup.lobbyId then
-                                { matchSetup
-                                    | networkModel =
-                                        NetworkModel.updateFromBackend
-                                            matchSetupUpdate
-                                            matchSetupMsg
-                                            matchSetup.networkModel
-                                }
+                            case ( userId == model.userId, maybeLobbyData, matchSetupMsg ) of
+                                ( True, Just lobbyData, LeaveMatchSetup ) ->
+                                    LobbyPage lobbyData
 
-                             else
-                                matchSetup
-                            )
-                                |> MatchSetupPage
+                                _ ->
+                                    (if lobbyId == matchSetup.lobbyId then
+                                        { matchSetup
+                                            | networkModel =
+                                                NetworkModel.updateFromBackend
+                                                    Lobby.matchSetupUpdate
+                                                    { userId = userId, msg = matchSetupMsg }
+                                                    matchSetup.networkModel
+                                        }
+
+                                     else
+                                        matchSetup
+                                    )
+                                        |> MatchSetupPage
                       }
                     , Command.none
                     )
@@ -702,7 +724,7 @@ loadedView model =
             MatchSetupPage matchSetup ->
                 let
                     lobby =
-                        NetworkModel.localState matchSetupUpdate matchSetup.networkModel
+                        NetworkModel.localState Lobby.matchSetupUpdate matchSetup.networkModel
 
                     users : List (Id UserId)
                     users =
@@ -710,7 +732,8 @@ loadedView model =
                 in
                 Element.column
                     []
-                    [ button PressedStartMatch (Element.text "Start match")
+                    [ button PressedStartMatchSetup (Element.text "Start match")
+                    , button PressedLeaveMatchSetup (Element.text "Leave")
                     , Element.column
                         []
                         (List.map

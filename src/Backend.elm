@@ -10,7 +10,7 @@ import Id exposing (Id)
 import Lamdera
 import List.Extra as List
 import List.Nonempty exposing (Nonempty)
-import Lobby exposing (Lobby)
+import Lobby exposing (Lobby, MatchSetupMsg(..))
 import Time
 import Types exposing (..)
 import User exposing (UserId)
@@ -63,9 +63,7 @@ update msg model =
                         model.userSessions
                 , users = Dict.insert userId { name = "TempName" } model.users
               }
-            , ClientInit
-                userId
-                { lobbies = Dict.map (\_ lobby -> Lobby.preview lobby) model.lobbies }
+            , ClientInit userId (getLobbyData model)
                 |> Effect.Lamdera.sendToFrontend clientId
             )
 
@@ -86,6 +84,10 @@ update msg model =
 
         GotTimeForUpdateFromFrontend sessionId clientId toBackend time ->
             updateFromFrontendWithTime sessionId clientId toBackend model time
+
+
+getLobbyData model =
+    { lobbies = Dict.map (\_ lobby -> Lobby.preview lobby) model.lobbies }
 
 
 getUserFromSessionId : SessionId -> BackendModel -> Maybe ( Id UserId, BackendUserData )
@@ -148,18 +150,35 @@ updateFromFrontendWithTime sessionId clientId msg model time =
                         ]
                     )
 
-                JoinLobbyRequest lobbyId ->
+                MatchSetupRequest lobbyId matchSetupMsg ->
                     case Dict.get lobbyId model.lobbies of
                         Just lobby ->
-                            ( { model
-                                | lobbies =
-                                    Dict.update
-                                        lobbyId
-                                        (\_ -> Lobby.joinUser userId lobby |> Just)
-                                        model.lobbies
-                              }
+                            let
+                                model2 =
+                                    { model
+                                        | lobbies =
+                                            Dict.update
+                                                lobbyId
+                                                (\_ ->
+                                                    Lobby.matchSetupUpdate
+                                                        { userId = userId, msg = matchSetupMsg }
+                                                        lobby
+                                                        |> Just
+                                                )
+                                                model.lobbies
+                                    }
+                            in
+                            ( model2
                             , Command.batch
-                                [ Ok lobby |> JoinLobbyResponse lobbyId |> Effect.Lamdera.sendToFrontend clientId
+                                [ case matchSetupMsg of
+                                    JoinMatchSetup ->
+                                        Lobby.joinUser userId lobby
+                                            |> Ok
+                                            |> JoinLobbyResponse lobbyId
+                                            |> Effect.Lamdera.sendToFrontend clientId
+
+                                    _ ->
+                                        Command.none
                                 , Lobby.allUsers lobby
                                     |> List.Nonempty.toList
                                     |> List.concatMap
@@ -167,8 +186,16 @@ updateFromFrontendWithTime sessionId clientId msg model time =
                                             getSessionIdsFromUserId lobbyUserId model
                                                 |> List.map
                                                     (\lobbyUserSessionId ->
-                                                        JoinMatchSetup userId
-                                                            |> MatchSetupBroadcast lobbyId
+                                                        MatchSetupBroadcast lobbyId
+                                                            userId
+                                                            matchSetupMsg
+                                                            (case ( lobbyUserId == userId, matchSetupMsg ) of
+                                                                ( True, LeaveMatchSetup ) ->
+                                                                    getLobbyData model2 |> Just
+
+                                                                _ ->
+                                                                    Nothing
+                                                            )
                                                             |> Effect.Lamdera.sendToFrontends lobbyUserSessionId
                                                     )
                                         )
