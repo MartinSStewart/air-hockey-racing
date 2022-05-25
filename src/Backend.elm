@@ -10,7 +10,7 @@ import Id exposing (Id)
 import Lamdera
 import List.Extra as List
 import List.Nonempty exposing (Nonempty)
-import Lobby exposing (Lobby, MatchSetupMsg(..))
+import MatchSetup exposing (MatchSetup, MatchSetupMsg(..))
 import Time
 import Types exposing (..)
 import User exposing (UserId)
@@ -87,7 +87,7 @@ update msg model =
 
 
 getLobbyData model =
-    { lobbies = Dict.map (\_ lobby -> Lobby.preview lobby) model.lobbies }
+    { lobbies = Dict.map (\_ lobby -> MatchSetup.preview lobby) model.lobbies }
 
 
 getUserFromSessionId : SessionId -> BackendModel -> Maybe ( Id UserId, BackendUserData )
@@ -132,10 +132,10 @@ updateFromFrontendWithTime sessionId clientId msg model time =
                             getId model
 
                         lobby =
-                            Lobby.init "New lobby" userId
+                            MatchSetup.init "New lobby" userId
 
                         lobbyPreview =
-                            Lobby.preview lobby
+                            MatchSetup.preview lobby
                     in
                     ( { model2 | lobbies = Dict.insert lobbyId lobby model2.lobbies }
                     , Command.batch
@@ -160,7 +160,7 @@ updateFromFrontendWithTime sessionId clientId msg model time =
                                             Dict.update
                                                 lobbyId
                                                 (\_ ->
-                                                    Lobby.matchSetupUpdate
+                                                    MatchSetup.matchSetupUpdate
                                                         { userId = userId, msg = matchSetupMsg }
                                                         lobby
                                                         |> Just
@@ -172,14 +172,14 @@ updateFromFrontendWithTime sessionId clientId msg model time =
                             , Command.batch
                                 [ case matchSetupMsg of
                                     JoinMatchSetup ->
-                                        Lobby.joinUser userId lobby
+                                        MatchSetup.joinUser userId lobby
                                             |> Ok
                                             |> JoinLobbyResponse lobbyId
                                             |> Effect.Lamdera.sendToFrontend clientId
 
                                     _ ->
                                         Command.none
-                                , Lobby.allUsers lobby
+                                , MatchSetup.allUsers lobby
                                     |> List.Nonempty.toList
                                     |> List.concatMap
                                         (\lobbyUserId ->
@@ -214,7 +214,7 @@ updateFromFrontendWithTime sessionId clientId msg model time =
                             let
                                 users : Nonempty (Id UserId)
                                 users =
-                                    Lobby.allUsers lobby
+                                    MatchSetup.allUsers lobby
 
                                 ( matchId, model2 ) =
                                     getId model
@@ -278,10 +278,10 @@ getId model =
     ( Id.fromInt model.counter, { model | counter = model.counter + 1 } )
 
 
-getUserOwnedLobby : Id UserId -> BackendModel -> Maybe ( Id LobbyId, Lobby )
+getUserOwnedLobby : Id UserId -> BackendModel -> Maybe ( Id LobbyId, MatchSetup )
 getUserOwnedLobby userId model =
     Dict.toList model.lobbies
-        |> List.find (\( _, lobby ) -> Lobby.isOwner userId lobby)
+        |> List.find (\( _, lobby ) -> MatchSetup.isOwner userId lobby)
 
 
 getSessionIdsFromUserId : Id UserId -> BackendModel -> List SessionId

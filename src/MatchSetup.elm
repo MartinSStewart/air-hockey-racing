@@ -1,7 +1,7 @@
-module Lobby exposing
-    ( Lobby
-    , LobbyData
-    , LobbyPreview
+module MatchSetup exposing
+    ( LobbyPreview
+    , MatchSetup
+    , MatchSetupData
     , MatchSetupMsg(..)
     , allUsers
     , init
@@ -18,15 +18,15 @@ import List.Nonempty exposing (Nonempty(..))
 import User exposing (UserId)
 
 
-type Lobby
-    = Lobby LobbyData
+type MatchSetup
+    = MatchSetup MatchSetupData
 
 
 type alias LobbyPreview =
     { name : String, userCount : Int }
 
 
-type alias LobbyData =
+type alias MatchSetupData =
     { name : String
     , owner : Id UserId
     , users : Set (Id UserId)
@@ -38,28 +38,28 @@ type MatchSetupMsg
     | LeaveMatchSetup
 
 
-init : String -> Id UserId -> Lobby
+init : String -> Id UserId -> MatchSetup
 init name owner =
     { name = name
     , owner = owner
     , users = Set.empty
     }
-        |> Lobby
+        |> MatchSetup
 
 
-joinUser : Id UserId -> Lobby -> Lobby
-joinUser userId (Lobby lobby) =
+joinUser : Id UserId -> MatchSetup -> MatchSetup
+joinUser userId (MatchSetup lobby) =
     (if userId == lobby.owner then
         lobby
 
      else
         { lobby | users = Set.insert userId lobby.users }
     )
-        |> Lobby
+        |> MatchSetup
 
 
-leaveUser : Id UserId -> Lobby -> Maybe Lobby
-leaveUser userId (Lobby lobby) =
+leaveUser : Id UserId -> MatchSetup -> Maybe MatchSetup
+leaveUser userId (MatchSetup lobby) =
     if userId == lobby.owner then
         let
             users =
@@ -67,31 +67,31 @@ leaveUser userId (Lobby lobby) =
         in
         case users of
             newOwner :: _ ->
-                { lobby | owner = newOwner, users = List.drop 1 users |> Set.fromList } |> Lobby |> Just
+                { lobby | owner = newOwner, users = List.drop 1 users |> Set.fromList } |> MatchSetup |> Just
 
             [] ->
                 Nothing
 
     else
-        { lobby | users = Set.remove userId lobby.users } |> Lobby |> Just
+        { lobby | users = Set.remove userId lobby.users } |> MatchSetup |> Just
 
 
-isOwner : Id UserId -> Lobby -> Bool
-isOwner userId (Lobby lobby) =
+isOwner : Id UserId -> MatchSetup -> Bool
+isOwner userId (MatchSetup lobby) =
     lobby.owner == userId
 
 
-preview : Lobby -> LobbyPreview
-preview (Lobby lobby) =
+preview : MatchSetup -> LobbyPreview
+preview (MatchSetup lobby) =
     { name = lobby.name, userCount = Set.size lobby.users + 1 }
 
 
-allUsers : Lobby -> Nonempty (Id UserId)
-allUsers (Lobby lobby) =
+allUsers : MatchSetup -> Nonempty (Id UserId)
+allUsers (MatchSetup lobby) =
     Nonempty lobby.owner (Set.toList lobby.users)
 
 
-matchSetupUpdate : { userId : Id UserId, msg : MatchSetupMsg } -> Lobby -> Lobby
+matchSetupUpdate : { userId : Id UserId, msg : MatchSetupMsg } -> MatchSetup -> MatchSetup
 matchSetupUpdate { userId, msg } lobby =
     case msg of
         JoinMatchSetup ->

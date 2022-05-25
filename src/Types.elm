@@ -40,7 +40,7 @@ import Id exposing (Id)
 import Keyboard
 import Length exposing (Meters)
 import List.Nonempty exposing (Nonempty)
-import Lobby exposing (Lobby, LobbyPreview, MatchSetupMsg)
+import MatchSetup exposing (LobbyPreview, MatchSetup, MatchSetupMsg)
 import NetworkModel exposing (NetworkModel)
 import Pixels exposing (Pixels)
 import Point2d exposing (Point2d)
@@ -111,13 +111,13 @@ type alias PingData =
 
 type Page
     = LobbyPage LobbyData
-    | MatchSetupPage MatchSetup
+    | MatchSetupPage MatchSetupPage_
     | MatchPage MatchPage_
 
 
-type alias MatchSetup =
+type alias MatchSetupPage_ =
     { lobbyId : Id LobbyId
-    , networkModel : NetworkModel { userId : Id UserId, msg : MatchSetupMsg } Lobby
+    , networkModel : NetworkModel { userId : Id UserId, msg : MatchSetupMsg } MatchSetup
     }
 
 
@@ -165,7 +165,7 @@ type alias TimelineEvent =
 type alias BackendModel =
     { userSessions : Dict SessionId { clientIds : Dict ClientId (), userId : Id UserId }
     , users : Dict (Id UserId) BackendUserData
-    , lobbies : Dict (Id LobbyId) Lobby
+    , lobbies : Dict (Id LobbyId) MatchSetup
     , matches : Dict (Id MatchId) { users : Nonempty (Id UserId) }
     , counter : Int
     }
@@ -221,10 +221,10 @@ type BackendMsg
 
 
 type ToFrontend
-    = CreateLobbyResponse (Id LobbyId) Lobby
+    = CreateLobbyResponse (Id LobbyId) MatchSetup
     | CreateLobbyBroadcast (Id LobbyId) LobbyPreview
     | ClientInit (Id UserId) LobbyData
-    | JoinLobbyResponse (Id LobbyId) (Result JoinLobbyError Lobby)
+    | JoinLobbyResponse (Id LobbyId) (Result JoinLobbyError MatchSetup)
     | StartMatchBroadcast (Id MatchId) Time.Posix (Nonempty (Id UserId))
     | MatchInputBroadcast (Id MatchId) Time.Posix TimelineEvent
     | PingResponse Time.Posix

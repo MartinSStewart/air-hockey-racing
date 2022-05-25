@@ -32,7 +32,7 @@ import Lamdera
 import Length exposing (Meters)
 import List.Extra as List
 import List.Nonempty exposing (Nonempty)
-import Lobby exposing (Lobby, LobbyPreview, MatchSetupMsg(..))
+import MatchSetup exposing (LobbyPreview, MatchSetup, MatchSetupMsg(..))
 import Math.Matrix4 as Mat4 exposing (Mat4)
 import Math.Vector2 exposing (Vec2)
 import Math.Vector3 exposing (Vec3)
@@ -592,7 +592,7 @@ updateLoadedFromBackend msg model =
                                         { matchSetup
                                             | networkModel =
                                                 NetworkModel.updateFromBackend
-                                                    Lobby.matchSetupUpdate
+                                                    MatchSetup.matchSetupUpdate
                                                     { userId = userId, msg = matchSetupMsg }
                                                     matchSetup.networkModel
                                         }
@@ -724,11 +724,11 @@ loadedView model =
             MatchSetupPage matchSetup ->
                 let
                     lobby =
-                        NetworkModel.localState Lobby.matchSetupUpdate matchSetup.networkModel
+                        NetworkModel.localState MatchSetup.matchSetupUpdate matchSetup.networkModel
 
                     users : List (Id UserId)
                     users =
-                        Lobby.allUsers lobby |> List.Nonempty.toList
+                        MatchSetup.allUsers lobby |> List.Nonempty.toList
                 in
                 Element.column
                     []
