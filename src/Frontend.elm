@@ -6,6 +6,8 @@ import AssocSet as Set exposing (Set)
 import Audio exposing (Audio, AudioCmd, AudioData)
 import Axis2d
 import Browser exposing (UrlRequest(..))
+import ColorIndex exposing (ColorIndex)
+import Decal
 import Direction2d exposing (Direction2d)
 import Duration exposing (Duration)
 import Effect.Browser.Dom
@@ -32,7 +34,7 @@ import Lamdera
 import Length exposing (Meters)
 import List.Extra as List
 import List.Nonempty exposing (Nonempty)
-import MatchSetup exposing (LobbyPreview, MatchSetup, MatchSetupMsg(..))
+import MatchSetup exposing (LobbyPreview, MatchSetup, MatchSetupMsg, PlayerData)
 import Math.Matrix4 as Mat4 exposing (Mat4)
 import Math.Vector2 exposing (Vec2)
 import Math.Vector3 exposing (Vec3)
@@ -46,6 +48,7 @@ import Sounds exposing (Sounds)
 import Time
 import Timeline exposing (FrameId)
 import Types exposing (..)
+import Ui
 import UiColors
 import Url exposing (Url)
 import User exposing (UserId)
@@ -285,13 +288,13 @@ updateLoaded msg model =
             ( model, Effect.Lamdera.sendToBackend CreateLobbyRequest )
 
         PressedJoinLobby lobbyId ->
-            ( model, MatchSetupRequest lobbyId JoinMatchSetup |> Effect.Lamdera.sendToBackend )
+            ( model, MatchSetupRequest lobbyId MatchSetup.JoinMatchSetup |> Effect.Lamdera.sendToBackend )
 
         PressedStartMatchSetup ->
             ( model, Effect.Lamdera.sendToBackend StartMatchRequest )
 
         PressedLeaveMatchSetup ->
-            matchSetupUpdate LeaveMatchSetup model
+            matchSetupUpdate MatchSetup.LeaveMatchSetup model
 
         SoundLoaded _ _ ->
             -- Shouldn't happen
@@ -307,6 +310,15 @@ updateLoaded msg model =
 
                 _ ->
                     ( model, Command.none )
+
+        PressedPrimaryColor colorIndex ->
+            matchSetupUpdate (MatchSetup.SetPrimaryColor colorIndex) model
+
+        PressedSecondaryColor colorIndex ->
+            matchSetupUpdate (MatchSetup.SetSecondaryColor colorIndex) model
+
+        PressedDecal decal ->
+            matchSetupUpdate (MatchSetup.SetDecal decal) model
 
 
 matchSetupUpdate : MatchSetupMsg -> FrontendLoaded -> ( FrontendLoaded, Command FrontendOnly ToBackend FrontendMsg_ )
@@ -506,8 +518,13 @@ updateLoadedFromBackend msg model =
                                 { startTime = serverStartTime
                                 , localStartTime = model.time
                                 , timeline = Set.empty
-                                , timelineCache = initMatch userIds |> Timeline.init
-                                , userIds = userIds
+                                , timelineCache = List.Nonempty.map Tuple.first userIds |> initMatch |> Timeline.init
+                                , userIds =
+                                    List.Nonempty.map
+                                        (\( id, playerData ) ->
+                                            { userId = id, playerData = playerData, mesh = playerMesh playerData }
+                                        )
+                                        userIds
                                 , matchId = matchId
                                 , zoom = 1
                                 , touchPosition = Nothing
@@ -584,7 +601,7 @@ updateLoadedFromBackend msg model =
                     ( { model
                         | page =
                             case ( userId == model.userId, maybeLobbyData, matchSetupMsg ) of
-                                ( True, Just lobbyData, LeaveMatchSetup ) ->
+                                ( True, Just lobbyData, MatchSetup.LeaveMatchSetup ) ->
                                     LobbyPage lobbyData
 
                                 _ ->
@@ -728,12 +745,56 @@ loadedView model =
 
                     users : List (Id UserId)
                     users =
-                        MatchSetup.allUsers lobby |> List.Nonempty.toList
+                        MatchSetup.allUsers lobby |> List.Nonempty.toList |> List.map Tuple.first
+
+                    maybeCurrentPlayerData : Maybe PlayerData
+                    maybeCurrentPlayerData =
+                        MatchSetup.allUsers_ lobby |> Dict.get model.userId
                 in
                 Element.column
-                    []
+                    [ Element.spacing 8, Element.padding 16 ]
                     [ button PressedStartMatchSetup (Element.text "Start match")
                     , button PressedLeaveMatchSetup (Element.text "Leave")
+                    , case maybeCurrentPlayerData of
+                        Just currentPlayerData ->
+                            Element.column
+                                [ Element.spacing 8 ]
+                                [ Element.column
+                                    [ Element.spacing 4 ]
+                                    [ Element.text "Primary color"
+                                    , colorSelector PressedPrimaryColor currentPlayerData.primaryColor
+                                    ]
+                                , Element.column
+                                    [ Element.spacing 4 ]
+                                    [ Element.text "Secondary color"
+                                    , colorSelector PressedSecondaryColor currentPlayerData.secondaryColor
+                                    ]
+                                , Element.column
+                                    [ Element.spacing 4 ]
+                                    [ Element.text "Decal"
+                                    , List.map
+                                        (\decal ->
+                                            Ui.button
+                                                [ Element.padding 4
+                                                , Element.Background.color
+                                                    (if decal == currentPlayerData.decal then
+                                                        Element.rgb 0.6 0.7 1
+
+                                                     else
+                                                        Element.rgb 0.8 0.8 0.8
+                                                    )
+                                                ]
+                                                { onPress = PressedDecal decal
+                                                , label = Decal.toString decal |> Element.text
+                                                }
+                                        )
+                                        Decal.allDecals
+                                        |> Element.row [ Element.spacing 8 ]
+                                    ]
+                                ]
+
+                        Nothing ->
+                            Element.none
                     , Element.column
                         []
                         (List.map
@@ -744,7 +805,7 @@ loadedView model =
 
             LobbyPage lobbyData ->
                 Element.column
-                    [ Element.spacing 16 ]
+                    [ Element.spacing 16, Element.padding 16 ]
                     [ button PressedCreateLobby (Element.text "Create lobby")
                     , Element.column
                         [ Element.spacing 8 ]
@@ -800,6 +861,31 @@ loadedView model =
         )
 
 
+colorSelector : (ColorIndex -> msg) -> ColorIndex -> Element msg
+colorSelector onSelect currentColor =
+    List.map
+        (\colorIndex ->
+            Ui.button
+                [ Element.width (Element.px 48)
+                , Element.height (Element.px 48)
+                , Element.Border.width
+                    (if currentColor == colorIndex then
+                        3
+
+                     else
+                        0
+                    )
+                , Element.Border.color (Element.rgb 1 1 1)
+                , ColorIndex.toElColor colorIndex |> Element.Background.color
+                ]
+                { onPress = onSelect colorIndex
+                , label = Element.none
+                }
+        )
+        ColorIndex.allColors
+        |> Element.row []
+
+
 timestamp : Time.Posix -> String
 timestamp time =
     String.fromInt (Time.toHour Time.utc time)
@@ -834,11 +920,11 @@ inputsView matchPage =
 
 button : msg -> Element msg -> Element msg
 button onPress label =
-    Element.Input.button
+    Ui.button
         [ Element.Background.color <| Element.rgb 0.9 0.9 0.85
         , Element.padding 4
         ]
-        { onPress = Just onPress
+        { onPress = onPress
         , label = label
         }
 
@@ -951,21 +1037,26 @@ canvasView model =
                     , viewZoom = match.zoom
                     , windowSize = Math.Vector2.vec2 (toFloat windowWidth) (toFloat windowHeight)
                     }
-                    :: List.map
-                        (\player ->
-                            WebGL.entityWith
-                                [ WebGL.Settings.cullFace WebGL.Settings.back ]
-                                playerVertexShader
-                                playerFragmentShader
-                                circle
-                                { view = viewMatrix
-                                , model =
-                                    pointToMatrix player.position
-                                        |> Mat4.scale3 playerRadius_ playerRadius_ playerRadius_
-                                , color = Math.Vector3.vec3 0.2 0.3 0
-                                }
+                    :: List.filterMap
+                        (\( userId, player ) ->
+                            case List.Nonempty.toList match.userIds |> List.find (.userId >> (==) userId) of
+                                Just { mesh } ->
+                                    WebGL.entityWith
+                                        [ WebGL.Settings.cullFace WebGL.Settings.back ]
+                                        playerVertexShader
+                                        playerFragmentShader
+                                        mesh
+                                        { view = viewMatrix
+                                        , model =
+                                            pointToMatrix player.position
+                                                |> Mat4.scale3 playerRadius_ playerRadius_ playerRadius_
+                                        }
+                                        |> Just
+
+                                Nothing ->
+                                    Nothing
                         )
-                        (Dict.values state.players)
+                        (Dict.toList state.players)
                     ++ (case ( Dict.get model.userId state.players, input ) of
                             ( Just player, Just direction ) ->
                                 [ WebGL.entityWith
@@ -980,7 +1071,6 @@ canvasView model =
                                             |> Mat4.rotate
                                                 (Direction2d.toAngle direction |> Angle.inRadians |> (+) (pi / 2))
                                                 (Math.Vector3.vec3 0 0 1)
-                                    , color = Math.Vector3.vec3 1 0.8 0.1
                                     }
                                 ]
 
@@ -1057,9 +1147,9 @@ arrow =
     ]
         |> List.map
             (\{ v0, v1, v2 } ->
-                ( { position = Math.Vector2.vec2 (Tuple.first v0) (Tuple.second v0) }
-                , { position = Math.Vector2.vec2 (Tuple.first v1) (Tuple.second v1) }
-                , { position = Math.Vector2.vec2 (Tuple.first v2) (Tuple.second v2) }
+                ( { position = Math.Vector2.vec2 (Tuple.first v0) (Tuple.second v0), color = Math.Vector3.vec3 1 0.8 0.1 }
+                , { position = Math.Vector2.vec2 (Tuple.first v1) (Tuple.second v1), color = Math.Vector3.vec3 1 0.8 0.1 }
+                , { position = Math.Vector2.vec2 (Tuple.first v2) (Tuple.second v2), color = Math.Vector3.vec3 1 0.8 0.1 }
                 )
             )
         |> WebGL.triangles
@@ -1188,39 +1278,58 @@ square =
         ]
 
 
-circle =
+playerMesh : PlayerData -> WebGL.Mesh Vertex
+playerMesh playerData =
+    let
+        primaryColor : Vec3
+        primaryColor =
+            ColorIndex.toVec3 playerData.primaryColor
+    in
+    circle 1 (Math.Vector3.vec3 0 0 0)
+        ++ circle 0.95 primaryColor
+        ++ Decal.triangles playerData.secondaryColor playerData.decal
+        |> WebGL.triangles
+
+
+circle : Float -> Vec3 -> List ( Vertex, Vertex, Vertex )
+circle size color =
     let
         detail =
             64
     in
-    List.range 0 (detail - 1)
+    List.range 0 (detail - 3)
         |> List.map
             (\index ->
                 let
-                    t =
-                        pi * 2 * toFloat index / detail
+                    t0 =
+                        0
+
+                    t1 =
+                        pi * 2 * toFloat (index + 1) / detail
+
+                    t2 =
+                        pi * 2 * toFloat (index + 2) / detail
                 in
-                { position = Math.Vector2.vec2 (cos t) (sin t) }
+                ( { position = Math.Vector2.vec2 (cos t0 * size) (sin t0 * size), color = color }
+                , { position = Math.Vector2.vec2 (cos t1 * size) (sin t1 * size), color = color }
+                , { position = Math.Vector2.vec2 (cos t2 * size) (sin t2 * size), color = color }
+                )
             )
-        |> WebGL.triangleFan
-
-
-type alias Vertex =
-    { position : Vec2 }
 
 
 type alias PlayerUniforms =
-    { view : Mat4, model : Mat4, color : Vec3 }
+    { view : Mat4, model : Mat4 }
 
 
 playerVertexShader : Shader Vertex PlayerUniforms { vcolor : Vec4 }
 playerVertexShader =
     [glsl|
 attribute vec2 position;
+attribute vec3 color;
 varying vec4 vcolor;
 uniform mat4 view;
 uniform mat4 model;
-uniform vec3 color;
+
 
 void main () {
     gl_Position = view * model * vec4(position, 0.0, 1.0);
@@ -1245,7 +1354,7 @@ playerFragmentShader =
     |]
 
 
-backgroundVertexShader : Shader Vertex { view : Vec2, viewZoom : Float, windowSize : Vec2 } { worldCoordinate : Vec2 }
+backgroundVertexShader : Shader { position : Vec2 } { view : Vec2, viewZoom : Float, windowSize : Vec2 } { worldCoordinate : Vec2 }
 backgroundVertexShader =
     [glsl|
 attribute vec2 position;

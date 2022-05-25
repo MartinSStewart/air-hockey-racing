@@ -22,6 +22,7 @@ module Types exposing
     , TimelineEvent
     , ToBackend(..)
     , ToFrontend(..)
+    , Vertex
     , WindowSize
     , WorldCoordinate
     , WorldPixel
@@ -30,23 +31,29 @@ module Types exposing
 import AssocList exposing (Dict)
 import Audio
 import Browser
+import ColorIndex exposing (ColorIndex)
+import Decal exposing (Decal)
 import Direction2d exposing (Direction2d)
 import Duration exposing (Duration)
 import Effect.Browser.Navigation
 import Effect.Lamdera exposing (ClientId, SessionId)
 import Effect.Time as Time
+import Effect.WebGL exposing (Mesh)
 import Html.Events.Extra.Touch
 import Id exposing (Id)
 import Keyboard
 import Length exposing (Meters)
 import List.Nonempty exposing (Nonempty)
-import MatchSetup exposing (LobbyPreview, MatchSetup, MatchSetupMsg)
+import MatchSetup exposing (LobbyPreview, MatchSetup, MatchSetupMsg, PlayerData)
+import Math.Vector2 exposing (Vec2)
+import Math.Vector3 exposing (Vec3)
 import NetworkModel exposing (NetworkModel)
 import Pixels exposing (Pixels)
 import Point2d exposing (Point2d)
 import Quantity exposing (Quantity, Rate)
 import Sounds exposing (Sounds)
 import Timeline exposing (FrameId, Timeline, TimelineCache)
+import TriangularMesh exposing (TriangularMesh)
 import Url exposing (Url)
 import User exposing (UserId)
 import Vector2d exposing (Vector2d)
@@ -131,12 +138,16 @@ type alias MatchPage_ =
     , localStartTime : Time.Posix
     , timeline : Timeline TimelineEvent
     , timelineCache : TimelineCache MatchState
-    , userIds : Nonempty (Id UserId)
+    , userIds : Nonempty { userId : Id UserId, playerData : PlayerData, mesh : Mesh Vertex }
     , matchId : Id MatchId
     , zoom : Float
     , touchPosition : Maybe (Point2d Pixels ScreenCoordinate)
     , previousTouchPosition : Maybe (Point2d Pixels ScreenCoordinate)
     }
+
+
+type alias Vertex =
+    { position : Vec2, color : Vec3 }
 
 
 type ScreenCoordinate
@@ -187,6 +198,9 @@ type FrontendMsg_
     | PressedJoinLobby (Id LobbyId)
     | PressedStartMatchSetup
     | PressedLeaveMatchSetup
+    | PressedPrimaryColor ColorIndex
+    | PressedSecondaryColor ColorIndex
+    | PressedDecal Decal
     | SoundLoaded String (Result Audio.LoadError Audio.Source)
     | MatchMsg MatchMsg
     | GotTime Time.Posix
@@ -225,7 +239,7 @@ type ToFrontend
     | CreateLobbyBroadcast (Id LobbyId) LobbyPreview
     | ClientInit (Id UserId) LobbyData
     | JoinLobbyResponse (Id LobbyId) (Result JoinLobbyError MatchSetup)
-    | StartMatchBroadcast (Id MatchId) Time.Posix (Nonempty (Id UserId))
+    | StartMatchBroadcast (Id MatchId) Time.Posix (Nonempty ( Id UserId, PlayerData ))
     | MatchInputBroadcast (Id MatchId) Time.Posix TimelineEvent
     | PingResponse Time.Posix
     | MatchSetupBroadcast (Id LobbyId) (Id UserId) MatchSetupMsg (Maybe LobbyData)

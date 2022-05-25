@@ -10,7 +10,7 @@ import Id exposing (Id)
 import Lamdera
 import List.Extra as List
 import List.Nonempty exposing (Nonempty)
-import MatchSetup exposing (MatchSetup, MatchSetupMsg(..))
+import MatchSetup exposing (MatchSetup, MatchSetupMsg(..), PlayerData)
 import Time
 import Types exposing (..)
 import User exposing (UserId)
@@ -182,7 +182,7 @@ updateFromFrontendWithTime sessionId clientId msg model time =
                                 , MatchSetup.allUsers lobby
                                     |> List.Nonempty.toList
                                     |> List.concatMap
-                                        (\lobbyUserId ->
+                                        (\( lobbyUserId, _ ) ->
                                             getSessionIdsFromUserId lobbyUserId model
                                                 |> List.map
                                                     (\lobbyUserSessionId ->
@@ -212,18 +212,26 @@ updateFromFrontendWithTime sessionId clientId msg model time =
                     case getUserOwnedLobby userId model of
                         Just ( lobbyId, lobby ) ->
                             let
-                                users : Nonempty (Id UserId)
+                                users : Nonempty ( Id UserId, PlayerData )
                                 users =
                                     MatchSetup.allUsers lobby
+
+                                userIds : Nonempty (Id UserId)
+                                userIds =
+                                    List.Nonempty.map Tuple.first users
 
                                 ( matchId, model2 ) =
                                     getId model
                             in
                             ( { model2
                                 | lobbies = Dict.remove lobbyId model2.lobbies
-                                , matches = Dict.insert matchId { users = users } model2.matches
+                                , matches =
+                                    Dict.insert
+                                        matchId
+                                        { users = userIds }
+                                        model2.matches
                               }
-                            , List.Nonempty.toList users
+                            , List.Nonempty.toList userIds
                                 |> List.concatMap
                                     (\lobbyUserId ->
                                         getSessionIdsFromUserId lobbyUserId model2
