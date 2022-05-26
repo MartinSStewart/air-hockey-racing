@@ -18,7 +18,7 @@ import Effect.Lamdera
 import Effect.Subscription as Subscription exposing (Subscription)
 import Effect.Task
 import Effect.Time
-import Effect.WebGL as WebGL exposing (Shader)
+import Effect.WebGL as WebGL exposing (Mesh, Shader)
 import Element exposing (Element)
 import Element.Background
 import Element.Border
@@ -32,6 +32,7 @@ import Keyboard exposing (Key(..))
 import Keyboard.Arrows
 import Lamdera
 import Length exposing (Meters)
+import LineSegment2d exposing (LineSegment2d)
 import List.Extra as List
 import List.Nonempty exposing (Nonempty)
 import MatchSetup exposing (LobbyPreview, MatchSetup, MatchSetupMsg, PlayerData)
@@ -525,6 +526,7 @@ updateLoadedFromBackend msg model =
                                             { userId = id, playerData = playerData, mesh = playerMesh playerData }
                                         )
                                         userIds
+                                , wallMesh = wallMesh (Math.Vector3.vec3 1 0 0) wall
                                 , matchId = matchId
                                 , zoom = 1
                                 , touchPosition = Nothing
@@ -1037,14 +1039,22 @@ canvasView model =
                     , viewZoom = match.zoom
                     , windowSize = Math.Vector2.vec2 (toFloat windowWidth) (toFloat windowHeight)
                     }
+                    :: WebGL.entityWith
+                        [ WebGL.Settings.cullFace WebGL.Settings.back ]
+                        vertexShader
+                        fragmentShader
+                        match.wallMesh
+                        { view = viewMatrix
+                        , model = Mat4.identity
+                        }
                     :: List.filterMap
                         (\( userId, player ) ->
                             case List.Nonempty.toList match.userIds |> List.find (.userId >> (==) userId) of
                                 Just { mesh } ->
                                     WebGL.entityWith
                                         [ WebGL.Settings.cullFace WebGL.Settings.back ]
-                                        playerVertexShader
-                                        playerFragmentShader
+                                        vertexShader
+                                        fragmentShader
                                         mesh
                                         { view = viewMatrix
                                         , model =
@@ -1061,8 +1071,8 @@ canvasView model =
                             ( Just player, Just direction ) ->
                                 [ WebGL.entityWith
                                     [ WebGL.Settings.cullFace WebGL.Settings.back ]
-                                    playerVertexShader
-                                    playerFragmentShader
+                                    vertexShader
+                                    fragmentShader
                                     arrow
                                     { view = viewMatrix
                                     , model =
@@ -1087,8 +1097,56 @@ canvasView model =
         |> Element.html
 
 
+wall : List (LineSegment2d Meters WorldCoordinate)
 wall =
-    []
+    [ LineSegment2d.from (Point2d.meters 200 0) (Point2d.meters 0 -200) ]
+
+
+wallMesh : Vec3 -> List (LineSegment2d Meters WorldCoordinate) -> Mesh Vertex
+wallMesh color lines =
+    List.concatMap (lineMesh color) lines |> WebGL.triangles
+
+
+lineMesh : Vec3 -> LineSegment2d Meters WorldCoordinate -> List ( Vertex, Vertex, Vertex )
+lineMesh color line =
+    let
+        ( p0, p1 ) =
+            LineSegment2d.endpoints line
+
+        perpendicular : Vector2d units coordinates
+        perpendicular =
+            Vector2d.from p0 p1
+                |> Vector2d.perpendicularTo
+                |> Vector2d.normalize
+                |> Vector2d.scaleBy 10
+                |> Vector2d.unwrap
+                |> Vector2d.unsafe
+    in
+    [ ( Point2d.translateBy perpendicular p0
+      , Point2d.translateBy (Vector2d.reverse perpendicular) p0
+      , Point2d.translateBy (Vector2d.reverse perpendicular) p1
+      )
+    , ( Point2d.translateBy (Vector2d.reverse perpendicular) p1
+      , Point2d.translateBy perpendicular p1
+      , Point2d.translateBy perpendicular p0
+      )
+    ]
+        |> List.map
+            (\( a, b, c ) ->
+                ( { position = pointToVec a, color = color }
+                , { position = pointToVec b, color = color }
+                , { position = pointToVec c, color = color }
+                )
+            )
+
+
+pointToVec : Point2d units coordinate -> Vec2
+pointToVec point2d =
+    let
+        { x, y } =
+            Point2d.unwrap point2d
+    in
+    Math.Vector2.vec2 x y
 
 
 gameUpdate : List TimelineEvent -> MatchState -> MatchState
@@ -1105,21 +1163,21 @@ gameUpdate inputs model =
         updatedVelocities =
             Dict.map
                 (\_ a ->
-                    { a
-                        | position = Point2d.translateBy a.velocity a.position
-                        , velocity =
-                            (case a.input of
-                                Just input ->
-                                    Direction2d.toVector input
-                                        |> Vector2d.scaleBy 0.5
-                                        |> Vector2d.unwrap
-                                        |> Vector2d.unsafe
+                    { position = Point2d.translateBy a.velocity a.position
+                    , velocity =
+                        (case a.input of
+                            Just input ->
+                                Direction2d.toVector input
+                                    |> Vector2d.scaleBy 0.5
+                                    |> Vector2d.unwrap
+                                    |> Vector2d.unsafe
 
-                                Nothing ->
-                                    Vector2d.zero
-                            )
-                                |> Vector2d.plus a.velocity
-                                |> Vector2d.scaleBy 0.99
+                            Nothing ->
+                                Vector2d.zero
+                        )
+                            |> Vector2d.plus a.velocity
+                            |> Vector2d.scaleBy 0.99
+                    , input = a.input
                     }
                 )
                 newModel.players
@@ -1133,6 +1191,27 @@ gameUpdate inputs model =
             )
             updatedVelocities
     }
+
+
+circleLineCollisionPoint circleRadius circlePosition circleVelocity line =
+    case Vector2d.direction circleVelocity of
+        Just direction ->
+            case LineSegment2d.intersectionWithAxis (Axis2d.through circlePosition direction) line of
+                Just intersection ->
+                    let
+                        v1 =
+                            Vector2d.normalize circleVelocity
+
+                        v2 = Vector2d.from intersection circlePosition
+                        v3 = LineSegment2d. circlePosition line |> Quantity.abs
+                    in
+                    intersection
+
+                Nothing ->
+                    Nothing
+
+        Nothing ->
+            Nothing
 
 
 playerRadius =
@@ -1321,8 +1400,8 @@ type alias PlayerUniforms =
     { view : Mat4, model : Mat4 }
 
 
-playerVertexShader : Shader Vertex PlayerUniforms { vcolor : Vec4 }
-playerVertexShader =
+vertexShader : Shader Vertex PlayerUniforms { vcolor : Vec4 }
+vertexShader =
     [glsl|
 attribute vec2 position;
 attribute vec3 color;
@@ -1342,8 +1421,8 @@ void main () {
 |]
 
 
-playerFragmentShader : Shader {} PlayerUniforms { vcolor : Vec4 }
-playerFragmentShader =
+fragmentShader : Shader {} PlayerUniforms { vcolor : Vec4 }
+fragmentShader =
     [glsl|
         precision mediump float;
         varying vec4 vcolor;

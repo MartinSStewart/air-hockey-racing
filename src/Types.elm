@@ -139,6 +139,7 @@ type alias MatchPage_ =
     , timeline : Timeline TimelineEvent
     , timelineCache : TimelineCache MatchState
     , userIds : Nonempty { userId : Id UserId, playerData : PlayerData, mesh : Mesh Vertex }
+    , wallMesh : Mesh Vertex
     , matchId : Id MatchId
     , zoom : Float
     , touchPosition : Maybe (Point2d Pixels ScreenCoordinate)
