@@ -6,6 +6,8 @@ import AssocSet as Set exposing (Set)
 import Audio exposing (Audio, AudioCmd, AudioData)
 import Axis2d
 import Browser exposing (UrlRequest(..))
+import ColorIndex exposing (ColorIndex)
+import Decal
 import Direction2d exposing (Direction2d)
 import Duration exposing (Duration)
 import Effect.Browser.Dom
@@ -16,7 +18,7 @@ import Effect.Lamdera
 import Effect.Subscription as Subscription exposing (Subscription)
 import Effect.Task
 import Effect.Time
-import Effect.WebGL as WebGL exposing (Shader)
+import Effect.WebGL as WebGL exposing (Mesh, Shader)
 import Element exposing (Element)
 import Element.Background
 import Element.Border
@@ -24,20 +26,21 @@ import Element.Input
 import Env
 import Html exposing (Html)
 import Html.Attributes
-import Html.Events.Extra.Pointer
 import Html.Events.Extra.Touch
 import Id exposing (Id)
 import Keyboard exposing (Key(..))
 import Keyboard.Arrows
 import Lamdera
 import Length exposing (Meters)
+import LineSegment2d exposing (LineSegment2d)
 import List.Extra as List
 import List.Nonempty exposing (Nonempty)
-import Lobby exposing (LobbyPreview)
+import MatchSetup exposing (LobbyPreview, MatchSetup, MatchSetupMsg, PlayerData)
 import Math.Matrix4 as Mat4 exposing (Mat4)
 import Math.Vector2 exposing (Vec2)
 import Math.Vector3 exposing (Vec3)
 import Math.Vector4 exposing (Vec4)
+import NetworkModel
 import Pixels exposing (Pixels)
 import Point2d exposing (Point2d)
 import Ports
@@ -46,6 +49,7 @@ import Sounds exposing (Sounds)
 import Time
 import Timeline exposing (FrameId)
 import Types exposing (..)
+import Ui
 import UiColors
 import Url exposing (Url)
 import User exposing (UserId)
@@ -275,6 +279,9 @@ updateLoaded msg model =
                         Effect.Lamdera.sendToBackend (MatchInputRequest match.matchId time input)
                     )
 
+                MatchSetupPage _ ->
+                    ( model2, Command.none )
+
                 LobbyPage _ ->
                     ( model2, Command.none )
 
@@ -282,71 +289,90 @@ updateLoaded msg model =
             ( model, Effect.Lamdera.sendToBackend CreateLobbyRequest )
 
         PressedJoinLobby lobbyId ->
-            ( model, Effect.Lamdera.sendToBackend (JoinLobbyRequest lobbyId) )
+            ( model, MatchSetupRequest lobbyId MatchSetup.JoinMatchSetup |> Effect.Lamdera.sendToBackend )
 
-        PressedStartMatch ->
+        PressedStartMatchSetup ->
             ( model, Effect.Lamdera.sendToBackend StartMatchRequest )
+
+        PressedLeaveMatchSetup ->
+            matchSetupUpdate MatchSetup.LeaveMatchSetup model
 
         SoundLoaded _ _ ->
             -- Shouldn't happen
             ( model, Command.none )
 
-        PointerDown event ->
-            case model.page of
-                MatchPage matchPage ->
-                    ( { model
-                        | page =
-                            MatchPage
-                                { matchPage
-                                    | touchPosition =
-                                        case event.targetTouches ++ event.changedTouches ++ event.touches of
-                                            head :: _ ->
-                                                Point2d.fromTuple Pixels.pixels head.clientPos |> Just
-
-                                            _ ->
-                                                matchPage.touchPosition
-                                }
-                      }
-                    , Command.none
-                    )
-
-                LobbyPage _ ->
-                    ( model, Command.none )
-
-        PointerMoved event ->
-            case model.page of
-                MatchPage matchPage ->
-                    ( { model
-                        | page =
-                            MatchPage
-                                { matchPage
-                                    | touchPosition =
-                                        case event.targetTouches ++ event.changedTouches ++ event.touches of
-                                            head :: _ ->
-                                                Point2d.fromTuple Pixels.pixels head.clientPos |> Just
-
-                                            _ ->
-                                                matchPage.touchPosition
-                                }
-                      }
-                    , Command.none
-                    )
-
-                LobbyPage _ ->
-                    ( model, Command.none )
-
-        PointerUp _ ->
-            case model.page of
-                MatchPage matchPage ->
-                    ( { model | page = MatchPage { matchPage | touchPosition = Nothing } }
-                    , Command.none
-                    )
-
-                LobbyPage _ ->
-                    ( model, Command.none )
-
         GotTime _ ->
             ( model, Command.none )
+
+        MatchMsg matchMsg ->
+            case model.page of
+                MatchPage matchPage ->
+                    ( { model | page = matchUpdate matchMsg matchPage |> MatchPage }, Command.none )
+
+                _ ->
+                    ( model, Command.none )
+
+        PressedPrimaryColor colorIndex ->
+            matchSetupUpdate (MatchSetup.SetPrimaryColor colorIndex) model
+
+        PressedSecondaryColor colorIndex ->
+            matchSetupUpdate (MatchSetup.SetSecondaryColor colorIndex) model
+
+        PressedDecal decal ->
+            matchSetupUpdate (MatchSetup.SetDecal decal) model
+
+
+matchSetupUpdate : MatchSetupMsg -> FrontendLoaded -> ( FrontendLoaded, Command FrontendOnly ToBackend FrontendMsg_ )
+matchSetupUpdate msg model =
+    case model.page of
+        LobbyPage _ ->
+            ( model, Command.none )
+
+        MatchSetupPage matchSetup ->
+            ( { model
+                | page =
+                    { matchSetup
+                        | networkModel =
+                            NetworkModel.updateFromUser
+                                { userId = model.userId, msg = msg }
+                                matchSetup.networkModel
+                    }
+                        |> MatchSetupPage
+              }
+            , MatchSetupRequest matchSetup.lobbyId msg |> Effect.Lamdera.sendToBackend
+            )
+
+        MatchPage _ ->
+            ( model, Command.none )
+
+
+matchUpdate : MatchMsg -> MatchPage_ -> MatchPage_
+matchUpdate msg model =
+    case msg of
+        PointerDown event ->
+            { model
+                | touchPosition =
+                    case event.targetTouches ++ event.changedTouches ++ event.touches of
+                        head :: _ ->
+                            Point2d.fromTuple Pixels.pixels head.clientPos |> Just
+
+                        _ ->
+                            model.touchPosition
+            }
+
+        PointerUp _ ->
+            { model | touchPosition = Nothing }
+
+        PointerMoved event ->
+            { model
+                | touchPosition =
+                    case event.targetTouches ++ event.changedTouches ++ event.touches of
+                        head :: _ ->
+                            Point2d.fromTuple Pixels.pixels head.clientPos |> Just
+
+                        _ ->
+                            model.touchPosition
+            }
 
 
 getInputDirection : WindowSize -> List Key -> Maybe (Point2d Pixels ScreenCoordinate) -> Maybe (Direction2d WorldCoordinate)
@@ -443,15 +469,8 @@ updateLoadedFromBackend msg model =
 
         CreateLobbyResponse lobbyId lobby ->
             ( case model.page of
-                LobbyPage lobbyData ->
-                    { model
-                        | page =
-                            LobbyPage
-                                { lobbyData
-                                    | lobbies = Dict.insert lobbyId (Lobby.preview lobby) lobbyData.lobbies
-                                    , currentLobby = Just { id = lobbyId, lobby = lobby }
-                                }
-                    }
+                LobbyPage _ ->
+                    { model | page = MatchSetupPage { lobbyId = lobbyId, networkModel = NetworkModel.init lobby } }
 
                 _ ->
                     model
@@ -460,45 +479,19 @@ updateLoadedFromBackend msg model =
 
         JoinLobbyResponse lobbyId result ->
             ( case model.page of
-                LobbyPage lobbyData ->
+                LobbyPage _ ->
                     case result of
                         Ok lobby ->
                             { model
                                 | page =
-                                    LobbyPage
-                                        { lobbyData | currentLobby = Just { id = lobbyId, lobby = lobby } }
+                                    MatchSetupPage
+                                        { lobbyId = lobbyId, networkModel = NetworkModel.init lobby }
                             }
 
                         Err LobbyNotFound ->
                             model
 
                 _ ->
-                    model
-            , Command.none
-            )
-
-        JoinLobbyBroadcast lobbyId userId ->
-            ( case model.page of
-                LobbyPage lobbyData ->
-                    { model
-                        | page =
-                            LobbyPage
-                                { lobbyData
-                                    | currentLobby =
-                                        case lobbyData.currentLobby of
-                                            Just currentLobby ->
-                                                if currentLobby.id == lobbyId then
-                                                    Just { currentLobby | lobby = Lobby.joinUser userId currentLobby.lobby }
-
-                                                else
-                                                    Just currentLobby
-
-                                            Nothing ->
-                                                Nothing
-                                }
-                    }
-
-                MatchPage matchState ->
                     model
             , Command.none
             )
@@ -519,28 +512,32 @@ updateLoadedFromBackend msg model =
 
         StartMatchBroadcast matchId serverStartTime userIds ->
             case model.page of
-                LobbyPage lobbyData ->
-                    case lobbyData.currentLobby of
-                        Just _ ->
-                            ( { model
-                                | page =
-                                    MatchPage
-                                        { startTime = serverStartTime
-                                        , localStartTime = model.time
-                                        , timeline = Set.empty
-                                        , timelineCache = initMatch userIds |> Timeline.init
-                                        , userIds = userIds
-                                        , matchId = matchId
-                                        , zoom = 1
-                                        , touchPosition = Nothing
-                                        , previousTouchPosition = Nothing
-                                        }
-                              }
-                            , Command.none
-                            )
+                MatchSetupPage _ ->
+                    ( { model
+                        | page =
+                            MatchPage
+                                { startTime = serverStartTime
+                                , localStartTime = model.time
+                                , timeline = Set.empty
+                                , timelineCache = List.Nonempty.map Tuple.first userIds |> initMatch |> Timeline.init
+                                , userIds =
+                                    List.Nonempty.map
+                                        (\( id, playerData ) ->
+                                            { userId = id, playerData = playerData, mesh = playerMesh playerData }
+                                        )
+                                        userIds
+                                , wallMesh = wallMesh (Math.Vector3.vec3 1 0 0) wall
+                                , matchId = matchId
+                                , zoom = 1
+                                , touchPosition = Nothing
+                                , previousTouchPosition = Nothing
+                                }
+                      }
+                    , Command.none
+                    )
 
-                        Nothing ->
-                            ( model, Command.none )
+                LobbyPage _ ->
+                    ( model, Command.none )
 
                 MatchPage _ ->
                     ( model, Command.none )
@@ -559,6 +556,9 @@ updateLoadedFromBackend msg model =
                         model
 
                 LobbyPage _ ->
+                    model
+
+                MatchSetupPage _ ->
                     model
             , Command.none
             )
@@ -595,6 +595,39 @@ updateLoadedFromBackend msg model =
                     )
 
                 Nothing ->
+                    ( model, Command.none )
+
+        MatchSetupBroadcast lobbyId userId matchSetupMsg maybeLobbyData ->
+            case model.page of
+                MatchSetupPage matchSetup ->
+                    ( { model
+                        | page =
+                            case ( userId == model.userId, maybeLobbyData, matchSetupMsg ) of
+                                ( True, Just lobbyData, MatchSetup.LeaveMatchSetup ) ->
+                                    LobbyPage lobbyData
+
+                                _ ->
+                                    (if lobbyId == matchSetup.lobbyId then
+                                        { matchSetup
+                                            | networkModel =
+                                                NetworkModel.updateFromBackend
+                                                    MatchSetup.matchSetupUpdate
+                                                    { userId = userId, msg = matchSetupMsg }
+                                                    matchSetup.networkModel
+                                        }
+
+                                     else
+                                        matchSetup
+                                    )
+                                        |> MatchSetupPage
+                      }
+                    , Command.none
+                    )
+
+                LobbyPage _ ->
+                    ( model, Command.none )
+
+                MatchPage _ ->
                     ( model, Command.none )
 
 
@@ -707,39 +740,85 @@ loadedView model =
         , Element.clip
         ]
         (case model.page of
-            LobbyPage lobbyData ->
-                case lobbyData.currentLobby of
-                    Just currentLobby ->
-                        let
-                            users : List (Id UserId)
-                            users =
-                                Lobby.allUsers currentLobby.lobby |> List.Nonempty.toList
-                        in
-                        Element.column
-                            []
-                            [ button PressedStartMatch (Element.text "Start match")
-                            , Element.column
-                                []
-                                (List.map
-                                    (\userId -> Id.toInt userId |> String.fromInt |> (++) "User " |> Element.text)
-                                    users
-                                )
-                            ]
+            MatchSetupPage matchSetup ->
+                let
+                    lobby =
+                        NetworkModel.localState MatchSetup.matchSetupUpdate matchSetup.networkModel
 
-                    Nothing ->
-                        Element.column
-                            [ Element.spacing 16 ]
-                            [ button PressedCreateLobby (Element.text "Create lobby")
-                            , Element.column
+                    users : List (Id UserId)
+                    users =
+                        MatchSetup.allUsers lobby |> List.Nonempty.toList |> List.map Tuple.first
+
+                    maybeCurrentPlayerData : Maybe PlayerData
+                    maybeCurrentPlayerData =
+                        MatchSetup.allUsers_ lobby |> Dict.get model.userId
+                in
+                Element.column
+                    [ Element.spacing 8, Element.padding 16 ]
+                    [ button PressedStartMatchSetup (Element.text "Start match")
+                    , button PressedLeaveMatchSetup (Element.text "Leave")
+                    , case maybeCurrentPlayerData of
+                        Just currentPlayerData ->
+                            Element.column
                                 [ Element.spacing 8 ]
-                                [ Element.text "Lobbies"
-                                , lobbyData
-                                    |> .lobbies
-                                    |> Dict.toList
-                                    |> List.map lobbyRowView
-                                    |> Element.column []
+                                [ Element.column
+                                    [ Element.spacing 4 ]
+                                    [ Element.text "Primary color"
+                                    , colorSelector PressedPrimaryColor currentPlayerData.primaryColor
+                                    ]
+                                , Element.column
+                                    [ Element.spacing 4 ]
+                                    [ Element.text "Secondary color"
+                                    , colorSelector PressedSecondaryColor currentPlayerData.secondaryColor
+                                    ]
+                                , Element.column
+                                    [ Element.spacing 4 ]
+                                    [ Element.text "Decal"
+                                    , List.map
+                                        (\decal ->
+                                            Ui.button
+                                                [ Element.padding 4
+                                                , Element.Background.color
+                                                    (if decal == currentPlayerData.decal then
+                                                        Element.rgb 0.6 0.7 1
+
+                                                     else
+                                                        Element.rgb 0.8 0.8 0.8
+                                                    )
+                                                ]
+                                                { onPress = PressedDecal decal
+                                                , label = Decal.toString decal |> Element.text
+                                                }
+                                        )
+                                        Decal.allDecals
+                                        |> Element.row [ Element.spacing 8 ]
+                                    ]
                                 ]
-                            ]
+
+                        Nothing ->
+                            Element.none
+                    , Element.column
+                        []
+                        (List.map
+                            (\userId -> Id.toInt userId |> String.fromInt |> (++) "User " |> Element.text)
+                            users
+                        )
+                    ]
+
+            LobbyPage lobbyData ->
+                Element.column
+                    [ Element.spacing 16, Element.padding 16 ]
+                    [ button PressedCreateLobby (Element.text "Create lobby")
+                    , Element.column
+                        [ Element.spacing 8 ]
+                        [ Element.text "Lobbies"
+                        , lobbyData
+                            |> .lobbies
+                            |> Dict.toList
+                            |> List.map lobbyRowView
+                            |> Element.column []
+                        ]
+                    ]
 
             MatchPage matchPage ->
                 Element.el
@@ -757,6 +836,7 @@ loadedView model =
                            )
                     )
                     Element.none
+                    |> Element.map MatchMsg
          --Element.column
          --    []
          --    [ Element.text "Players: "
@@ -781,6 +861,31 @@ loadedView model =
          --        ]
          --    ]
         )
+
+
+colorSelector : (ColorIndex -> msg) -> ColorIndex -> Element msg
+colorSelector onSelect currentColor =
+    List.map
+        (\colorIndex ->
+            Ui.button
+                [ Element.width (Element.px 48)
+                , Element.height (Element.px 48)
+                , Element.Border.width
+                    (if currentColor == colorIndex then
+                        3
+
+                     else
+                        0
+                    )
+                , Element.Border.color (Element.rgb 1 1 1)
+                , ColorIndex.toElColor colorIndex |> Element.Background.color
+                ]
+                { onPress = onSelect colorIndex
+                , label = Element.none
+                }
+        )
+        ColorIndex.allColors
+        |> Element.row []
 
 
 timestamp : Time.Posix -> String
@@ -817,11 +922,11 @@ inputsView matchPage =
 
 button : msg -> Element msg -> Element msg
 button onPress label =
-    Element.Input.button
+    Ui.button
         [ Element.Background.color <| Element.rgb 0.9 0.9 0.85
         , Element.padding 4
         ]
-        { onPress = Just onPress
+        { onPress = onPress
         , label = label
         }
 
@@ -934,27 +1039,40 @@ canvasView model =
                     , viewZoom = match.zoom
                     , windowSize = Math.Vector2.vec2 (toFloat windowWidth) (toFloat windowHeight)
                     }
-                    :: List.map
-                        (\player ->
-                            WebGL.entityWith
-                                [ WebGL.Settings.cullFace WebGL.Settings.back ]
-                                playerVertexShader
-                                playerFragmentShader
-                                circle
-                                { view = viewMatrix
-                                , model =
-                                    pointToMatrix player.position
-                                        |> Mat4.scale3 playerRadius_ playerRadius_ playerRadius_
-                                , color = Math.Vector3.vec3 0.2 0.3 0
-                                }
+                    :: WebGL.entityWith
+                        [ WebGL.Settings.cullFace WebGL.Settings.back ]
+                        vertexShader
+                        fragmentShader
+                        match.wallMesh
+                        { view = viewMatrix
+                        , model = Mat4.identity
+                        }
+                    :: List.filterMap
+                        (\( userId, player ) ->
+                            case List.Nonempty.toList match.userIds |> List.find (.userId >> (==) userId) of
+                                Just { mesh } ->
+                                    WebGL.entityWith
+                                        [ WebGL.Settings.cullFace WebGL.Settings.back ]
+                                        vertexShader
+                                        fragmentShader
+                                        mesh
+                                        { view = viewMatrix
+                                        , model =
+                                            pointToMatrix player.position
+                                                |> Mat4.scale3 playerRadius_ playerRadius_ playerRadius_
+                                        }
+                                        |> Just
+
+                                Nothing ->
+                                    Nothing
                         )
-                        (Dict.values state.players)
+                        (Dict.toList state.players)
                     ++ (case ( Dict.get model.userId state.players, input ) of
                             ( Just player, Just direction ) ->
                                 [ WebGL.entityWith
                                     [ WebGL.Settings.cullFace WebGL.Settings.back ]
-                                    playerVertexShader
-                                    playerFragmentShader
+                                    vertexShader
+                                    fragmentShader
                                     arrow
                                     { view = viewMatrix
                                     , model =
@@ -963,7 +1081,6 @@ canvasView model =
                                             |> Mat4.rotate
                                                 (Direction2d.toAngle direction |> Angle.inRadians |> (+) (pi / 2))
                                                 (Math.Vector3.vec3 0 0 1)
-                                    , color = Math.Vector3.vec3 1 0.8 0.1
                                     }
                                 ]
 
@@ -973,12 +1090,63 @@ canvasView model =
 
             LobbyPage _ ->
                 []
+
+            MatchSetupPage matchSetup ->
+                []
         )
         |> Element.html
 
 
+wall : List (LineSegment2d Meters WorldCoordinate)
 wall =
-    []
+    [ LineSegment2d.from (Point2d.meters 200 0) (Point2d.meters 0 -200) ]
+
+
+wallMesh : Vec3 -> List (LineSegment2d Meters WorldCoordinate) -> Mesh Vertex
+wallMesh color lines =
+    List.concatMap (lineMesh color) lines |> WebGL.triangles
+
+
+lineMesh : Vec3 -> LineSegment2d Meters WorldCoordinate -> List ( Vertex, Vertex, Vertex )
+lineMesh color line =
+    let
+        ( p0, p1 ) =
+            LineSegment2d.endpoints line
+
+        perpendicular : Vector2d units coordinates
+        perpendicular =
+            Vector2d.from p0 p1
+                |> Vector2d.perpendicularTo
+                |> Vector2d.normalize
+                |> Vector2d.scaleBy 10
+                |> Vector2d.unwrap
+                |> Vector2d.unsafe
+    in
+    [ ( Point2d.translateBy perpendicular p0
+      , Point2d.translateBy (Vector2d.reverse perpendicular) p0
+      , Point2d.translateBy (Vector2d.reverse perpendicular) p1
+      )
+    , ( Point2d.translateBy (Vector2d.reverse perpendicular) p1
+      , Point2d.translateBy perpendicular p1
+      , Point2d.translateBy perpendicular p0
+      )
+    ]
+        |> List.map
+            (\( a, b, c ) ->
+                ( { position = pointToVec a, color = color }
+                , { position = pointToVec b, color = color }
+                , { position = pointToVec c, color = color }
+                )
+            )
+
+
+pointToVec : Point2d units coordinate -> Vec2
+pointToVec point2d =
+    let
+        { x, y } =
+            Point2d.unwrap point2d
+    in
+    Math.Vector2.vec2 x y
 
 
 gameUpdate : List TimelineEvent -> MatchState -> MatchState
@@ -995,21 +1163,21 @@ gameUpdate inputs model =
         updatedVelocities =
             Dict.map
                 (\_ a ->
-                    { a
-                        | position = Point2d.translateBy a.velocity a.position
-                        , velocity =
-                            (case a.input of
-                                Just input ->
-                                    Direction2d.toVector input
-                                        |> Vector2d.scaleBy 0.5
-                                        |> Vector2d.unwrap
-                                        |> Vector2d.unsafe
+                    { position = Point2d.translateBy a.velocity a.position
+                    , velocity =
+                        (case a.input of
+                            Just input ->
+                                Direction2d.toVector input
+                                    |> Vector2d.scaleBy 0.5
+                                    |> Vector2d.unwrap
+                                    |> Vector2d.unsafe
 
-                                Nothing ->
-                                    Vector2d.zero
-                            )
-                                |> Vector2d.plus a.velocity
-                                |> Vector2d.scaleBy 0.99
+                            Nothing ->
+                                Vector2d.zero
+                        )
+                            |> Vector2d.plus a.velocity
+                            |> Vector2d.scaleBy 0.99
+                    , input = a.input
                     }
                 )
                 newModel.players
@@ -1025,6 +1193,27 @@ gameUpdate inputs model =
     }
 
 
+circleLineCollisionPoint circleRadius circlePosition circleVelocity line =
+    case Vector2d.direction circleVelocity of
+        Just direction ->
+            case LineSegment2d.intersectionWithAxis (Axis2d.through circlePosition direction) line of
+                Just intersection ->
+                    let
+                        v1 =
+                            Vector2d.normalize circleVelocity
+
+                        v2 = Vector2d.from intersection circlePosition
+                        v3 = LineSegment2d. circlePosition line |> Quantity.abs
+                    in
+                    intersection
+
+                Nothing ->
+                    Nothing
+
+        Nothing ->
+            Nothing
+
+
 playerRadius =
     Length.meters 50
 
@@ -1037,9 +1226,9 @@ arrow =
     ]
         |> List.map
             (\{ v0, v1, v2 } ->
-                ( { position = Math.Vector2.vec2 (Tuple.first v0) (Tuple.second v0) }
-                , { position = Math.Vector2.vec2 (Tuple.first v1) (Tuple.second v1) }
-                , { position = Math.Vector2.vec2 (Tuple.first v2) (Tuple.second v2) }
+                ( { position = Math.Vector2.vec2 (Tuple.first v0) (Tuple.second v0), color = Math.Vector3.vec3 1 0.8 0.1 }
+                , { position = Math.Vector2.vec2 (Tuple.first v1) (Tuple.second v1), color = Math.Vector3.vec3 1 0.8 0.1 }
+                , { position = Math.Vector2.vec2 (Tuple.first v2) (Tuple.second v2), color = Math.Vector3.vec3 1 0.8 0.1 }
                 )
             )
         |> WebGL.triangles
@@ -1168,39 +1357,58 @@ square =
         ]
 
 
-circle =
+playerMesh : PlayerData -> WebGL.Mesh Vertex
+playerMesh playerData =
+    let
+        primaryColor : Vec3
+        primaryColor =
+            ColorIndex.toVec3 playerData.primaryColor
+    in
+    circle 1 (Math.Vector3.vec3 0 0 0)
+        ++ circle 0.95 primaryColor
+        ++ Decal.triangles playerData.secondaryColor playerData.decal
+        |> WebGL.triangles
+
+
+circle : Float -> Vec3 -> List ( Vertex, Vertex, Vertex )
+circle size color =
     let
         detail =
             64
     in
-    List.range 0 (detail - 1)
+    List.range 0 (detail - 3)
         |> List.map
             (\index ->
                 let
-                    t =
-                        pi * 2 * toFloat index / detail
+                    t0 =
+                        0
+
+                    t1 =
+                        pi * 2 * toFloat (index + 1) / detail
+
+                    t2 =
+                        pi * 2 * toFloat (index + 2) / detail
                 in
-                { position = Math.Vector2.vec2 (cos t) (sin t) }
+                ( { position = Math.Vector2.vec2 (cos t0 * size) (sin t0 * size), color = color }
+                , { position = Math.Vector2.vec2 (cos t1 * size) (sin t1 * size), color = color }
+                , { position = Math.Vector2.vec2 (cos t2 * size) (sin t2 * size), color = color }
+                )
             )
-        |> WebGL.triangleFan
-
-
-type alias Vertex =
-    { position : Vec2 }
 
 
 type alias PlayerUniforms =
-    { view : Mat4, model : Mat4, color : Vec3 }
+    { view : Mat4, model : Mat4 }
 
 
-playerVertexShader : Shader Vertex PlayerUniforms { vcolor : Vec4 }
-playerVertexShader =
+vertexShader : Shader Vertex PlayerUniforms { vcolor : Vec4 }
+vertexShader =
     [glsl|
 attribute vec2 position;
+attribute vec3 color;
 varying vec4 vcolor;
 uniform mat4 view;
 uniform mat4 model;
-uniform vec3 color;
+
 
 void main () {
     gl_Position = view * model * vec4(position, 0.0, 1.0);
@@ -1213,8 +1421,8 @@ void main () {
 |]
 
 
-playerFragmentShader : Shader {} PlayerUniforms { vcolor : Vec4 }
-playerFragmentShader =
+fragmentShader : Shader {} PlayerUniforms { vcolor : Vec4 }
+fragmentShader =
     [glsl|
         precision mediump float;
         varying vec4 vcolor;
@@ -1225,7 +1433,7 @@ playerFragmentShader =
     |]
 
 
-backgroundVertexShader : Shader Vertex { view : Vec2, viewZoom : Float, windowSize : Vec2 } { worldCoordinate : Vec2 }
+backgroundVertexShader : Shader { position : Vec2 } { view : Vec2, viewZoom : Float, windowSize : Vec2 } { worldCoordinate : Vec2 }
 backgroundVertexShader =
     [glsl|
 attribute vec2 position;

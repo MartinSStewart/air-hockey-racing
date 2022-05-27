@@ -12,6 +12,7 @@ module Types exposing
     , LobbyData
     , LobbyId
     , MatchId
+    , MatchMsg(..)
     , MatchPage_
     , MatchState
     , Page(..)
@@ -21,34 +22,38 @@ module Types exposing
     , TimelineEvent
     , ToBackend(..)
     , ToFrontend(..)
+    , Vertex
     , WindowSize
     , WorldCoordinate
     , WorldPixel
     )
 
-import AssocList as Dict exposing (Dict)
-import AssocSet as Set exposing (Set)
+import AssocList exposing (Dict)
 import Audio
 import Browser
+import ColorIndex exposing (ColorIndex)
+import Decal exposing (Decal)
 import Direction2d exposing (Direction2d)
 import Duration exposing (Duration)
 import Effect.Browser.Navigation
 import Effect.Lamdera exposing (ClientId, SessionId)
 import Effect.Time as Time
-import Html.Events.Extra.Pointer
+import Effect.WebGL exposing (Mesh)
 import Html.Events.Extra.Touch
 import Id exposing (Id)
 import Keyboard
-import Keyboard.Arrows
 import Length exposing (Meters)
 import List.Nonempty exposing (Nonempty)
-import Lobby exposing (Lobby, LobbyPreview)
-import LocalModel exposing (LocalModel)
+import MatchSetup exposing (LobbyPreview, MatchSetup, MatchSetupMsg, PlayerData)
+import Math.Vector2 exposing (Vec2)
+import Math.Vector3 exposing (Vec3)
+import NetworkModel exposing (NetworkModel)
 import Pixels exposing (Pixels)
 import Point2d exposing (Point2d)
 import Quantity exposing (Quantity, Rate)
 import Sounds exposing (Sounds)
 import Timeline exposing (FrameId, Timeline, TimelineCache)
+import TriangularMesh exposing (TriangularMesh)
 import Url exposing (Url)
 import User exposing (UserId)
 import Vector2d exposing (Vector2d)
@@ -113,12 +118,18 @@ type alias PingData =
 
 type Page
     = LobbyPage LobbyData
+    | MatchSetupPage MatchSetupPage_
     | MatchPage MatchPage_
+
+
+type alias MatchSetupPage_ =
+    { lobbyId : Id LobbyId
+    , networkModel : NetworkModel { userId : Id UserId, msg : MatchSetupMsg } MatchSetup
+    }
 
 
 type alias LobbyData =
     { lobbies : Dict (Id LobbyId) LobbyPreview
-    , currentLobby : Maybe { id : Id LobbyId, lobby : Lobby }
     }
 
 
@@ -127,12 +138,17 @@ type alias MatchPage_ =
     , localStartTime : Time.Posix
     , timeline : Timeline TimelineEvent
     , timelineCache : TimelineCache MatchState
-    , userIds : Nonempty (Id UserId)
+    , userIds : Nonempty { userId : Id UserId, playerData : PlayerData, mesh : Mesh Vertex }
+    , wallMesh : Mesh Vertex
     , matchId : Id MatchId
     , zoom : Float
     , touchPosition : Maybe (Point2d Pixels ScreenCoordinate)
     , previousTouchPosition : Maybe (Point2d Pixels ScreenCoordinate)
     }
+
+
+type alias Vertex =
+    { position : Vec2, color : Vec3 }
 
 
 type ScreenCoordinate
@@ -161,7 +177,7 @@ type alias TimelineEvent =
 type alias BackendModel =
     { userSessions : Dict SessionId { clientIds : Dict ClientId (), userId : Id UserId }
     , users : Dict (Id UserId) BackendUserData
-    , lobbies : Dict (Id LobbyId) Lobby
+    , lobbies : Dict (Id LobbyId) MatchSetup
     , matches : Dict (Id MatchId) { users : Nonempty (Id UserId) }
     , counter : Int
     }
@@ -181,12 +197,20 @@ type FrontendMsg_
     | AnimationFrame Time.Posix
     | PressedCreateLobby
     | PressedJoinLobby (Id LobbyId)
-    | PressedStartMatch
+    | PressedStartMatchSetup
+    | PressedLeaveMatchSetup
+    | PressedPrimaryColor ColorIndex
+    | PressedSecondaryColor ColorIndex
+    | PressedDecal Decal
     | SoundLoaded String (Result Audio.LoadError Audio.Source)
-    | PointerDown Html.Events.Extra.Touch.Event
+    | MatchMsg MatchMsg
+    | GotTime Time.Posix
+
+
+type MatchMsg
+    = PointerDown Html.Events.Extra.Touch.Event
     | PointerUp Html.Events.Extra.Touch.Event
     | PointerMoved Html.Events.Extra.Touch.Event
-    | GotTime Time.Posix
 
 
 type LobbyId
@@ -199,7 +223,7 @@ type MatchId
 
 type ToBackend
     = CreateLobbyRequest
-    | JoinLobbyRequest (Id LobbyId)
+    | MatchSetupRequest (Id LobbyId) MatchSetupMsg
     | StartMatchRequest
     | MatchInputRequest (Id MatchId) Time.Posix (Maybe (Direction2d WorldCoordinate))
     | PingRequest
@@ -212,14 +236,14 @@ type BackendMsg
 
 
 type ToFrontend
-    = CreateLobbyResponse (Id LobbyId) Lobby
+    = CreateLobbyResponse (Id LobbyId) MatchSetup
     | CreateLobbyBroadcast (Id LobbyId) LobbyPreview
     | ClientInit (Id UserId) LobbyData
-    | JoinLobbyResponse (Id LobbyId) (Result JoinLobbyError Lobby)
-    | JoinLobbyBroadcast (Id LobbyId) (Id UserId)
-    | StartMatchBroadcast (Id MatchId) Time.Posix (Nonempty (Id UserId))
+    | JoinLobbyResponse (Id LobbyId) (Result JoinLobbyError MatchSetup)
+    | StartMatchBroadcast (Id MatchId) Time.Posix (Nonempty ( Id UserId, PlayerData ))
     | MatchInputBroadcast (Id MatchId) Time.Posix TimelineEvent
     | PingResponse Time.Posix
+    | MatchSetupBroadcast (Id LobbyId) (Id UserId) MatchSetupMsg (Maybe LobbyData)
 
 
 type JoinLobbyError
