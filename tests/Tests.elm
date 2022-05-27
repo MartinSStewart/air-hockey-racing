@@ -53,4 +53,12 @@ suite =
                     (Vector2d.fromMeters { x = 0.5, y = 0.5 })
                     (LineSegment2d.from (Point2d.fromMeters { x = 1, y = -1 }) (Point2d.fromMeters { x = 1, y = 1 }))
                     |> Expect.equal Nothing
+        , test "Wall collision 5" <|
+            \_ ->
+                Collision.circleLine
+                    Length.meter
+                    (Point2d.fromMeters { x = -1, y = 0 })
+                    (Vector2d.fromMeters { x = -2, y = 0 })
+                    (LineSegment2d.from (Point2d.fromMeters { x = 1, y = -1 }) (Point2d.fromMeters { x = 1, y = 1 }))
+                    |> Expect.equal (Just (Point2d.fromMeters { x = 0, y = 0 }))
         ]

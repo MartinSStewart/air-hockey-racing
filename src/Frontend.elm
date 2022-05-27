@@ -1100,7 +1100,7 @@ canvasView model =
 
 wall : List (LineSegment2d Meters WorldCoordinate)
 wall =
-    [ LineSegment2d.from (Point2d.meters 0 0) (Point2d.meters 0 100) ]
+    [ LineSegment2d.from (Point2d.meters 200 0) (Point2d.meters 500 100) ]
 
 
 wallMesh : Vec3 -> List (LineSegment2d Meters WorldCoordinate) -> Mesh Vertex
@@ -1165,29 +1165,55 @@ gameUpdate inputs model =
             Dict.map
                 (\_ a ->
                     let
-                        nearestCollision : Maybe (Point2d Meters WorldCoordinate)
+                        nearestCollision : Maybe ( LineSegment2d Meters WorldCoordinate, Point2d Meters WorldCoordinate )
                         nearestCollision =
-                            List.filterMap (Collision.circleLine playerRadius a.position a.velocity) wall
-                                |> Quantity.sortBy (Point2d.distanceFrom a.position)
+                            List.filterMap
+                                (\line ->
+                                    Collision.circleLine playerRadius a.position a.velocity line
+                                        |> Maybe.map (Tuple.pair line)
+                                )
+                                wall
+                                |> Quantity.sortBy (Tuple.second >> Point2d.distanceFrom a.position)
                                 |> List.head
-                                |> Debug.log "nearest"
-                    in
-                    { position = Point2d.translateBy a.velocity a.position
-                    , velocity =
-                        (case a.input of
-                            Just input ->
-                                Direction2d.toVector input
-                                    |> Vector2d.scaleBy 0.5
-                                    |> Vector2d.unwrap
-                                    |> Vector2d.unsafe
 
-                            Nothing ->
-                                Vector2d.zero
-                        )
-                            |> Vector2d.plus a.velocity
-                            |> Vector2d.scaleBy 0.99
-                    , input = a.input
-                    }
+                        newVelocity : Vector2d Meters WorldCoordinate
+                        newVelocity =
+                            (case a.input of
+                                Just input ->
+                                    Direction2d.toVector input
+                                        |> Vector2d.scaleBy 0.5
+                                        |> Vector2d.unwrap
+                                        |> Vector2d.unsafe
+
+                                Nothing ->
+                                    Vector2d.zero
+                            )
+                                |> Vector2d.plus a.velocity
+                                |> Vector2d.scaleBy 0.99
+                    in
+                    case nearestCollision of
+                        Just ( line, collision ) ->
+                            case LineSegment2d.direction line of
+                                Just lineDirection ->
+                                    { position = collision
+                                    , velocity =
+                                        Vector2d.mirrorAcross
+                                            (Axis2d.withDirection lineDirection (LineSegment2d.startPoint line))
+                                            newVelocity
+                                    , input = a.input
+                                    }
+
+                                Nothing ->
+                                    { position = Point2d.translateBy a.velocity a.position
+                                    , velocity = newVelocity
+                                    , input = a.input
+                                    }
+
+                        Nothing ->
+                            { position = Point2d.translateBy a.velocity a.position
+                            , velocity = newVelocity
+                            , input = a.input
+                            }
                 )
                 newModel.players
     in
