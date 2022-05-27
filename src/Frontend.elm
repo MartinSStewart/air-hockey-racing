@@ -25,6 +25,7 @@ import Element.Background
 import Element.Border
 import Element.Input
 import Env
+import Geometry.Types exposing (Polyline2d(..))
 import Html exposing (Html)
 import Html.Attributes
 import Html.Events.Extra.Touch
@@ -44,6 +45,8 @@ import Math.Vector4 exposing (Vec4)
 import NetworkModel
 import Pixels exposing (Pixels)
 import Point2d exposing (Point2d)
+import Polygon2d
+import Polyline2d
 import Ports
 import Quantity exposing (Quantity(..), Rate)
 import Sounds exposing (Sounds)
@@ -527,7 +530,7 @@ updateLoadedFromBackend msg model =
                                             { userId = id, playerData = playerData, mesh = playerMesh playerData }
                                         )
                                         userIds
-                                , wallMesh = wallMesh (Math.Vector3.vec3 1 0 0) wall
+                                , wallMesh = wallMesh (Math.Vector3.vec3 1 0 0) wallSegments
                                 , matchId = matchId
                                 , zoom = 1
                                 , touchPosition = Nothing
@@ -1098,9 +1101,49 @@ canvasView model =
         |> Element.html
 
 
-wall : List (LineSegment2d Meters WorldCoordinate)
+wall : Polyline2d Meters WorldCoordinate
 wall =
-    [ LineSegment2d.from (Point2d.meters 200 0) (Point2d.meters 500 100) ]
+    Polyline2d.fromVertices
+        [ Point2d.meters 1187 461
+        , Point2d.meters 1187 328
+        , Point2d.meters 1078 328
+        , Point2d.meters 1078 453
+        , Point2d.meters 875 453
+        , Point2d.meters 771 424
+        , Point2d.meters 563 424
+        , Point2d.meters 631 300
+        , Point2d.meters 631 141
+        , Point2d.meters 438 141
+        , Point2d.meters 438 487
+        , Point2d.meters 509 560
+        , Point2d.meters 1090 560
+        ]
+        |> Polyline2d.scaleAbout Point2d.origin 5
+
+
+wallSegments : List (LineSegment2d Meters WorldCoordinate)
+wallSegments =
+    let
+        vertices =
+            Polyline2d.vertices wall
+    in
+    case ( List.head vertices, List.reverse vertices |> List.head ) of
+        ( Just head, Just last ) ->
+            vertices
+                |> List.groupsOfWithStep 2 1
+                |> (::) [ last, head ]
+                |> List.filterMap
+                    (\list ->
+                        case list of
+                            [ first, second ] ->
+                                LineSegment2d.from first second |> Just
+
+                            _ ->
+                                Nothing
+                    )
+
+        _ ->
+            []
 
 
 wallMesh : Vec3 -> List (LineSegment2d Meters WorldCoordinate) -> Mesh Vertex
@@ -1172,7 +1215,7 @@ gameUpdate inputs model =
                                     Collision.circleLine playerRadius a.position a.velocity line
                                         |> Maybe.map (Tuple.pair line)
                                 )
-                                wall
+                                wallSegments
                                 |> Quantity.sortBy (Tuple.second >> Point2d.distanceFrom a.position)
                                 |> List.head
 
@@ -1250,75 +1293,12 @@ arrow =
 
 handleCollision : Player -> Player -> ( Player, Player )
 handleCollision playerA playerB =
-    let
-        distance : Quantity Float Meters
-        distance =
-            Point2d.distanceFrom playerA.position playerB.position
-    in
-    if distance |> Quantity.lessThan (Quantity.multiplyBy 2 playerRadius) then
-        let
-            ( v1, v2 ) =
-                solveCollision playerA.position playerA.velocity playerB.position playerB.velocity
-        in
-        ( { playerA | velocity = v1 }, { playerB | velocity = v2 } )
+    case Collision.circleCircle playerRadius playerA.position playerA.velocity playerB.position playerB.velocity of
+        Just ( v1, v2 ) ->
+            ( { playerA | velocity = v1 }, { playerB | velocity = v2 } )
 
-    else
-        ( playerA, playerB )
-
-
-solveCollision :
-    Point2d Meters WorldCoordinate
-    -> Vector2d Meters WorldCoordinate
-    -> Point2d Meters WorldCoordinate
-    -> Vector2d Meters WorldCoordinate
-    -> ( Vector2d Meters WorldCoordinate, Vector2d Meters WorldCoordinate )
-solveCollision p1 v1 p2 v2 =
-    let
-        ( circle1Vx, circle1Vy ) =
-            Vector2d.toTuple Length.inMeters v1
-
-        ( circle2Vx, circle2Vy ) =
-            Vector2d.toTuple Length.inMeters v2
-
-        ( cx1, cy1 ) =
-            Point2d.toTuple Length.inMeters p1
-
-        ( cx2, cy2 ) =
-            Point2d.toTuple Length.inMeters p2
-
-        d =
-            sqrt ((cx1 - cx2) ^ 2 + (cy1 - cy2) ^ 2)
-
-        circle1Mass =
-            1
-
-        circle2Mass =
-            1
-
-        nx =
-            (cx2 - cx1) / d
-
-        ny =
-            (cy2 - cy1) / d
-
-        p =
-            2
-                * (circle1Vx * nx + circle1Vy * ny - circle2Vx * nx - circle2Vy * ny)
-                / (circle1Mass + circle2Mass)
-
-        vx1 =
-            circle1Vx - p * circle1Mass * nx
-
-        vy1 =
-            circle1Vy - p * circle1Mass * ny
-
-        vx2 =
-            circle2Vx + p * circle2Mass * nx
-
-        vy2 =
-            circle2Vy + p * circle2Mass * ny
-    in
-    ( Vector2d.fromMeters { x = vx1, y = vy1 }, Vector2d.fromMeters { x = vx2, y = vy2 } )
+        Nothing ->
+            ( playerA, playerB )
 
 
 pointToMatrix : Point2d units coordinates -> Mat4
