@@ -6,6 +6,7 @@ import AssocSet as Set exposing (Set)
 import Audio exposing (Audio, AudioCmd, AudioData)
 import Axis2d
 import Browser exposing (UrlRequest(..))
+import Collision
 import ColorIndex exposing (ColorIndex)
 import Decal
 import Direction2d exposing (Direction2d)
@@ -1099,7 +1100,7 @@ canvasView model =
 
 wall : List (LineSegment2d Meters WorldCoordinate)
 wall =
-    [ LineSegment2d.from (Point2d.meters 200 0) (Point2d.meters 0 -200) ]
+    [ LineSegment2d.from (Point2d.meters 0 0) (Point2d.meters 0 100) ]
 
 
 wallMesh : Vec3 -> List (LineSegment2d Meters WorldCoordinate) -> Mesh Vertex
@@ -1163,6 +1164,14 @@ gameUpdate inputs model =
         updatedVelocities =
             Dict.map
                 (\_ a ->
+                    let
+                        nearestCollision : Maybe (Point2d Meters WorldCoordinate)
+                        nearestCollision =
+                            List.filterMap (Collision.circleLine playerRadius a.position a.velocity) wall
+                                |> Quantity.sortBy (Point2d.distanceFrom a.position)
+                                |> List.head
+                                |> Debug.log "nearest"
+                    in
                     { position = Point2d.translateBy a.velocity a.position
                     , velocity =
                         (case a.input of
@@ -1191,27 +1200,6 @@ gameUpdate inputs model =
             )
             updatedVelocities
     }
-
-
-circleLineCollisionPoint circleRadius circlePosition circleVelocity line =
-    case Vector2d.direction circleVelocity of
-        Just direction ->
-            case LineSegment2d.intersectionWithAxis (Axis2d.through circlePosition direction) line of
-                Just intersection ->
-                    let
-                        v1 =
-                            Vector2d.normalize circleVelocity
-
-                        v2 = Vector2d.from intersection circlePosition
-                        v3 = LineSegment2d. circlePosition line |> Quantity.abs
-                    in
-                    intersection
-
-                Nothing ->
-                    Nothing
-
-        Nothing ->
-            Nothing
 
 
 playerRadius =
