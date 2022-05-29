@@ -1,4 +1,4 @@
-module Collision exposing (circleCircle, circleLine)
+module Collision exposing (circleCircle, circleLine, circlePoint)
 
 import Axis2d
 import Length exposing (Meters)
@@ -55,6 +55,41 @@ circleLine circleRadius circlePosition circleVelocity line =
 
                 Nothing ->
                     Nothing
+
+        Nothing ->
+            Nothing
+
+
+circlePoint :
+    Quantity Float Meters
+    -> Point2d Meters coordinates
+    -> Vector2d Meters coordinates
+    -> Point2d Meters coordinates
+    -> Maybe (Point2d Meters coordinates)
+circlePoint circleRadius circlePosition circleVelocity point =
+    case Vector2d.direction circleVelocity of
+        Just direction ->
+            let
+                closestDistance : Float
+                closestDistance =
+                    Point2d.signedDistanceFrom (Axis2d.through circlePosition direction) point |> Quantity.unwrap
+
+                rawCircleRadius : Float
+                rawCircleRadius =
+                    Quantity.unwrap circleRadius
+            in
+            if closestDistance <= rawCircleRadius then
+                (rawCircleRadius ^ 2 - closestDistance ^ 2)
+                    |> sqrt
+                    |> Length.meters
+                    |> (\value -> Vector2d.withLength value direction)
+                    |> Vector2d.reverse
+                    |> Vector2d.plus circleVelocity
+                    |> (\vector -> Point2d.translateBy vector circlePosition)
+                    |> Just
+
+            else
+                Nothing
 
         Nothing ->
             Nothing
