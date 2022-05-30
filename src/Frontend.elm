@@ -1,6 +1,6 @@
 module Frontend exposing (app, init, update, updateFromBackend, view)
 
-import Angle
+import Angle exposing (Angle)
 import AssocList as Dict exposing (Dict)
 import AssocSet as Set exposing (Set)
 import Audio exposing (Audio, AudioCmd, AudioData)
@@ -651,6 +651,8 @@ initMatch userIds =
                                 )
                                 playerStart
                       , velocity = Vector2d.zero
+                      , rotationalVelocity = Quantity.zero
+                      , rotation = Quantity.zero
                       , input = Nothing
                       }
                     )
@@ -1067,6 +1069,7 @@ canvasView model =
                                         , model =
                                             pointToMatrix player.position
                                                 |> Mat4.scale3 playerRadius_ playerRadius_ playerRadius_
+                                                |> Mat4.rotate (Angle.inRadians player.rotation) (Math.Vector3.vec3 0 0 1)
                                         }
                                         |> Just
 
@@ -1268,22 +1271,12 @@ gameUpdate inputs model =
                                 |> Quantity.sortBy (.collisionPosition >> Point2d.distanceFrom a.position)
                                 |> List.head
 
-                        --nearestPointCollision : Maybe ( Point2d Meters WorldCoordinate, Point2d Meters WorldCoordinate )
-                        --nearestPointCollision =
-                        --    Polyline2d.vertices wall
-                        --        |> List.filterMap
-                        --            (\vertex ->
-                        --                Collision.circlePoint playerRadius a.position a.velocity vertex
-                        --                    |> Maybe.map (Tuple.pair vertex)
-                        --            )
-                        --        |> Quantity.sortBy (Tuple.second >> Point2d.distanceFrom a.position)
-                        --        |> List.head
                         newVelocity : Vector2d Meters WorldCoordinate
                         newVelocity =
                             (case a.input of
                                 Just input ->
                                     Direction2d.toVector input
-                                        |> Vector2d.scaleBy 0.5
+                                        |> Vector2d.scaleBy 0.2
                                         |> Vector2d.unwrap
                                         |> Vector2d.unsafe
 
@@ -1295,15 +1288,36 @@ gameUpdate inputs model =
                     in
                     case nearestCollision of
                         Just { collisionVelocity, collisionPosition } ->
-                            { position = collisionPosition
-                            , velocity = collisionVelocity
-                            , input = a.input
+                            let
+                                angleChange : Angle
+                                angleChange =
+                                    Maybe.map2 Direction2d.angleFrom
+                                        (Vector2d.direction collisionVelocity)
+                                        (Vector2d.direction a.velocity)
+                                        |> Maybe.withDefault (Angle.turns 0.5)
+                            in
+                            { a
+                                | position = collisionPosition
+                                , velocity = collisionVelocity
+                                , rotation = Quantity.plus a.rotation a.rotationalVelocity
+                                , rotationalVelocity =
+                                    Angle.turns 0.5
+                                        |> Quantity.minus (Quantity.abs angleChange)
+                                        |> Quantity.multiplyBy
+                                            (if Quantity.lessThanZero angleChange then
+                                                -0.01 * Length.inMeters (Vector2d.length collisionVelocity)
+
+                                             else
+                                                0.01 * Length.inMeters (Vector2d.length collisionVelocity)
+                                            )
                             }
 
                         Nothing ->
-                            { position = Point2d.translateBy a.velocity a.position
-                            , velocity = newVelocity
-                            , input = a.input
+                            { a
+                                | position = Point2d.translateBy a.velocity a.position
+                                , velocity = newVelocity
+                                , rotation = Quantity.plus a.rotation a.rotationalVelocity
+                                , rotationalVelocity = Quantity.multiplyBy 0.995 a.rotationalVelocity
                             }
                 )
                 newModel.players

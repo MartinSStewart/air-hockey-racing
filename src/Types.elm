@@ -28,13 +28,14 @@ module Types exposing
     , WorldPixel
     )
 
+import Angle exposing (Angle)
 import AssocList exposing (Dict)
 import Audio
 import Browser
 import ColorIndex exposing (ColorIndex)
 import Decal exposing (Decal)
 import Direction2d exposing (Direction2d)
-import Duration exposing (Duration)
+import Duration exposing (Duration, Seconds)
 import Effect.Browser.Navigation
 import Effect.Lamdera exposing (ClientId, SessionId)
 import Effect.Time as Time
@@ -162,6 +163,8 @@ type alias MatchState =
 type alias Player =
     { position : Point2d Meters WorldCoordinate
     , velocity : Vector2d Meters WorldCoordinate
+    , rotationalVelocity : Angle
+    , rotation : Angle
     , input : Maybe (Direction2d WorldCoordinate)
     }
 

@@ -95,14 +95,10 @@ circleLine circleRadius circlePosition circleVelocity line =
                                                 |> (\value -> Vector2d.scaleBy (Length.inMeters value) v1)
                                                 |> Vector2d.reverse
                                                 |> (\vector -> Point2d.translateBy vector a)
-
-                                        _ =
-                                            Debug.log "a" collisionPoint
                                     in
                                     if
                                         Point2d.distanceFrom circlePosition collisionPoint
-                                            |> Debug.log "distance"
-                                            |> Quantity.lessThan (Vector2d.length circleVelocity |> Debug.log "velocity")
+                                            |> Quantity.lessThan (Vector2d.length circleVelocity)
                                     then
                                         Just collisionPoint
 
