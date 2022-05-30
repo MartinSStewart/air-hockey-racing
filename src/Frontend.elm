@@ -643,10 +643,13 @@ initMatch userIds =
                 (\index userId ->
                     ( userId
                     , { position =
-                            Point2d.fromMeters
-                                { x = toFloat index * Length.inMeters playerRadius * 2.1
-                                , y = 0
-                                }
+                            Point2d.translateBy
+                                (Vector2d.fromMeters
+                                    { x = toFloat index * Length.inMeters playerRadius * 2.1
+                                    , y = 0
+                                    }
+                                )
+                                playerStart
                       , velocity = Vector2d.zero
                       , input = Nothing
                       }
@@ -1121,6 +1124,10 @@ wall =
         |> Polyline2d.scaleAbout Point2d.origin 5
 
 
+playerStart =
+    Point2d.fromMeters { x = 2500, y = 1000 }
+
+
 wallSegments : List (LineSegment2d Meters WorldCoordinate)
 wallSegments =
     let
@@ -1208,12 +1215,12 @@ gameUpdate inputs model =
             Dict.map
                 (\_ a ->
                     let
-                        nearestLineCollision :
+                        nearestCollision :
                             Maybe
                                 { collisionVelocity : Vector2d Meters WorldCoordinate
                                 , collisionPosition : Point2d Meters WorldCoordinate
                                 }
-                        nearestLineCollision =
+                        nearestCollision =
                             List.filterMap
                                 (\line ->
                                     let
@@ -1231,31 +1238,31 @@ gameUpdate inputs model =
                                                 |> Just
 
                                         _ ->
-                                            Nothing
-                                 --let
-                                 --    point =
-                                 --        LineSegment2d.startPoint line
-                                 --in
-                                 --case Collision.circlePoint playerRadius a.position a.velocity point of
-                                 --    Just collisionPoint ->
-                                 --        case Direction2d.from collisionPoint point of
-                                 --            Just direction ->
-                                 --                { collisionPosition = collisionPoint
-                                 --                , collisionVelocity =
-                                 --                    Vector2d.mirrorAcross
-                                 --                        (Axis2d.withDirection
-                                 --                            (Direction2d.perpendicularTo direction)
-                                 --                            collisionPoint
-                                 --                        )
-                                 --                        newVelocity
-                                 --                }
-                                 --                    |> Just
-                                 --
-                                 --            Nothing ->
-                                 --                Nothing
-                                 --
-                                 --    Nothing ->
-                                 --        Nothing
+                                            let
+                                                point : Point2d Meters WorldCoordinate
+                                                point =
+                                                    LineSegment2d.startPoint line
+                                            in
+                                            case Collision.circlePoint playerRadius a.position a.velocity point of
+                                                Just collisionPoint ->
+                                                    case Direction2d.from collisionPoint point of
+                                                        Just direction ->
+                                                            { collisionPosition = collisionPoint
+                                                            , collisionVelocity =
+                                                                Vector2d.mirrorAcross
+                                                                    (Axis2d.withDirection
+                                                                        (Direction2d.perpendicularTo direction)
+                                                                        collisionPoint
+                                                                    )
+                                                                    newVelocity
+                                                            }
+                                                                |> Just
+
+                                                        Nothing ->
+                                                            Nothing
+
+                                                Nothing ->
+                                                    Nothing
                                 )
                                 wallSegments
                                 |> Quantity.sortBy (.collisionPosition >> Point2d.distanceFrom a.position)
@@ -1286,7 +1293,7 @@ gameUpdate inputs model =
                                 |> Vector2d.plus a.velocity
                                 |> Vector2d.scaleBy 0.99
                     in
-                    case nearestLineCollision of
+                    case nearestCollision of
                         Just { collisionVelocity, collisionPosition } ->
                             { position = collisionPosition
                             , velocity = collisionVelocity
