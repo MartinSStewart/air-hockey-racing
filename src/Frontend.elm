@@ -603,9 +603,6 @@ updateLoadedFromBackend msg model =
                                         |> Quantity.greaterThan (Duration.milliseconds 200)
                                    )
 
-                        _ =
-                            Debug.log "" (Time.posixToMillis pingStartTime - Time.posixToMillis (actualTime model))
-
                         {- The time stored in the model is potentially out of date by an animation frame. We want to make sure our high estimate overestimates rather than underestimates the true time so we add an extra animation frame here. -}
                         localTimeHighEstimate =
                             Duration.addTo (actualTime model) frameDuration
