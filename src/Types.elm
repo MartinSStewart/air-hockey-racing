@@ -82,6 +82,7 @@ type alias FrontendLoading =
     , windowSize : WindowSize
     , devicePixelRatio : Quantity Float (Rate WorldPixel Pixels)
     , time : Maybe Time.Posix
+    , debugTimeOffset : Duration
     , initData : Maybe ( Id UserId, LobbyData )
     , sounds : Dict String (Result Audio.LoadError Audio.Source)
     }
@@ -98,6 +99,7 @@ type alias FrontendLoaded =
     , previousKeys : List Keyboard.Key
     , devicePixelRatio : Quantity Float (Rate WorldPixel Pixels)
     , time : Time.Posix
+    , debugTimeOffset : Duration
     , page : Page
     , sounds : Sounds
     , lastButtonPress : Maybe Time.Posix
@@ -228,7 +230,7 @@ type ToBackend
     = CreateLobbyRequest
     | MatchSetupRequest (Id LobbyId) MatchSetupMsg
     | StartMatchRequest
-    | MatchInputRequest (Id MatchId) Time.Posix (Maybe (Direction2d WorldCoordinate))
+    | MatchInputRequest (Id MatchId) (Id FrameId) (Maybe (Direction2d WorldCoordinate))
     | PingRequest
 
 
@@ -244,7 +246,7 @@ type ToFrontend
     | ClientInit (Id UserId) LobbyData
     | JoinLobbyResponse (Id LobbyId) (Result JoinLobbyError MatchSetup)
     | StartMatchBroadcast (Id MatchId) Time.Posix (Nonempty ( Id UserId, PlayerData ))
-    | MatchInputBroadcast (Id MatchId) Time.Posix TimelineEvent
+    | MatchInputBroadcast (Id MatchId) (Id FrameId) TimelineEvent
     | PingResponse Time.Posix
     | MatchSetupBroadcast (Id LobbyId) (Id UserId) MatchSetupMsg (Maybe LobbyData)
 

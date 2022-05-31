@@ -56,6 +56,8 @@ import Types exposing (..)
 import Ui
 import UiColors
 import Url exposing (Url)
+import Url.Parser exposing ((<?>))
+import Url.Parser.Query
 import User exposing (UserId)
 import Vector2d exposing (Vector2d)
 import WebGL.Settings
@@ -105,20 +107,22 @@ loadedInit :
     -> ( Id UserId, LobbyData )
     -> ( FrontendModel_, Command FrontendOnly ToBackend FrontendMsg_, AudioCmd FrontendMsg_ )
 loadedInit loading time sounds ( userId, lobbyData ) =
-    ( Loaded
-        { key = loading.key
-        , currentKeys = []
-        , previousKeys = []
-        , windowSize = loading.windowSize
-        , devicePixelRatio = loading.devicePixelRatio
-        , time = time
-        , page = LobbyPage lobbyData
-        , sounds = sounds
-        , lastButtonPress = Nothing
-        , userId = userId
-        , pingStartTime = Just time
-        , pingData = Nothing
-        }
+    ( { key = loading.key
+      , currentKeys = []
+      , previousKeys = []
+      , windowSize = loading.windowSize
+      , devicePixelRatio = loading.devicePixelRatio
+      , time = time
+      , debugTimeOffset = loading.debugTimeOffset
+      , page = LobbyPage lobbyData
+      , sounds = sounds
+      , lastButtonPress = Nothing
+      , userId = userId
+      , pingStartTime = Nothing
+      , pingData = Nothing
+      }
+        |> (\a -> { a | pingStartTime = actualTime a |> Just })
+        |> Loaded
     , Effect.Lamdera.sendToBackend PingRequest
     , Audio.cmdNone
     )
@@ -134,8 +138,22 @@ tryLoadedInit loading =
         |> Maybe.withDefault ( Loading loading, Command.none, Audio.cmdNone )
 
 
+urlParser : Url.Parser.Parser (Maybe Int -> b) b
+urlParser =
+    Url.Parser.top <?> Url.Parser.Query.int "offset"
+
+
 init : Url -> Effect.Browser.Navigation.Key -> ( FrontendModel_, Command FrontendOnly ToBackend FrontendMsg_, AudioCmd FrontendMsg_ )
 init url key =
+    let
+        offset =
+            case Url.Parser.parse urlParser url of
+                Just (Just offset_) ->
+                    Duration.milliseconds (toFloat offset_)
+
+                _ ->
+                    Quantity.zero
+    in
     ( Loading
         { key = key
         , windowSize = { width = Pixels.pixels 1920, height = Pixels.pixels 1080 }
@@ -143,6 +161,7 @@ init url key =
         , time = Nothing
         , initData = Nothing
         , sounds = Dict.empty
+        , debugTimeOffset = offset
         }
     , Command.batch
         [ Effect.Task.perform
@@ -219,10 +238,13 @@ updateLoaded msg model =
         GotDevicePixelRatio devicePixelRatio ->
             devicePixelRatioUpdate devicePixelRatio model
 
-        AnimationFrame time ->
+        AnimationFrame time_ ->
             let
+                time =
+                    actualTime model2
+
                 model2 =
-                    { model | time = time, previousKeys = model.currentKeys }
+                    { model | time = time_, previousKeys = model.currentKeys }
             in
             case model2.page of
                 MatchPage match ->
@@ -230,7 +252,7 @@ updateLoaded msg model =
                         ( cache, _ ) =
                             Timeline.getStateAt
                                 gameUpdate
-                                (timeToFrameId time match)
+                                (timeToFrameId model match)
                                 match.timelineCache
                                 newTimeline
 
@@ -262,7 +284,7 @@ updateLoaded msg model =
 
                             else
                                 Timeline.addInput_
-                                    (timeToFrameId model2.time match)
+                                    (timeToFrameId model match)
                                     { userId = model2.userId, input = input }
                                     match.timeline
                     in
@@ -280,7 +302,8 @@ updateLoaded msg model =
                         Command.none
 
                       else
-                        Effect.Lamdera.sendToBackend (MatchInputRequest match.matchId time input)
+                        MatchInputRequest match.matchId (timeToFrameId model match) input
+                            |> Effect.Lamdera.sendToBackend
                     )
 
                 MatchSetupPage _ ->
@@ -412,18 +435,23 @@ getInputDirection windowSize keys maybeTouchPosition =
         directionToOffset input
 
 
-timeToFrameId : Effect.Time.Posix -> MatchPage_ -> Id FrameId
-timeToFrameId time matchState =
-    Duration.from matchState.startTime time
+timeToFrameId : FrontendLoaded -> MatchPage_ -> Id FrameId
+timeToFrameId model matchState =
+    let
+        adjustedTime =
+            case model.pingData of
+                Just pingData ->
+                    Quantity.plus pingData.lowEstimate pingData.highEstimate
+                        |> Quantity.divideBy 2
+                        |> Duration.addTo (actualTime model)
+
+                Nothing ->
+                    actualTime model
+    in
+    Duration.from matchState.startTime adjustedTime
         |> (\a -> Quantity.ratio a frameDuration)
         |> round
         |> Id.fromInt
-
-
-frameIdToTime : Id FrameId -> MatchPage_ -> Effect.Time.Posix
-frameIdToTime frame matchState =
-    Quantity.multiplyBy (Id.toInt frame |> toFloat) frameDuration
-        |> Duration.addTo matchState.startTime
 
 
 frameDuration : Duration
@@ -521,7 +549,7 @@ updateLoadedFromBackend msg model =
                         | page =
                             MatchPage
                                 { startTime = serverStartTime
-                                , localStartTime = model.time
+                                , localStartTime = actualTime model
                                 , timeline = Set.empty
                                 , timelineCache = List.Nonempty.map Tuple.first userIds |> initMatch |> Timeline.init
                                 , userIds =
@@ -546,13 +574,13 @@ updateLoadedFromBackend msg model =
                 MatchPage _ ->
                     ( model, Command.none )
 
-        MatchInputBroadcast matchId time event ->
+        MatchInputBroadcast matchId frameId event ->
             ( case model.page of
                 MatchPage match ->
                     if match.matchId == matchId then
                         let
                             ( newCache, newTimeline ) =
-                                Timeline.addInput (timeToFrameId time match) event match.timelineCache match.timeline
+                                Timeline.addInput frameId event match.timelineCache match.timeline
                         in
                         { model | page = MatchPage { match | timelineCache = newCache, timeline = newTimeline } }
 
@@ -575,25 +603,25 @@ updateLoadedFromBackend msg model =
                             case model.pingData of
                                 Just oldPingData ->
                                     ( Duration.from pingStartTime serverTime |> Quantity.min oldPingData.lowEstimate
-                                    , Duration.from model.time serverTime |> Quantity.max oldPingData.highEstimate
+                                    , Duration.from (actualTime model) serverTime |> Quantity.max oldPingData.highEstimate
                                     )
 
                                 Nothing ->
                                     ( Duration.from pingStartTime serverTime
-                                    , Duration.from model.time serverTime
+                                    , Duration.from (actualTime model) serverTime
                                     )
                     in
                     ( { model
                         | pingData =
                             Just
-                                { roundTripTime = Duration.from pingStartTime model.time
+                                { roundTripTime = Duration.from pingStartTime (actualTime model)
                                 , lowEstimate = newLowEstimate
                                 , highEstimate = newHighEstimate
                                 , serverTime = serverTime
                                 , sendTime = pingStartTime
-                                , receiveTime = model.time
+                                , receiveTime = actualTime model
                                 }
-                        , pingStartTime = Just model.time
+                        , pingStartTime = Just (actualTime model)
                       }
                     , Effect.Lamdera.sendToBackend PingRequest
                     )
@@ -633,6 +661,11 @@ updateLoadedFromBackend msg model =
 
                 MatchPage _ ->
                     ( model, Command.none )
+
+
+actualTime : { a | time : Time.Posix, debugTimeOffset : Duration } -> Time.Posix
+actualTime { time, debugTimeOffset } =
+    Duration.addTo time debugTimeOffset
 
 
 initMatch : Nonempty (Id UserId) -> MatchState
@@ -1014,7 +1047,7 @@ canvasView model =
             MatchPage match ->
                 let
                     ( _, state ) =
-                        Timeline.getStateAt gameUpdate (timeToFrameId model.time match) match.timelineCache match.timeline
+                        Timeline.getStateAt gameUpdate (timeToFrameId model match) match.timelineCache match.timeline
 
                     { x, y } =
                         case Dict.get model.userId state.players of

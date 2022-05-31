@@ -247,7 +247,7 @@ updateFromFrontendWithTime sessionId clientId msg model time =
                         Nothing ->
                             ( model, Command.none )
 
-                MatchInputRequest matchId userTime input ->
+                MatchInputRequest matchId frameId input ->
                     case Dict.get matchId model.matches of
                         Just match ->
                             if List.Nonempty.any ((==) userId) match.users then
@@ -260,7 +260,7 @@ updateFromFrontendWithTime sessionId clientId msg model time =
                                                     (\matchSessionId ->
                                                         MatchInputBroadcast
                                                             matchId
-                                                            userTime
+                                                            frameId
                                                             { userId = userId, input = input }
                                                             |> Effect.Lamdera.sendToFrontends matchSessionId
                                                     )
