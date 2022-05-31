@@ -244,6 +244,7 @@ type BackendMsg
 
 type ToFrontend
     = CreateLobbyResponse (Id LobbyId) MatchSetup
+    | RemoveLobbyBroadcast (Id LobbyId)
     | CreateLobbyBroadcast (Id LobbyId) LobbyPreview
     | ClientInit (Id UserId) LobbyData
     | JoinLobbyResponse (Id LobbyId) (Result JoinLobbyError MatchSetup)

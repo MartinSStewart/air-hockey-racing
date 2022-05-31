@@ -118,23 +118,23 @@ allUsers_ (MatchSetup lobby) =
     Dict.insert lobby.owner lobby.ownerPlayerData lobby.users
 
 
-matchSetupUpdate : { userId : Id UserId, msg : MatchSetupMsg } -> MatchSetup -> MatchSetup
+matchSetupUpdate : { userId : Id UserId, msg : MatchSetupMsg } -> MatchSetup -> Maybe MatchSetup
 matchSetupUpdate { userId, msg } lobby =
     case msg of
         JoinMatchSetup ->
-            joinUser userId lobby
+            joinUser userId lobby |> Just
 
         LeaveMatchSetup ->
-            leaveUser userId lobby |> Maybe.withDefault lobby
+            leaveUser userId lobby
 
         SetPrimaryColor colorIndex ->
-            updatePlayerData userId (\a -> { a | primaryColor = colorIndex }) lobby
+            updatePlayerData userId (\a -> { a | primaryColor = colorIndex }) lobby |> Just
 
         SetSecondaryColor colorIndex ->
-            updatePlayerData userId (\a -> { a | secondaryColor = colorIndex }) lobby
+            updatePlayerData userId (\a -> { a | secondaryColor = colorIndex }) lobby |> Just
 
         SetDecal decal ->
-            updatePlayerData userId (\a -> { a | decal = decal }) lobby
+            updatePlayerData userId (\a -> { a | decal = decal }) lobby |> Just
 
 
 updatePlayerData : Id UserId -> (PlayerData -> PlayerData) -> MatchSetup -> MatchSetup

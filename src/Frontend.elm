@@ -46,6 +46,7 @@ import Math.Vector4 exposing (Vec4)
 import NetworkModel
 import Pixels exposing (Pixels)
 import Point2d exposing (Point2d)
+import Polygon2d exposing (Polygon2d)
 import Polyline2d
 import Ports
 import Quantity exposing (Quantity(..), Rate)
@@ -668,7 +669,7 @@ updateLoadedFromBackend msg model =
                                         { matchSetup
                                             | networkModel =
                                                 NetworkModel.updateFromBackend
-                                                    MatchSetup.matchSetupUpdate
+                                                    (\a b -> MatchSetup.matchSetupUpdate a b |> Maybe.withDefault b)
                                                     { userId = userId, msg = matchSetupMsg }
                                                     matchSetup.networkModel
                                         }
@@ -686,6 +687,19 @@ updateLoadedFromBackend msg model =
 
                 MatchPage _ ->
                     ( model, Command.none )
+
+        RemoveLobbyBroadcast lobbyId ->
+            ( case model.page of
+                LobbyPage lobbyData ->
+                    { model | page = LobbyPage { lobbyData | lobbies = Dict.remove lobbyId lobbyData.lobbies } }
+
+                MatchSetupPage _ ->
+                    model
+
+                MatchPage _ ->
+                    model
+            , Command.none
+            )
 
 
 actualTime : { a | time : Time.Posix, debugTimeOffset : Duration } -> Time.Posix
@@ -811,7 +825,9 @@ loadedView model =
             MatchSetupPage matchSetup ->
                 let
                     lobby =
-                        NetworkModel.localState MatchSetup.matchSetupUpdate matchSetup.networkModel
+                        NetworkModel.localState
+                            (\a b -> MatchSetup.matchSetupUpdate a b |> Maybe.withDefault b)
+                            matchSetup.networkModel
 
                     users : List (Id UserId)
                     users =
@@ -1354,24 +1370,32 @@ canvasView model =
         |> Element.html
 
 
-wall : Polyline2d Meters WorldCoordinate
+wall : Polygon2d Meters WorldCoordinate
 wall =
-    Polyline2d.fromVertices
-        [ Point2d.meters 1187 461
-        , Point2d.meters 1187 328
-        , Point2d.meters 1078 328
-        , Point2d.meters 1078 453
-        , Point2d.meters 875 453
-        , Point2d.meters 771 424
-        , Point2d.meters 563 424
-        , Point2d.meters 631 300
-        , Point2d.meters 631 141
-        , Point2d.meters 438 141
-        , Point2d.meters 438 487
-        , Point2d.meters 509 560
-        , Point2d.meters 1090 560
+    Polygon2d.withHoles
+        [ [ Point2d.meters 4600 2500
+          , Point2d.meters 4700 2500
+          , Point2d.meters 4700 2600
+          , Point2d.meters 4600 2600
+          ]
+            |> List.map (Point2d.rotateAround (Point2d.meters 4650 2550) (Angle.degrees 45))
         ]
-        |> Polyline2d.scaleAbout Point2d.origin 5
+        ([ Point2d.meters 1187 461
+         , Point2d.meters 1187 328
+         , Point2d.meters 1078 328
+         , Point2d.meters 1078 453
+         , Point2d.meters 875 453
+         , Point2d.meters 771 424
+         , Point2d.meters 563 424
+         , Point2d.meters 631 300
+         , Point2d.meters 631 141
+         , Point2d.meters 438 141
+         , Point2d.meters 438 487
+         , Point2d.meters 509 560
+         , Point2d.meters 1090 560
+         ]
+            |> List.map (Point2d.scaleAbout Point2d.origin 5)
+        )
 
 
 playerStart : Point2d Meters WorldCoordinate
@@ -1381,13 +1405,15 @@ playerStart =
 
 wallSegments : List (LineSegment2d Meters WorldCoordinate)
 wallSegments =
-    let
-        vertices =
-            Polyline2d.vertices wall
-    in
-    case ( List.head vertices, List.reverse vertices |> List.head ) of
+    verticesToLineSegments (Polygon2d.outerLoop wall)
+        ++ List.concatMap verticesToLineSegments (Polygon2d.innerLoops wall |> Debug.log "")
+
+
+verticesToLineSegments : List (Point2d units coordinates) -> List (LineSegment2d units coordinates)
+verticesToLineSegments points =
+    case ( List.head points, List.reverse points |> List.head ) of
         ( Just head, Just last ) ->
-            vertices
+            points
                 |> List.groupsOfWithStep 2 1
                 |> (::) [ last, head ]
                 |> List.filterMap
@@ -1406,7 +1432,7 @@ wallSegments =
 
 wallMesh : Vec3 -> List (LineSegment2d Meters WorldCoordinate) -> Mesh Vertex
 wallMesh color lines =
-    List.concatMap (lineMesh color) lines |> WebGL.triangles
+    List.concatMap (lineMesh color) (Debug.log "lines" lines) |> WebGL.triangles
 
 
 lineMesh : Vec3 -> LineSegment2d Meters WorldCoordinate -> List ( Vertex, Vertex, Vertex )
@@ -1855,7 +1881,7 @@ backgroundFragmentShader =
             int y0 = modI(worldCoordinate.y + primaryThickness * 0.5, 800.0) <= primaryThickness ? 1 : 0;
             int x1 = modI(worldCoordinate.x + secondaryThickness * 0.5, 200.0) <= secondaryThickness ? 1 : 0;
             int y1 = modI(worldCoordinate.y + secondaryThickness * 0.5, 200.0) <= secondaryThickness ? 1 : 0;
-            float value = x0 + y0 >= 1 ? 0.3 : x1 + y1 >= 1 ? 0.7 : 0.95;
+            float value = x0 + y0 >= 1 ? 0.5 : x1 + y1 >= 1 ? 0.7 : 0.95;
             gl_FragColor = vec4(value, value, value, 1.0);
         }
     |]

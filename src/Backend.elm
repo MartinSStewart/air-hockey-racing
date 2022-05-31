@@ -152,34 +152,28 @@ updateFromFrontendWithTime sessionId clientId msg model time =
 
                 MatchSetupRequest lobbyId matchSetupMsg ->
                     case Dict.get lobbyId model.lobbies of
-                        Just lobby ->
+                        Just matchSetup ->
                             let
+                                matchSetup2 : Maybe MatchSetup
+                                matchSetup2 =
+                                    MatchSetup.matchSetupUpdate { userId = userId, msg = matchSetupMsg } matchSetup
+
                                 model2 =
-                                    { model
-                                        | lobbies =
-                                            Dict.update
-                                                lobbyId
-                                                (\_ ->
-                                                    MatchSetup.matchSetupUpdate
-                                                        { userId = userId, msg = matchSetupMsg }
-                                                        lobby
-                                                        |> Just
-                                                )
-                                                model.lobbies
-                                    }
+                                    { model | lobbies = Dict.update lobbyId (\_ -> matchSetup2) model.lobbies }
                             in
                             ( model2
                             , Command.batch
                                 [ case matchSetupMsg of
                                     JoinMatchSetup ->
-                                        MatchSetup.joinUser userId lobby
+                                        MatchSetup.joinUser userId matchSetup
                                             |> Ok
                                             |> JoinLobbyResponse lobbyId
                                             |> Effect.Lamdera.sendToFrontend clientId
 
                                     _ ->
                                         Command.none
-                                , MatchSetup.allUsers lobby
+                                , Effect.Lamdera.broadcast (RemoveLobbyBroadcast lobbyId)
+                                , MatchSetup.allUsers matchSetup
                                     |> List.Nonempty.toList
                                     |> List.concatMap
                                         (\( lobbyUserId, _ ) ->
