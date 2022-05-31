@@ -116,6 +116,7 @@ type alias PingData =
     , receiveTime : Time.Posix
     , lowEstimate : Duration
     , highEstimate : Duration
+    , pingCount : Int
     }
 
 

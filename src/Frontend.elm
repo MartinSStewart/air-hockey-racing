@@ -599,31 +599,55 @@ updateLoadedFromBackend msg model =
             case model.pingStartTime of
                 Just pingStartTime ->
                     let
-                        ( newLowEstimate, newHighEstimate ) =
+                        keepPinging =
+                            (pingCount < 5)
+                                || (newHighEstimate
+                                        |> Quantity.minus newLowEstimate
+                                        |> Quantity.greaterThan (Duration.milliseconds 200)
+                                   )
+
+                        ( newLowEstimate, newHighEstimate, pingCount ) =
                             case model.pingData of
                                 Just oldPingData ->
-                                    ( Duration.from pingStartTime serverTime |> Quantity.min oldPingData.lowEstimate
-                                    , Duration.from (actualTime model) serverTime |> Quantity.max oldPingData.highEstimate
+                                    ( Duration.from serverTime pingStartTime |> Quantity.max oldPingData.lowEstimate
+                                    , Duration.from serverTime (actualTime model) |> Quantity.min oldPingData.highEstimate
+                                    , oldPingData.pingCount + 1
                                     )
 
                                 Nothing ->
-                                    ( Duration.from pingStartTime serverTime
-                                    , Duration.from (actualTime model) serverTime
+                                    ( Duration.from serverTime pingStartTime
+                                    , Duration.from serverTime (actualTime model)
+                                    , 1
                                     )
                     in
                     ( { model
                         | pingData =
-                            Just
-                                { roundTripTime = Duration.from pingStartTime (actualTime model)
-                                , lowEstimate = newLowEstimate
-                                , highEstimate = newHighEstimate
-                                , serverTime = serverTime
-                                , sendTime = pingStartTime
-                                , receiveTime = actualTime model
-                                }
-                        , pingStartTime = Just (actualTime model)
+                            -- This seems to happen if the user tabs away. I'm not sure how to prevent it so here we just start over if we end up in this state.
+                            if newHighEstimate |> Quantity.lessThan newLowEstimate then
+                                Nothing
+
+                            else
+                                Just
+                                    { roundTripTime = Duration.from pingStartTime (actualTime model)
+                                    , lowEstimate = newLowEstimate
+                                    , highEstimate = newHighEstimate
+                                    , serverTime = serverTime
+                                    , sendTime = pingStartTime
+                                    , receiveTime = actualTime model
+                                    , pingCount = pingCount
+                                    }
+                        , pingStartTime =
+                            if keepPinging then
+                                Just (actualTime model)
+
+                            else
+                                Nothing
                       }
-                    , Effect.Lamdera.sendToBackend PingRequest
+                    , if keepPinging then
+                        Effect.Lamdera.sendToBackend PingRequest
+
+                      else
+                        Command.none
                     )
 
                 Nothing ->
