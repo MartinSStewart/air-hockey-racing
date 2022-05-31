@@ -169,6 +169,7 @@ type alias Player =
     , rotationalVelocity : Angle
     , rotation : Angle
     , input : Maybe (Direction2d WorldCoordinate)
+    , finishTime : Maybe (Id FrameId)
     }
 
 

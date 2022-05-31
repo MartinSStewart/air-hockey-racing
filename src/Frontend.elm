@@ -5,6 +5,7 @@ import AssocList as Dict exposing (Dict)
 import AssocSet as Set exposing (Set)
 import Audio exposing (Audio, AudioCmd, AudioData)
 import Axis2d
+import BoundingBox2d exposing (BoundingBox2d)
 import Browser exposing (UrlRequest(..))
 import Collision
 import ColorIndex exposing (ColorIndex)
@@ -713,6 +714,7 @@ initMatch userIds =
                       , rotationalVelocity = Quantity.zero
                       , rotation = Quantity.zero
                       , input = Nothing
+                      , finishTime = Nothing
                       }
                     )
                 )
@@ -1102,11 +1104,19 @@ canvasView model =
                     [ WebGL.Settings.cullFace WebGL.Settings.back ]
                     backgroundVertexShader
                     backgroundFragmentShader
-                    square
+                    squareMesh
                     { view = Math.Vector2.vec2 x y
                     , viewZoom = match.zoom
                     , windowSize = Math.Vector2.vec2 (toFloat windowWidth) (toFloat windowHeight)
                     }
+                    :: WebGL.entityWith
+                        [ WebGL.Settings.cullFace WebGL.Settings.back ]
+                        vertexShader
+                        fragmentShader
+                        finishLineMesh
+                        { view = viewMatrix
+                        , model = pointToMatrix playerStart
+                        }
                     :: WebGL.entityWith
                         [ WebGL.Settings.cullFace WebGL.Settings.back ]
                         vertexShader
@@ -1462,8 +1472,8 @@ directionToOffset direction =
             Nothing
 
 
-square : WebGL.Mesh { position : Vec2 }
-square =
+squareMesh : WebGL.Mesh { position : Vec2 }
+squareMesh =
     WebGL.triangleFan
         [ { position = Math.Vector2.vec2 -1 -1 }
         , { position = Math.Vector2.vec2 1 -1 }
@@ -1479,14 +1489,14 @@ playerMesh playerData =
         primaryColor =
             ColorIndex.toVec3 playerData.primaryColor
     in
-    circle 1 (Math.Vector3.vec3 0 0 0)
-        ++ circle 0.95 primaryColor
+    circleMesh 1 (Math.Vector3.vec3 0 0 0)
+        ++ circleMesh 0.95 primaryColor
         ++ Decal.triangles playerData.secondaryColor playerData.decal
         |> WebGL.triangles
 
 
-circle : Float -> Vec3 -> List ( Vertex, Vertex, Vertex )
-circle size color =
+circleMesh : Float -> Vec3 -> List ( Vertex, Vertex, Vertex )
+circleMesh size color =
     let
         detail =
             64
@@ -1509,6 +1519,69 @@ circle size color =
                 , { position = Math.Vector2.vec2 (cos t2 * size) (sin t2 * size), color = color }
                 )
             )
+
+
+finishLine : BoundingBox2d Meters WorldCoordinate
+finishLine =
+    BoundingBox2d.from playerStart (Point2d.translateBy (Vector2d.fromMeters { x = 600, y = 500 }) playerStart)
+
+
+finishLineMesh : Mesh Vertex
+finishLineMesh =
+    let
+        squareSize =
+            50
+
+        helper =
+            Quantity.divideBy squareSize >> Quantity.unwrap >> ceiling
+
+        ( squaresWide, squaresTall ) =
+            BoundingBox2d.dimensions finishLine |> Tuple.mapBoth helper helper
+    in
+    List.range 0 (squaresWide - 1)
+        |> List.concatMap
+            (\x ->
+                List.range 0 (squaresTall - 1)
+                    |> List.concatMap
+                        (\y ->
+                            let
+                                color =
+                                    if x + y |> modBy 2 |> (==) 0 then
+                                        Math.Vector3.vec3 0.2 0.2 0.2
+
+                                    else
+                                        Math.Vector3.vec3 1 1 1
+
+                                offsetX =
+                                    x * squareSize |> toFloat
+
+                                offsetY =
+                                    y * squareSize |> toFloat
+
+                                v0 =
+                                    Math.Vector2.vec2 offsetX offsetY
+
+                                v1 =
+                                    Math.Vector2.vec2 (squareSize + offsetX) offsetY
+
+                                v2 =
+                                    Math.Vector2.vec2 (squareSize + offsetX) (squareSize + offsetY)
+
+                                v3 =
+                                    Math.Vector2.vec2 offsetX (squareSize + offsetY)
+                            in
+                            [ ( { position = v0, color = color }
+                              , { position = v1, color = color }
+                              , { position = v2, color = color }
+                              )
+                            , ( { position = v0, color = color }
+                              , { position = v2, color = color }
+                              , { position = v3, color = color }
+                              )
+                            ]
+                        )
+            )
+        |> WebGL.triangles
 
 
 type alias PlayerUniforms =
