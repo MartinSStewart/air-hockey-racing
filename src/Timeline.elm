@@ -62,7 +62,7 @@ isAfter a b =
 
 
 getStateAt :
-    (List input -> state -> state)
+    (Id FrameId -> List input -> state -> state)
     -> Id FrameId
     -> TimelineCache state
     -> Timeline input
@@ -88,8 +88,9 @@ getStateAt updateFunc frame timelineCache timeline =
                 |> List.foldl
                     (\( frameId, input ) ( cache, state ) ->
                         let
+                            newState : state
                             newState =
-                                updateFunc input state
+                                updateFunc (Id.fromInt frameId) input state
                         in
                         ( if modBy 4 frameId == 0 then
                             ( Id.fromInt (frameId + 1), newState ) :: cache

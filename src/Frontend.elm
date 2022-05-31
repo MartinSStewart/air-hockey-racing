@@ -24,6 +24,7 @@ import Effect.WebGL as WebGL exposing (Mesh, Shader)
 import Element exposing (Element)
 import Element.Background
 import Element.Border
+import Element.Font
 import Env
 import Geometry.Types exposing (Polyline2d(..))
 import Html exposing (Html)
@@ -33,7 +34,7 @@ import Id exposing (Id)
 import Keyboard exposing (Key(..))
 import Keyboard.Arrows
 import Lamdera
-import Length exposing (Meters)
+import Length exposing (Length, Meters)
 import LineSegment2d exposing (LineSegment2d)
 import List.Extra as List
 import List.Nonempty exposing (Nonempty)
@@ -891,12 +892,21 @@ loadedView model =
                     ]
 
             MatchPage matchPage ->
+                let
+                    ( _, matchState ) =
+                        Timeline.getStateAt
+                            gameUpdate
+                            (timeToFrameId model matchPage)
+                            matchPage.timelineCache
+                            matchPage.timeline
+                in
                 Element.el
                     (Element.width Element.fill
                         :: Element.height Element.fill
                         :: Element.htmlAttribute (Html.Events.Extra.Touch.onStart PointerDown)
                         :: Element.htmlAttribute (Html.Events.Extra.Touch.onCancel PointerUp)
                         :: Element.htmlAttribute (Html.Events.Extra.Touch.onEnd PointerUp)
+                        :: Element.inFront (countdown model matchPage)
                         :: (case matchPage.touchPosition of
                                 Just _ ->
                                     [ Element.htmlAttribute (Html.Events.Extra.Touch.onMove PointerMoved) ]
@@ -905,7 +915,7 @@ loadedView model =
                                     []
                            )
                     )
-                    Element.none
+                    (placementText matchState model)
                     |> Element.map MatchMsg
          --Element.column
          --    []
@@ -931,6 +941,168 @@ loadedView model =
          --        ]
          --    ]
         )
+
+
+placementText : MatchState -> FrontendLoaded -> Element msg
+placementText matchState model =
+    let
+        maybeFinish : Maybe { place : Int, userId : Id UserId, finishTime : Id FrameId }
+        maybeFinish =
+            Dict.toList matchState.players
+                |> List.filterMap
+                    (\( userId, player ) ->
+                        case player.finishTime of
+                            Just finishTime ->
+                                Just ( userId, finishTime )
+
+                            Nothing ->
+                                Nothing
+                    )
+                |> List.sortBy (Tuple.second >> Id.toInt)
+                |> List.indexedMap
+                    (\index ( userId, finishTime ) ->
+                        { place = index, userId = userId, finishTime = finishTime }
+                    )
+                |> List.find (.userId >> (==) model.userId)
+    in
+    case maybeFinish of
+        Just finish ->
+            Element.column
+                [ Element.width Element.fill
+                , Element.spacing 16
+                , noPointerEvents
+                , Element.moveDown 24
+                ]
+                [ (case finish.place of
+                    0 ->
+                        "Winner!"
+
+                    1 ->
+                        "2nd place!"
+
+                    2 ->
+                        "3rd place!"
+
+                    21 ->
+                        "21st place"
+
+                    22 ->
+                        "22nd place"
+
+                    23 ->
+                        "23rd place"
+
+                    _ ->
+                        String.fromInt (1 + finish.place) ++ "th place"
+                  )
+                    |> Element.text
+                    |> Element.el
+                        [ Element.Font.size 64
+                        , Element.Font.shadow
+                            { offset = ( 0, 0 )
+                            , blur = 2
+                            , color = Element.rgba 0 0 0 1
+                            }
+                        , Element.Font.color
+                            (case finish.place of
+                                0 ->
+                                    Element.rgb 1 0.9 0
+
+                                1 ->
+                                    Element.rgb 0.79 0.79 0.8
+
+                                2 ->
+                                    Element.rgb 0.7 0.5 0.2
+
+                                _ ->
+                                    Element.rgb 0 0 0
+                            )
+                        , Element.Font.bold
+                        , Element.centerX
+                        ]
+                , Quantity.multiplyBy (Id.toInt finish.finishTime |> toFloat) frameDuration
+                    |> timestamp_
+                    |> Element.text
+                    |> Element.el [ Element.centerX, Element.Font.bold, Element.Font.size 24 ]
+                ]
+
+        Nothing ->
+            Element.none
+
+
+countdownDelay =
+    Duration.seconds 3
+
+
+countdown : FrontendLoaded -> MatchPage_ -> Element msg
+countdown model matchPage =
+    let
+        elapsed : Duration
+        elapsed =
+            Quantity.multiplyBy (timeToFrameId model matchPage |> Id.toInt |> toFloat) frameDuration
+
+        countdownValue =
+            Duration.inSeconds elapsed |> floor |> (-) 3
+    in
+    if elapsed |> Quantity.lessThan countdownDelay then
+        String.fromInt countdownValue
+            |> Element.text
+            |> Element.el
+                [ Element.Font.size 100
+                , Element.Font.bold
+                , Element.centerX
+                , Element.centerY
+                , Element.Font.color (Element.rgb 1 1 1)
+                , Element.Font.glow (Element.rgb 0 0 0) 2
+                , Element.moveUp 100
+                , noPointerEvents
+                ]
+
+    else if elapsed |> Quantity.lessThan (Quantity.plus Duration.second countdownDelay) then
+        "GO"
+            |> Element.text
+            |> Element.el
+                [ Element.Font.size 100
+                , Element.Font.bold
+                , Element.centerX
+                , Element.centerY
+                , Element.Font.color (Element.rgb 1 1 1)
+                , Element.Font.glow (Element.rgb 0 0 0) 2
+                , Element.moveUp 100
+                , noPointerEvents
+                ]
+
+    else
+        Element.none
+
+
+timestamp_ : Duration -> String
+timestamp_ difference =
+    let
+        minutes =
+            Duration.inMinutes difference |> floor
+
+        minutesRemainder =
+            difference |> Quantity.minus (Duration.minutes (toFloat minutes))
+
+        seconds =
+            Duration.inSeconds minutesRemainder |> floor
+
+        secondsRemainder =
+            minutesRemainder |> Quantity.minus (Duration.seconds (toFloat seconds))
+
+        milliseconds =
+            Duration.inMilliseconds secondsRemainder |> floor
+    in
+    String.fromInt minutes
+        ++ ":"
+        ++ String.padLeft 2 '0' (String.fromInt seconds)
+        ++ "."
+        ++ String.padLeft 3 '0' (String.fromInt milliseconds)
+
+
+noPointerEvents =
+    Element.htmlAttribute (Html.Attributes.style "pointer-events" "none")
 
 
 colorSelector : (ColorIndex -> msg) -> ColorIndex -> Element msg
@@ -1115,7 +1287,11 @@ canvasView model =
                         fragmentShader
                         finishLineMesh
                         { view = viewMatrix
-                        , model = pointToMatrix playerStart
+                        , model =
+                            Mat4.makeTranslate3
+                                (BoundingBox2d.minX finishLine |> Length.inMeters)
+                                (BoundingBox2d.minY finishLine |> Length.inMeters)
+                                0
                         }
                     :: WebGL.entityWith
                         [ WebGL.Settings.cullFace WebGL.Settings.back ]
@@ -1148,20 +1324,25 @@ canvasView model =
                         (Dict.toList state.players)
                     ++ (case ( Dict.get model.userId state.players, input ) of
                             ( Just player, Just direction ) ->
-                                [ WebGL.entityWith
-                                    [ WebGL.Settings.cullFace WebGL.Settings.back ]
-                                    vertexShader
-                                    fragmentShader
-                                    arrow
-                                    { view = viewMatrix
-                                    , model =
-                                        pointToMatrix player.position
-                                            |> Mat4.scale3 30 30 30
-                                            |> Mat4.rotate
-                                                (Direction2d.toAngle direction |> Angle.inRadians |> (+) (pi / 2))
-                                                (Math.Vector3.vec3 0 0 1)
-                                    }
-                                ]
+                                case player.finishTime of
+                                    Just _ ->
+                                        []
+
+                                    Nothing ->
+                                        [ WebGL.entityWith
+                                            [ WebGL.Settings.cullFace WebGL.Settings.back ]
+                                            vertexShader
+                                            fragmentShader
+                                            arrow
+                                            { view = viewMatrix
+                                            , model =
+                                                pointToMatrix player.position
+                                                    |> Mat4.scale3 30 30 30
+                                                    |> Mat4.rotate
+                                                        (Direction2d.toAngle direction |> Angle.inRadians |> (+) (pi / 2))
+                                                        (Math.Vector3.vec3 0 0 1)
+                                            }
+                                        ]
 
                             _ ->
                                 []
@@ -1196,6 +1377,7 @@ wall =
         |> Polyline2d.scaleAbout Point2d.origin 5
 
 
+playerStart : Point2d Meters WorldCoordinate
 playerStart =
     Point2d.fromMeters { x = 2500, y = 1000 }
 
@@ -1272,9 +1454,13 @@ pointToVec point2d =
     Math.Vector2.vec2 x y
 
 
-gameUpdate : List TimelineEvent -> MatchState -> MatchState
-gameUpdate inputs model =
+gameUpdate : Id FrameId -> List TimelineEvent -> MatchState -> MatchState
+gameUpdate frameId inputs model =
     let
+        elapsed =
+            Quantity.multiplyBy (Id.toInt frameId |> toFloat) frameDuration
+
+        newModel : { players : Dict (Id UserId) Player }
         newModel =
             List.foldl
                 (\{ userId, input } model2 ->
@@ -1282,6 +1468,18 @@ gameUpdate inputs model =
                 )
                 model
                 inputs
+
+        checkFinish player =
+            case player.finishTime of
+                Just _ ->
+                    player.finishTime
+
+                Nothing ->
+                    if BoundingBox2d.contains player.position finishLine then
+                        Just frameId
+
+                    else
+                        player.finishTime
 
         updatedVelocities =
             Dict.map
@@ -1342,14 +1540,14 @@ gameUpdate inputs model =
 
                         newVelocity : Vector2d Meters WorldCoordinate
                         newVelocity =
-                            (case a.input of
-                                Just input ->
+                            (case ( a.finishTime, a.input, elapsed |> Quantity.lessThan countdownDelay ) of
+                                ( Nothing, Just input, False ) ->
                                     Direction2d.toVector input
                                         |> Vector2d.scaleBy 0.2
                                         |> Vector2d.unwrap
                                         |> Vector2d.unsafe
 
-                                Nothing ->
+                                _ ->
                                     Vector2d.zero
                             )
                                 |> Vector2d.plus a.velocity
@@ -1379,6 +1577,7 @@ gameUpdate inputs model =
                                              else
                                                 0.01 * Length.inMeters (Vector2d.length collisionVelocity)
                                             )
+                                , finishTime = checkFinish a
                             }
 
                         Nothing ->
@@ -1387,6 +1586,7 @@ gameUpdate inputs model =
                                 , velocity = newVelocity
                                 , rotation = Quantity.plus a.rotation a.rotationalVelocity
                                 , rotationalVelocity = Quantity.multiplyBy 0.995 a.rotationalVelocity
+                                , finishTime = checkFinish a
                             }
                 )
                 newModel.players
@@ -1402,6 +1602,7 @@ gameUpdate inputs model =
     }
 
 
+playerRadius : Length
 playerRadius =
     Length.meters 50
 
@@ -1523,7 +1724,7 @@ circleMesh size color =
 
 finishLine : BoundingBox2d Meters WorldCoordinate
 finishLine =
-    BoundingBox2d.from playerStart (Point2d.translateBy (Vector2d.fromMeters { x = 600, y = 500 }) playerStart)
+    BoundingBox2d.from (Point2d.fromMeters { x = 5300, y = 1600 }) (Point2d.fromMeters { x = 6000, y = 2000 })
 
 
 finishLineMesh : Mesh Vertex
@@ -1657,7 +1858,7 @@ backgroundFragmentShader =
             int y0 = modI(worldCoordinate.y + primaryThickness * 0.5, 800.0) <= primaryThickness ? 1 : 0;
             int x1 = modI(worldCoordinate.x + secondaryThickness * 0.5, 200.0) <= secondaryThickness ? 1 : 0;
             int y1 = modI(worldCoordinate.y + secondaryThickness * 0.5, 200.0) <= secondaryThickness ? 1 : 0;
-            float value = x0 + y0 >= 1 ? 0.3 : x1 + y1 >= 1 ? 0.7 : 1.0;
+            float value = x0 + y0 >= 1 ? 0.3 : x1 + y1 >= 1 ? 0.7 : 0.95;
             gl_FragColor = vec4(value, value, value, 1.0);
         }
     |]
