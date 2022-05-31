@@ -23,7 +23,6 @@ import Effect.WebGL as WebGL exposing (Mesh, Shader)
 import Element exposing (Element)
 import Element.Background
 import Element.Border
-import Element.Input
 import Env
 import Geometry.Types exposing (Polyline2d(..))
 import Html exposing (Html)
@@ -45,7 +44,6 @@ import Math.Vector4 exposing (Vec4)
 import NetworkModel
 import Pixels exposing (Pixels)
 import Point2d exposing (Point2d)
-import Polygon2d
 import Polyline2d
 import Ports
 import Quantity exposing (Quantity(..), Rate)
@@ -240,9 +238,6 @@ updateLoaded msg model =
 
         AnimationFrame time_ ->
             let
-                time =
-                    actualTime model2
-
                 model2 =
                     { model | time = time_, previousKeys = model.currentKeys }
             in
@@ -606,17 +601,24 @@ updateLoadedFromBackend msg model =
                                         |> Quantity.greaterThan (Duration.milliseconds 200)
                                    )
 
+                        _ =
+                            Debug.log "" (Time.posixToMillis pingStartTime - Time.posixToMillis (actualTime model))
+
+                        {- The time stored in the model is potentially out of date by an animation frame. We want to make sure our high estimate overestimates rather than underestimates the true time so we add an extra animation frame here. -}
+                        localTimeHighEstimate =
+                            Duration.addTo (actualTime model) frameDuration
+
                         ( newLowEstimate, newHighEstimate, pingCount ) =
                             case model.pingData of
                                 Just oldPingData ->
                                     ( Duration.from serverTime pingStartTime |> Quantity.max oldPingData.lowEstimate
-                                    , Duration.from serverTime (actualTime model) |> Quantity.min oldPingData.highEstimate
+                                    , Duration.from serverTime localTimeHighEstimate |> Quantity.min oldPingData.highEstimate
                                     , oldPingData.pingCount + 1
                                     )
 
                                 Nothing ->
                                     ( Duration.from serverTime pingStartTime
-                                    , Duration.from serverTime (actualTime model)
+                                    , Duration.from serverTime localTimeHighEstimate
                                     , 1
                                     )
                     in
