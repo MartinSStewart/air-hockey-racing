@@ -14,6 +14,7 @@ module Types exposing
     , MatchId
     , MatchMsg(..)
     , MatchPage_
+    , MatchSetupPage_
     , MatchState
     , Page(..)
     , PingData
@@ -45,7 +46,7 @@ import Id exposing (Id)
 import Keyboard
 import Length exposing (Meters)
 import List.Nonempty exposing (Nonempty)
-import MatchSetup exposing (LobbyPreview, MatchSetup, MatchSetupMsg, PlayerData)
+import MatchSetup exposing (LobbyPreview, MatchSetup, MatchSetupMsg, PlayerData, PlayerMode)
 import Math.Vector2 exposing (Vec2)
 import Math.Vector3 exposing (Vec3)
 import NetworkModel exposing (NetworkModel)
@@ -212,6 +213,7 @@ type FrontendMsg_
     | SoundLoaded String (Result Audio.LoadError Audio.Source)
     | MatchMsg MatchMsg
     | GotTime Time.Posix
+    | PressedPlayerMode PlayerMode
 
 
 type MatchMsg

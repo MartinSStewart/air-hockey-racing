@@ -25,8 +25,8 @@ import Element exposing (Element)
 import Element.Background
 import Element.Border
 import Element.Font
+import Element.Input
 import Env
-import Geometry.Types exposing (Polyline2d(..))
 import Html exposing (Html)
 import Html.Attributes
 import Html.Events.Extra.Touch
@@ -38,7 +38,7 @@ import Length exposing (Length, Meters)
 import LineSegment2d exposing (LineSegment2d)
 import List.Extra as List
 import List.Nonempty exposing (Nonempty)
-import MatchSetup exposing (LobbyPreview, MatchSetup, MatchSetupMsg, PlayerData)
+import MatchSetup exposing (LobbyPreview, MatchSetup, MatchSetupMsg, PlayerData, PlayerMode(..))
 import Math.Matrix4 as Mat4 exposing (Mat4)
 import Math.Vector2 exposing (Vec2)
 import Math.Vector3 exposing (Vec3)
@@ -47,7 +47,6 @@ import NetworkModel
 import Pixels exposing (Pixels)
 import Point2d exposing (Point2d)
 import Polygon2d exposing (Polygon2d)
-import Polyline2d
 import Ports
 import Quantity exposing (Quantity(..), Rate)
 import Sounds exposing (Sounds)
@@ -345,6 +344,9 @@ updateLoaded msg model =
 
         PressedDecal decal ->
             matchSetupUpdate (MatchSetup.SetDecal decal) model
+
+        PressedPlayerMode mode ->
+            matchSetupUpdate (MatchSetup.SetPlayerMode mode) model
 
 
 matchSetupUpdate : MatchSetupMsg -> FrontendLoaded -> ( FrontendLoaded, Command FrontendOnly ToBackend FrontendMsg_ )
@@ -823,71 +825,7 @@ loadedView model =
         ]
         (case model.page of
             MatchSetupPage matchSetup ->
-                let
-                    lobby =
-                        NetworkModel.localState
-                            (\a b -> MatchSetup.matchSetupUpdate a b |> Maybe.withDefault b)
-                            matchSetup.networkModel
-
-                    users : List (Id UserId)
-                    users =
-                        MatchSetup.allUsers lobby |> List.Nonempty.toList |> List.map Tuple.first
-
-                    maybeCurrentPlayerData : Maybe PlayerData
-                    maybeCurrentPlayerData =
-                        MatchSetup.allUsers_ lobby |> Dict.get model.userId
-                in
-                Element.column
-                    [ Element.spacing 8, Element.padding 16 ]
-                    [ button PressedStartMatchSetup (Element.text "Start match")
-                    , button PressedLeaveMatchSetup (Element.text "Leave")
-                    , case maybeCurrentPlayerData of
-                        Just currentPlayerData ->
-                            Element.column
-                                [ Element.spacing 8 ]
-                                [ Element.column
-                                    [ Element.spacing 4 ]
-                                    [ Element.text "Primary color"
-                                    , colorSelector PressedPrimaryColor currentPlayerData.primaryColor
-                                    ]
-                                , Element.column
-                                    [ Element.spacing 4 ]
-                                    [ Element.text "Secondary color"
-                                    , colorSelector PressedSecondaryColor currentPlayerData.secondaryColor
-                                    ]
-                                , Element.column
-                                    [ Element.spacing 4 ]
-                                    [ Element.text "Decal"
-                                    , List.map
-                                        (\decal ->
-                                            Ui.button
-                                                [ Element.padding 4
-                                                , Element.Background.color
-                                                    (if decal == currentPlayerData.decal then
-                                                        Element.rgb 0.6 0.7 1
-
-                                                     else
-                                                        Element.rgb 0.8 0.8 0.8
-                                                    )
-                                                ]
-                                                { onPress = PressedDecal decal
-                                                , label = Decal.toString decal |> Element.text
-                                                }
-                                        )
-                                        Decal.allDecals
-                                        |> Element.row [ Element.spacing 8 ]
-                                    ]
-                                ]
-
-                        Nothing ->
-                            Element.none
-                    , Element.column
-                        []
-                        (List.map
-                            (\userId -> Id.toInt userId |> String.fromInt |> (++) "User " |> Element.text)
-                            users
-                        )
-                    ]
+                matchSetupView model matchSetup
 
             LobbyPage lobbyData ->
                 Element.column
@@ -954,6 +892,112 @@ loadedView model =
          --        ]
          --    ]
         )
+
+
+matchSetupView : FrontendLoaded -> MatchSetupPage_ -> Element FrontendMsg_
+matchSetupView model matchSetup =
+    let
+        lobby =
+            NetworkModel.localState
+                (\a b -> MatchSetup.matchSetupUpdate a b |> Maybe.withDefault b)
+                matchSetup.networkModel
+
+        users : List ( Id UserId, PlayerData )
+        users =
+            MatchSetup.allUsers lobby |> List.Nonempty.toList
+
+        maybeCurrentPlayerData : Maybe PlayerData
+        maybeCurrentPlayerData =
+            MatchSetup.allUsers_ lobby |> Dict.get model.userId
+    in
+    Element.column
+        [ Element.spacing 8, Element.padding 16 ]
+        [ if MatchSetup.isOwner model.userId lobby then
+            button PressedStartMatchSetup (Element.text "Start match")
+
+          else
+            Element.none
+        , button PressedLeaveMatchSetup (Element.text "Leave")
+        , case maybeCurrentPlayerData of
+            Just currentPlayerData ->
+                Element.column
+                    [ Element.spacing 8 ]
+                    [ case currentPlayerData.mode of
+                        PlayerMode ->
+                            button (PressedPlayerMode SpectatorMode) (Element.text "Switch to spectator")
+
+                        SpectatorMode ->
+                            button (PressedPlayerMode PlayerMode) (Element.text "Switch to player")
+                    , Element.column
+                        [ Element.spacing 8
+                        , Element.alpha
+                            (case currentPlayerData.mode of
+                                PlayerMode ->
+                                    1
+
+                                SpectatorMode ->
+                                    0.5
+                            )
+                        ]
+                        [ Element.column
+                            [ Element.spacing 4 ]
+                            [ Element.text "Primary color"
+                            , colorSelector PressedPrimaryColor currentPlayerData.primaryColor
+                            ]
+                        , Element.column
+                            [ Element.spacing 4 ]
+                            [ Element.text "Secondary color"
+                            , colorSelector PressedSecondaryColor currentPlayerData.secondaryColor
+                            ]
+                        , Element.column
+                            [ Element.spacing 4 ]
+                            [ Element.text "Decal"
+                            , List.map
+                                (\decal ->
+                                    Ui.button
+                                        [ Element.padding 4
+                                        , Element.Background.color
+                                            (if decal == currentPlayerData.decal then
+                                                Element.rgb 0.6 0.7 1
+
+                                             else
+                                                Element.rgb 0.8 0.8 0.8
+                                            )
+                                        ]
+                                        { onPress = PressedDecal decal
+                                        , label = Decal.toString decal |> Element.text
+                                        }
+                                )
+                                Decal.allDecals
+                                |> Element.row [ Element.spacing 8 ]
+                            ]
+                        ]
+                    ]
+
+            Nothing ->
+                Element.none
+        , Element.column
+            [ Element.spacing 8 ]
+            [ Element.text "Participants:"
+            , Element.column
+                []
+                (List.map
+                    (\( userId, playerData ) ->
+                        "User "
+                            ++ String.fromInt (Id.toInt userId)
+                            ++ (case playerData.mode of
+                                    PlayerMode ->
+                                        ""
+
+                                    SpectatorMode ->
+                                        " (spectator)"
+                               )
+                            |> Element.text
+                    )
+                    users
+                )
+            ]
+        ]
 
 
 placementText : MatchState -> FrontendLoaded -> Element msg

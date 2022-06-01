@@ -4,6 +4,7 @@ module MatchSetup exposing
     , MatchSetupData
     , MatchSetupMsg(..)
     , PlayerData
+    , PlayerMode(..)
     , allUsers
     , allUsers_
     , init
@@ -38,7 +39,7 @@ type alias MatchSetupData =
 
 
 type alias PlayerData =
-    { primaryColor : ColorIndex, secondaryColor : ColorIndex, decal : Decal }
+    { primaryColor : ColorIndex, secondaryColor : ColorIndex, decal : Decal, mode : PlayerMode }
 
 
 type MatchSetupMsg
@@ -47,6 +48,12 @@ type MatchSetupMsg
     | SetPrimaryColor ColorIndex
     | SetSecondaryColor ColorIndex
     | SetDecal Decal
+    | SetPlayerMode PlayerMode
+
+
+type PlayerMode
+    = PlayerMode
+    | SpectatorMode
 
 
 init : String -> Id UserId -> MatchSetup
@@ -59,8 +66,9 @@ init name owner =
         |> MatchSetup
 
 
+defaultPlayerData : PlayerData
 defaultPlayerData =
-    { primaryColor = Blue, secondaryColor = Green, decal = Decal.Star }
+    { primaryColor = Blue, secondaryColor = Green, decal = Decal.Star, mode = PlayerMode }
 
 
 joinUser : Id UserId -> MatchSetup -> MatchSetup
@@ -135,6 +143,9 @@ matchSetupUpdate { userId, msg } lobby =
 
         SetDecal decal ->
             updatePlayerData userId (\a -> { a | decal = decal }) lobby |> Just
+
+        SetPlayerMode mode ->
+            updatePlayerData userId (\a -> { a | mode = mode }) lobby |> Just
 
 
 updatePlayerData : Id UserId -> (PlayerData -> PlayerData) -> MatchSetup -> MatchSetup
