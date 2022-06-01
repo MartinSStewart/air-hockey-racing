@@ -25,7 +25,6 @@ import Element exposing (Element)
 import Element.Background
 import Element.Border
 import Element.Font
-import Element.Input
 import Env
 import Html exposing (Html)
 import Html.Attributes
@@ -38,7 +37,7 @@ import Length exposing (Length, Meters)
 import LineSegment2d exposing (LineSegment2d)
 import List.Extra as List
 import List.Nonempty exposing (Nonempty)
-import MatchSetup exposing (LobbyPreview, MatchSetup, MatchSetupMsg, PlayerData, PlayerMode(..))
+import MatchSetup exposing (LobbyPreview, MatchSetup, MatchSetupMsg, MatchState, Player, PlayerData, PlayerMode(..), WorldCoordinate)
 import Math.Matrix4 as Mat4 exposing (Mat4)
 import Math.Vector2 exposing (Vec2)
 import Math.Vector3 exposing (Vec3)
@@ -542,59 +541,40 @@ updateLoadedFromBackend msg model =
             , Command.none
             )
 
-        StartMatchBroadcast matchId serverStartTime userIds ->
-            case model.page of
-                MatchSetupPage _ ->
-                    ( { model
-                        | page =
-                            MatchPage
-                                { startTime = serverStartTime
-                                , localStartTime = actualTime model
-                                , timeline = Set.empty
-                                , timelineCache = List.Nonempty.map Tuple.first userIds |> initMatch |> Timeline.init
-                                , userIds =
-                                    List.Nonempty.map
-                                        (\( id, playerData ) ->
-                                            { userId = id, playerData = playerData, mesh = playerMesh playerData }
-                                        )
-                                        userIds
-                                , wallMesh = wallMesh (Math.Vector3.vec3 1 0 0) wallSegments
-                                , matchId = matchId
-                                , zoom = 1
-                                , touchPosition = Nothing
-                                , previousTouchPosition = Nothing
-                                }
-                      }
-                    , Command.none
-                    )
-
-                LobbyPage _ ->
-                    ( model, Command.none )
-
-                MatchPage _ ->
-                    ( model, Command.none )
-
-        MatchInputBroadcast matchId frameId event ->
-            ( case model.page of
-                MatchPage match ->
-                    if match.matchId == matchId then
-                        let
-                            ( newCache, newTimeline ) =
-                                Timeline.addInput frameId event match.timelineCache match.timeline
-                        in
-                        { model | page = MatchPage { match | timelineCache = newCache, timeline = newTimeline } }
-
-                    else
-                        model
-
-                LobbyPage _ ->
-                    model
-
-                MatchSetupPage _ ->
-                    model
-            , Command.none
-            )
-
+        --StartMatchBroadcast matchId serverStartTime userIds ->
+        --    (case model.page of
+        --        MatchSetupPage _ ->
+        --            ( { model
+        --                | page =
+        --                    MatchPage
+        --                        { startTime = serverStartTime
+        --                        , localStartTime = actualTime model
+        --                        , timeline = Set.empty
+        --                        , timelineCache = List.Nonempty.map Tuple.first userIds |> initMatch |> Timeline.init
+        --                        , userIds =
+        --                            List.Nonempty.map
+        --                                (\( id, playerData ) ->
+        --                                    { userId = id, playerData = playerData, mesh = playerMesh playerData }
+        --                                )
+        --                                userIds
+        --                        , wallMesh = wallMesh (Math.Vector3.vec3 1 0 0) wallSegments
+        --                        , matchId = matchId
+        --                        , zoom = 1
+        --                        , touchPosition = Nothing
+        --                        , previousTouchPosition = Nothing
+        --                        }
+        --              }
+        --            , Command.none
+        --            )
+        --
+        --        LobbyPage _ ->
+        --            ( model, Command.none )
+        --
+        --        MatchPage _ ->
+        --            ( model, Command.none )
+        --
+        --    , Command.none
+        --    )
         PingResponse serverTime ->
             case model.pingStartTime of
                 Just pingStartTime ->
