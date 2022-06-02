@@ -203,6 +203,7 @@ matchSetupUpdate { userId, msg } lobby =
             addInput userId frameId input lobby |> Just
 
 
+startMatch : Time.Posix -> Id UserId -> MatchSetup -> MatchSetup
 startMatch time userId (MatchSetup matchSetup) =
     if matchSetup.owner == userId then
         { matchSetup | match = Just { startTime = time, timeline = Set.empty } }
@@ -216,7 +217,7 @@ addInput : Id UserId -> Id FrameId -> Maybe (Direction2d WorldCoordinate) -> Mat
 addInput userId frameId input (MatchSetup matchSetup) =
     { matchSetup
         | match =
-            case ( Dict.get userId matchSetup.users, matchSetup.match ) of
+            case ( allUsers_ (MatchSetup matchSetup) |> Dict.get userId, matchSetup.match ) of
                 ( Just playerData, Just match ) ->
                     case playerData.mode of
                         PlayerMode ->

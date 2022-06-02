@@ -171,7 +171,12 @@ updateFromFrontendWithTime sessionId clientId msg model time =
 
                                     _ ->
                                         Command.none
-                                , Effect.Lamdera.broadcast (RemoveLobbyBroadcast lobbyId)
+                                , case matchSetup2 of
+                                    Just _ ->
+                                        Command.none
+
+                                    Nothing ->
+                                        Effect.Lamdera.broadcast (RemoveLobbyBroadcast lobbyId)
                                 , MatchSetup.allUsers matchSetup
                                     |> List.Nonempty.toList
                                     |> List.concatMap

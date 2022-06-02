@@ -42,7 +42,7 @@ import Math.Matrix4 as Mat4 exposing (Mat4)
 import Math.Vector2 exposing (Vec2)
 import Math.Vector3 exposing (Vec3)
 import Math.Vector4 exposing (Vec4)
-import NetworkModel
+import NetworkModel exposing (NetworkModel)
 import Pixels exposing (Pixels)
 import Point2d exposing (Point2d)
 import Polygon2d exposing (Polygon2d)
@@ -276,10 +276,10 @@ updateLoaded msg model =
                                     previousInput == input
                             in
                             if inputUnchanged then
-                                ( model, Command.none )
+                                ( model2, Command.none )
 
                             else
-                                matchSetupUpdate (MatchSetup.MatchInputRequest (timeToFrameId model match) input) model
+                                matchSetupUpdate (MatchSetup.MatchInputRequest (timeToFrameId model2 match) input) model2
 
                         _ ->
                             ( model2, Command.none )
@@ -365,13 +365,21 @@ matchSetupUpdate msg model =
             ( model, Command.none )
 
         MatchSetupPage matchSetup ->
+            let
+                newNetworkModel : NetworkModel { userId : Id UserId, msg : MatchSetupMsg } MatchSetup
+                newNetworkModel =
+                    NetworkModel.updateFromUser { userId = model.userId, msg = msg } matchSetup.networkModel
+            in
             ( { model
                 | page =
                     { matchSetup
-                        | networkModel =
-                            NetworkModel.updateFromUser
-                                { userId = model.userId, msg = msg }
+                        | networkModel = newNetworkModel
+                        , matchData =
+                            updateMatchData
+                                (timeToFrameId model)
+                                newNetworkModel
                                 matchSetup.networkModel
+                                matchSetup.matchData
                     }
                         |> MatchSetupPage
               }
@@ -456,6 +464,7 @@ timeToServerTime model =
         Just pingData ->
             Quantity.plus pingData.lowEstimate pingData.highEstimate
                 |> Quantity.divideBy 2
+                |> Quantity.negate
                 |> Duration.addTo (actualTime model)
 
         Nothing ->
@@ -667,12 +676,22 @@ updateLoadedFromBackend msg model =
 
                                 _ ->
                                     (if lobbyId == matchSetup.lobbyId then
-                                        { matchSetup
-                                            | networkModel =
+                                        let
+                                            newNetworkModel : NetworkModel { userId : Id UserId, msg : MatchSetupMsg } MatchSetup
+                                            newNetworkModel =
                                                 NetworkModel.updateFromBackend
                                                     (\a b -> MatchSetup.matchSetupUpdate a b |> Maybe.withDefault b)
                                                     { userId = userId, msg = matchSetupMsg }
                                                     matchSetup.networkModel
+                                        in
+                                        { matchSetup
+                                            | networkModel = newNetworkModel
+                                            , matchData =
+                                                updateMatchData
+                                                    (timeToFrameId model)
+                                                    newNetworkModel
+                                                    matchSetup.networkModel
+                                                    matchSetup.matchData
                                         }
 
                                      else
@@ -695,6 +714,94 @@ updateLoadedFromBackend msg model =
                     model
             , Command.none
             )
+
+
+updateMatchData :
+    (Match -> Id FrameId)
+    -> NetworkModel { userId : Id UserId, msg : MatchSetupMsg } MatchSetup
+    -> NetworkModel { userId : Id UserId, msg : MatchSetupMsg } MatchSetup
+    -> Maybe MatchPage_
+    -> Maybe MatchPage_
+updateMatchData getCurrentFrame newNetworkModel oldNetworkModel oldMatchData =
+    let
+        newMatchState : MatchSetup
+        newMatchState =
+            NetworkModel.localState
+                (\a b -> MatchSetup.matchSetupUpdate a b |> Maybe.withDefault b)
+                newNetworkModel
+
+        oldMatchState : MatchSetup
+        oldMatchState =
+            NetworkModel.localState
+                (\a b -> MatchSetup.matchSetupUpdate a b |> Maybe.withDefault b)
+                oldNetworkModel
+
+        newUserIds : Nonempty ( Id UserId, PlayerData )
+        newUserIds =
+            MatchSetup.allUsers newMatchState
+
+        initHelper : Maybe MatchPage_
+        initHelper =
+            { timelineCache = List.Nonempty.map Tuple.first newUserIds |> initMatch |> Timeline.init
+            , userIds =
+                List.Nonempty.toList newUserIds
+                    |> List.filterMap
+                        (\( id, playerData ) ->
+                            case playerData.mode of
+                                PlayerMode ->
+                                    Just ( id, playerMesh playerData )
+
+                                SpectatorMode ->
+                                    Nothing
+                        )
+                    |> Dict.fromList
+            , wallMesh = wallMesh (Math.Vector3.vec3 1 0 0) wallSegments
+            , zoom = 1
+            , touchPosition = Nothing
+            , previousTouchPosition = Nothing
+            }
+                |> Just
+    in
+    case ( MatchSetup.getMatch newMatchState, MatchSetup.getMatch oldMatchState ) of
+        ( Just newMatch, Just oldMatch ) ->
+            case oldMatchData of
+                Just matchData ->
+                    let
+                        inputDiff : Set ( Id FrameId, TimelineEvent )
+                        inputDiff =
+                            Set.diff newMatch.timeline oldMatch.timeline
+                    in
+                    { matchData
+                        | timelineCache =
+                            Set.toList inputDiff
+                                |> List.foldl
+                                    (\( frameId, input ) cache ->
+                                        Timeline.addInput frameId input cache newMatch.timeline
+                                            |> Tuple.first
+                                    )
+                                    matchData.timelineCache
+                                |> (\cache ->
+                                        Timeline.getStateAt
+                                            gameUpdate
+                                            (getCurrentFrame newMatch)
+                                            cache
+                                            newMatch.timeline
+                                   )
+                                |> Tuple.first
+                    }
+                        |> Just
+
+                Nothing ->
+                    initHelper
+
+        ( Just _, Nothing ) ->
+            initHelper
+
+        ( Nothing, Just _ ) ->
+            Nothing
+
+        _ ->
+            oldMatchData
 
 
 actualTime : { a | time : Time.Posix, debugTimeOffset : Duration } -> Time.Posix
@@ -1314,7 +1421,11 @@ canvasView model =
                     ( Just match, Just matchData ) ->
                         let
                             ( _, state ) =
-                                Timeline.getStateAt gameUpdate (timeToFrameId model match) matchData.timelineCache match.timeline
+                                Timeline.getStateAt
+                                    gameUpdate
+                                    (timeToFrameId model match)
+                                    matchData.timelineCache
+                                    match.timeline
 
                             { x, y } =
                                 case Dict.get model.userId state.players of
@@ -1370,8 +1481,8 @@ canvasView model =
                                 }
                             :: List.filterMap
                                 (\( userId, player ) ->
-                                    case List.Nonempty.toList matchData.userIds |> List.find (.userId >> (==) userId) of
-                                        Just { mesh } ->
+                                    case Dict.get userId matchData.userIds of
+                                        Just mesh ->
                                             WebGL.entityWith
                                                 [ WebGL.Settings.cullFace WebGL.Settings.back ]
                                                 vertexShader
@@ -1460,7 +1571,7 @@ playerStart =
 wallSegments : List (LineSegment2d Meters WorldCoordinate)
 wallSegments =
     verticesToLineSegments (Polygon2d.outerLoop wall)
-        ++ List.concatMap verticesToLineSegments (Polygon2d.innerLoops wall |> Debug.log "")
+        ++ List.concatMap verticesToLineSegments (Polygon2d.innerLoops wall)
 
 
 verticesToLineSegments : List (Point2d units coordinates) -> List (LineSegment2d units coordinates)
@@ -1486,7 +1597,7 @@ verticesToLineSegments points =
 
 wallMesh : Vec3 -> List (LineSegment2d Meters WorldCoordinate) -> Mesh Vertex
 wallMesh color lines =
-    List.concatMap (lineMesh color) (Debug.log "lines" lines) |> WebGL.triangles
+    List.concatMap (lineMesh color) lines |> WebGL.triangles
 
 
 lineMesh : Vec3 -> LineSegment2d Meters WorldCoordinate -> List ( Vertex, Vertex, Vertex )

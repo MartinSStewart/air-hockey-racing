@@ -131,11 +131,9 @@ type alias LobbyData =
 
 
 type alias MatchPage_ =
-    { localStartTime : Time.Posix
-    , timelineCache : TimelineCache MatchState
-    , userIds : Nonempty { userId : Id UserId, playerData : PlayerData, mesh : Mesh Vertex }
+    { timelineCache : TimelineCache MatchState
+    , userIds : Dict (Id UserId) (Mesh Vertex)
     , wallMesh : Mesh Vertex
-    , matchId : Id MatchId
     , zoom : Float
     , touchPosition : Maybe (Point2d Pixels ScreenCoordinate)
     , previousTouchPosition : Maybe (Point2d Pixels ScreenCoordinate)
