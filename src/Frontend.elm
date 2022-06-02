@@ -569,40 +569,6 @@ updateLoadedFromBackend msg model =
             , Command.none
             )
 
-        --StartMatchBroadcast matchId serverStartTime userIds ->
-        --    (case model.page of
-        --        MatchSetupPage _ ->
-        --            ( { model
-        --                | page =
-        --                    MatchPage
-        --                        { startTime = serverStartTime
-        --                        , localStartTime = actualTime model
-        --                        , timeline = Set.empty
-        --                        , timelineCache = List.Nonempty.map Tuple.first userIds |> initMatch |> Timeline.init
-        --                        , userIds =
-        --                            List.Nonempty.map
-        --                                (\( id, playerData ) ->
-        --                                    { userId = id, playerData = playerData, mesh = playerMesh playerData }
-        --                                )
-        --                                userIds
-        --                        , wallMesh = wallMesh (Math.Vector3.vec3 1 0 0) wallSegments
-        --                        , matchId = matchId
-        --                        , zoom = 1
-        --                        , touchPosition = Nothing
-        --                        , previousTouchPosition = Nothing
-        --                        }
-        --              }
-        --            , Command.none
-        --            )
-        --
-        --        LobbyPage _ ->
-        --            ( model, Command.none )
-        --
-        --        MatchPage _ ->
-        --            ( model, Command.none )
-        --
-        --    , Command.none
-        --    )
         PingResponse serverTime ->
             case model.pingStartTime of
                 Just pingStartTime ->
