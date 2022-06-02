@@ -1,5 +1,6 @@
 module MatchSetup exposing
     ( LobbyPreview
+    , Match
     , MatchSetup
     , MatchSetupData
     , MatchSetupMsg(..)
@@ -11,6 +12,7 @@ module MatchSetup exposing
     , WorldCoordinate
     , allUsers
     , allUsers_
+    , getMatch
     , init
     , isOwner
     , joinUser
@@ -47,7 +49,7 @@ type alias MatchSetupData =
     , owner : Id UserId
     , ownerPlayerData : PlayerData
     , users : Dict (Id UserId) PlayerData
-    , match : Maybe { startTime : Time.Posix, timeline : Timeline TimelineEvent }
+    , match : Maybe Match
     }
 
 
@@ -75,6 +77,10 @@ type WorldCoordinate
 
 type alias PlayerData =
     { primaryColor : ColorIndex, secondaryColor : ColorIndex, decal : Decal, mode : PlayerMode }
+
+
+type alias Match =
+    { startTime : Time.Posix, timeline : Timeline TimelineEvent }
 
 
 type MatchSetupMsg
@@ -142,6 +148,11 @@ leaveUser userId (MatchSetup lobby) =
 
     else
         { lobby | users = Dict.remove userId lobby.users } |> MatchSetup |> Just
+
+
+getMatch : MatchSetup -> Maybe { startTime : Time.Posix, timeline : Timeline TimelineEvent }
+getMatch (MatchSetup matchSetup) =
+    matchSetup.match
 
 
 isOwner : Id UserId -> MatchSetup -> Bool

@@ -116,12 +116,12 @@ type alias PingData =
 type Page
     = LobbyPage LobbyData
     | MatchSetupPage MatchSetupPage_
-    | MatchPage MatchPage_
 
 
 type alias MatchSetupPage_ =
     { lobbyId : Id LobbyId
     , networkModel : NetworkModel { userId : Id UserId, msg : MatchSetupMsg } MatchSetup
+    , matchData : Maybe MatchPage_
     }
 
 
@@ -131,8 +131,7 @@ type alias LobbyData =
 
 
 type alias MatchPage_ =
-    { startTime : Time.Posix
-    , localStartTime : Time.Posix
+    { localStartTime : Time.Posix
     , timelineCache : TimelineCache MatchState
     , userIds : Nonempty { userId : Id UserId, playerData : PlayerData, mesh : Mesh Vertex }
     , wallMesh : Mesh Vertex
