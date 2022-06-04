@@ -15,21 +15,16 @@ module Types exposing
     , MatchMsg(..)
     , MatchPage_
     , MatchSetupPage_
-    , MatchState
     , Page(..)
     , PingData
-    , Player
     , ScreenCoordinate
-    , TimelineEvent
     , ToBackend(..)
     , ToFrontend(..)
     , Vertex
     , WindowSize
-    , WorldCoordinate
     , WorldPixel
     )
 
-import Angle exposing (Angle)
 import AssocList exposing (Dict)
 import Audio
 import Browser
@@ -44,9 +39,8 @@ import Effect.WebGL exposing (Mesh)
 import Html.Events.Extra.Touch
 import Id exposing (Id)
 import Keyboard
-import Length exposing (Meters)
 import List.Nonempty exposing (Nonempty)
-import MatchSetup exposing (LobbyPreview, MatchSetup, MatchSetupMsg, PlayerData, PlayerMode)
+import MatchSetup exposing (LobbyPreview, MatchSetup, MatchSetupMsg, MatchState, PlayerData, PlayerMode, WorldCoordinate)
 import Math.Vector2 exposing (Vec2)
 import Math.Vector3 exposing (Vec3)
 import NetworkModel exposing (NetworkModel)
@@ -55,10 +49,8 @@ import Point2d exposing (Point2d)
 import Quantity exposing (Quantity, Rate)
 import Sounds exposing (Sounds)
 import Timeline exposing (FrameId, Timeline, TimelineCache)
-import TriangularMesh exposing (TriangularMesh)
 import Url exposing (Url)
 import User exposing (UserId)
-import Vector2d exposing (Vector2d)
 
 
 type alias FrontendModel =
@@ -103,7 +95,6 @@ type alias FrontendLoaded =
     , debugTimeOffset : Duration
     , page : Page
     , sounds : Sounds
-    , lastButtonPress : Maybe Time.Posix
     , userId : Id UserId
     , pingStartTime : Maybe Time.Posix
     , pingData : Maybe PingData
@@ -123,13 +114,13 @@ type alias PingData =
 
 type Page
     = LobbyPage LobbyData
-    | MatchSetupPage MatchSetupPage_
-    | MatchPage MatchPage_
+    | MatchPage MatchSetupPage_
 
 
 type alias MatchSetupPage_ =
     { lobbyId : Id LobbyId
     , networkModel : NetworkModel { userId : Id UserId, msg : MatchSetupMsg } MatchSetup
+    , matchData : Maybe MatchPage_
     }
 
 
@@ -139,13 +130,9 @@ type alias LobbyData =
 
 
 type alias MatchPage_ =
-    { startTime : Time.Posix
-    , localStartTime : Time.Posix
-    , timeline : Timeline TimelineEvent
-    , timelineCache : TimelineCache MatchState
-    , userIds : Nonempty { userId : Id UserId, playerData : PlayerData, mesh : Mesh Vertex }
+    { timelineCache : TimelineCache MatchState
+    , userIds : Dict (Id UserId) (Mesh Vertex)
     , wallMesh : Mesh Vertex
-    , matchId : Id MatchId
     , zoom : Float
     , touchPosition : Maybe (Point2d Pixels ScreenCoordinate)
     , previousTouchPosition : Maybe (Point2d Pixels ScreenCoordinate)
@@ -160,33 +147,10 @@ type ScreenCoordinate
     = ScreenCoordinate Never
 
 
-type alias MatchState =
-    { players : Dict (Id UserId) Player }
-
-
-type alias Player =
-    { position : Point2d Meters WorldCoordinate
-    , velocity : Vector2d Meters WorldCoordinate
-    , rotationalVelocity : Angle
-    , rotation : Angle
-    , input : Maybe (Direction2d WorldCoordinate)
-    , finishTime : Maybe (Id FrameId)
-    }
-
-
-type WorldCoordinate
-    = WorldCoordinate Never
-
-
-type alias TimelineEvent =
-    { userId : Id UserId, input : Maybe (Direction2d WorldCoordinate) }
-
-
 type alias BackendModel =
     { userSessions : Dict SessionId { clientIds : Dict ClientId (), userId : Id UserId }
     , users : Dict (Id UserId) BackendUserData
     , lobbies : Dict (Id LobbyId) MatchSetup
-    , matches : Dict (Id MatchId) { users : Nonempty (Id UserId) }
     , counter : Int
     }
 
@@ -233,8 +197,6 @@ type MatchId
 type ToBackend
     = CreateLobbyRequest
     | MatchSetupRequest (Id LobbyId) MatchSetupMsg
-    | StartMatchRequest
-    | MatchInputRequest (Id MatchId) (Id FrameId) (Maybe (Direction2d WorldCoordinate))
     | PingRequest
 
 
@@ -250,8 +212,6 @@ type ToFrontend
     | CreateLobbyBroadcast (Id LobbyId) LobbyPreview
     | ClientInit (Id UserId) LobbyData
     | JoinLobbyResponse (Id LobbyId) (Result JoinLobbyError MatchSetup)
-    | StartMatchBroadcast (Id MatchId) Time.Posix (Nonempty ( Id UserId, PlayerData ))
-    | MatchInputBroadcast (Id MatchId) (Id FrameId) TimelineEvent
     | PingResponse Time.Posix
     | MatchSetupBroadcast (Id LobbyId) (Id UserId) MatchSetupMsg (Maybe LobbyData)
 

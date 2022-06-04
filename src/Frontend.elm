@@ -10,6 +10,7 @@ import Browser exposing (UrlRequest(..))
 import Collision
 import ColorIndex exposing (ColorIndex)
 import Decal
+import Dict as RegularDict
 import Direction2d exposing (Direction2d)
 import Duration exposing (Duration)
 import Effect.Browser.Dom
@@ -25,7 +26,6 @@ import Element exposing (Element)
 import Element.Background
 import Element.Border
 import Element.Font
-import Element.Input
 import Env
 import Html exposing (Html)
 import Html.Attributes
@@ -38,17 +38,18 @@ import Length exposing (Length, Meters)
 import LineSegment2d exposing (LineSegment2d)
 import List.Extra as List
 import List.Nonempty exposing (Nonempty)
-import MatchSetup exposing (LobbyPreview, MatchSetup, MatchSetupMsg, PlayerData, PlayerMode(..))
+import MatchSetup exposing (LobbyPreview, Match, MatchSetup, MatchSetupMsg, MatchState, Player, PlayerData, PlayerMode(..), TimelineEvent, WorldCoordinate)
 import Math.Matrix4 as Mat4 exposing (Mat4)
 import Math.Vector2 exposing (Vec2)
 import Math.Vector3 exposing (Vec3)
 import Math.Vector4 exposing (Vec4)
-import NetworkModel
+import NetworkModel exposing (NetworkModel)
 import Pixels exposing (Pixels)
 import Point2d exposing (Point2d)
 import Polygon2d exposing (Polygon2d)
 import Ports
 import Quantity exposing (Quantity(..), Rate)
+import RasterShapes
 import Sounds exposing (Sounds)
 import Time
 import Timeline exposing (FrameId)
@@ -90,11 +91,45 @@ audio audioData model =
             Audio.silence
 
         Loaded loaded ->
-            case loaded.lastButtonPress of
-                Just lastButtonPress ->
-                    Audio.audio loaded.sounds.buttonPress lastButtonPress
+            case loaded.page of
+                MatchPage matchPage ->
+                    let
+                        localState : MatchSetup
+                        localState =
+                            NetworkModel.localState
+                                (\a b -> MatchSetup.matchSetupUpdate a b |> Maybe.withDefault b)
+                                matchPage.networkModel
+                    in
+                    case ( MatchSetup.getMatch localState, matchPage.matchData ) of
+                        ( Just match, Just matchData ) ->
+                            let
+                                ( _, state ) =
+                                    Timeline.getStateAt
+                                        gameUpdate
+                                        (timeToFrameId loaded match)
+                                        matchData.timelineCache
+                                        match.timeline
+                            in
+                            Dict.values state.players
+                                |> List.filterMap .lastCollision
+                                |> Set.fromList
+                                |> Set.toList
+                                |> List.map
+                                    (\frameId ->
+                                        let
+                                            collisionTime : Time.Posix
+                                            collisionTime =
+                                                Quantity.multiplyBy (Id.toInt frameId |> toFloat) frameDuration
+                                                    |> Duration.addTo match.startTime
+                                        in
+                                        Audio.audio loaded.sounds.buttonPress collisionTime
+                                    )
+                                |> Audio.group
 
-                Nothing ->
+                        _ ->
+                            Audio.silence
+
+                LobbyPage _ ->
                     Audio.silence
     )
         |> Audio.offsetBy (Duration.milliseconds 30)
@@ -116,7 +151,6 @@ loadedInit loading time sounds ( userId, lobbyData ) =
       , debugTimeOffset = loading.debugTimeOffset
       , page = LobbyPage lobbyData
       , sounds = sounds
-      , lastButtonPress = Nothing
       , userId = userId
       , pingStartTime = Nothing
       , pingData = Nothing
@@ -244,68 +278,64 @@ updateLoaded msg model =
                     { model | time = time_, previousKeys = model.currentKeys }
             in
             case model2.page of
-                MatchPage match ->
+                MatchPage matchSetupPage ->
                     let
-                        ( cache, _ ) =
-                            Timeline.getStateAt
-                                gameUpdate
-                                (timeToFrameId model match)
-                                match.timelineCache
-                                newTimeline
-
-                        newZoom =
-                            if keyPressed (Character "Q") model then
-                                match.zoom * 2
-
-                            else if keyPressed (Character "W") model then
-                                match.zoom / 2
-
-                            else
-                                match.zoom
-
-                        previousInput : Maybe (Direction2d WorldCoordinate)
-                        previousInput =
-                            getInputDirection model.windowSize model.previousKeys match.previousTouchPosition
-
-                        input : Maybe (Direction2d WorldCoordinate)
-                        input =
-                            getInputDirection model.windowSize model.currentKeys match.touchPosition
-
-                        inputUnchanged : Bool
-                        inputUnchanged =
-                            previousInput == input
-
-                        newTimeline =
-                            if inputUnchanged then
-                                match.timeline
-
-                            else
-                                Timeline.addInput_
-                                    (timeToFrameId model match)
-                                    { userId = model2.userId, input = input }
-                                    match.timeline
+                        matchSetupState : MatchSetup
+                        matchSetupState =
+                            NetworkModel.localState
+                                (\a b -> MatchSetup.matchSetupUpdate a b |> Maybe.withDefault b)
+                                matchSetupPage.networkModel
                     in
-                    ( { model2
-                        | page =
-                            MatchPage
-                                { match
-                                    | timeline = newTimeline
-                                    , timelineCache = cache
-                                    , zoom = newZoom
-                                    , previousTouchPosition = match.touchPosition
-                                }
-                      }
-                    , if inputUnchanged then
-                        Command.none
+                    case ( matchSetupPage.matchData, MatchSetup.getMatch matchSetupState ) of
+                        ( Just matchData, Just match ) ->
+                            let
+                                --newZoom =
+                                --    if keyPressed (Character "Q") model then
+                                --        matchSetupPage.zoom * 2
+                                --
+                                --    else if keyPressed (Character "W") model then
+                                --        matchSetupPage.zoom / 2
+                                --
+                                --    else
+                                --        matchSetupPage.zoom
+                                previousInput : Maybe (Direction2d WorldCoordinate)
+                                previousInput =
+                                    getInputDirection model.windowSize model.previousKeys matchData.previousTouchPosition
 
-                      else
-                        MatchInputRequest match.matchId (timeToFrameId model match) input
-                            |> Effect.Lamdera.sendToBackend
-                    )
+                                input : Maybe (Direction2d WorldCoordinate)
+                                input =
+                                    getInputDirection model.windowSize model.currentKeys matchData.touchPosition
 
-                MatchSetupPage _ ->
-                    ( model2, Command.none )
+                                inputUnchanged : Bool
+                                inputUnchanged =
+                                    previousInput == input
+                            in
+                            if inputUnchanged then
+                                ( model2, Command.none )
 
+                            else
+                                matchSetupUpdate (MatchSetup.MatchInputRequest (timeToFrameId model2 match) input) model2
+
+                        _ ->
+                            ( model2, Command.none )
+
+                --( { model2
+                --    | page =
+                --        MatchPage
+                --            { match
+                --                | timeline = newTimeline
+                --                , timelineCache = cache
+                --                , zoom = newZoom
+                --                , previousTouchPosition = match.touchPosition
+                --            }
+                --  }
+                --, if inputUnchanged then
+                --    Command.none
+                --
+                --  else
+                --    MatchInputRequest match.matchId (timeToFrameId model match) input
+                --        |> Effect.Lamdera.sendToBackend
+                --)
                 LobbyPage _ ->
                     ( model2, Command.none )
 
@@ -316,7 +346,7 @@ updateLoaded msg model =
             ( model, MatchSetupRequest lobbyId MatchSetup.JoinMatchSetup |> Effect.Lamdera.sendToBackend )
 
         PressedStartMatchSetup ->
-            ( model, Effect.Lamdera.sendToBackend StartMatchRequest )
+            matchSetupUpdate (MatchSetup.StartMatch (timeToServerTime model)) model
 
         PressedLeaveMatchSetup ->
             matchSetupUpdate MatchSetup.LeaveMatchSetup model
@@ -331,7 +361,21 @@ updateLoaded msg model =
         MatchMsg matchMsg ->
             case model.page of
                 MatchPage matchPage ->
-                    ( { model | page = matchUpdate matchMsg matchPage |> MatchPage }, Command.none )
+                    ( { model
+                        | page =
+                            { matchPage
+                                | matchData =
+                                    case matchPage.matchData of
+                                        Just matchData ->
+                                            matchUpdate matchMsg matchData |> Just
+
+                                        Nothing ->
+                                            matchPage.matchData
+                            }
+                                |> MatchPage
+                      }
+                    , Command.none
+                    )
 
                 _ ->
                     ( model, Command.none )
@@ -355,22 +399,27 @@ matchSetupUpdate msg model =
         LobbyPage _ ->
             ( model, Command.none )
 
-        MatchSetupPage matchSetup ->
+        MatchPage matchSetup ->
+            let
+                newNetworkModel : NetworkModel { userId : Id UserId, msg : MatchSetupMsg } MatchSetup
+                newNetworkModel =
+                    NetworkModel.updateFromUser { userId = model.userId, msg = msg } matchSetup.networkModel
+            in
             ( { model
                 | page =
                     { matchSetup
-                        | networkModel =
-                            NetworkModel.updateFromUser
-                                { userId = model.userId, msg = msg }
+                        | networkModel = newNetworkModel
+                        , matchData =
+                            updateMatchData
+                                (timeToFrameId model)
+                                newNetworkModel
                                 matchSetup.networkModel
+                                matchSetup.matchData
                     }
-                        |> MatchSetupPage
+                        |> MatchPage
               }
             , MatchSetupRequest matchSetup.lobbyId msg |> Effect.Lamdera.sendToBackend
             )
-
-        MatchPage _ ->
-            ( model, Command.none )
 
 
 matchUpdate : MatchMsg -> MatchPage_ -> MatchPage_
@@ -435,23 +484,26 @@ getInputDirection windowSize keys maybeTouchPosition =
         directionToOffset input
 
 
-timeToFrameId : FrontendLoaded -> MatchPage_ -> Id FrameId
-timeToFrameId model matchState =
-    let
-        adjustedTime =
-            case model.pingData of
-                Just pingData ->
-                    Quantity.plus pingData.lowEstimate pingData.highEstimate
-                        |> Quantity.divideBy 2
-                        |> Duration.addTo (actualTime model)
-
-                Nothing ->
-                    actualTime model
-    in
-    Duration.from matchState.startTime adjustedTime
+timeToFrameId : FrontendLoaded -> Match -> Id FrameId
+timeToFrameId model match =
+    timeToServerTime model
+        |> Duration.from match.startTime
         |> (\a -> Quantity.ratio a frameDuration)
         |> round
         |> Id.fromInt
+
+
+timeToServerTime : FrontendLoaded -> Time.Posix
+timeToServerTime model =
+    case model.pingData of
+        Just pingData ->
+            Quantity.plus pingData.lowEstimate pingData.highEstimate
+                |> Quantity.divideBy 2
+                |> Quantity.negate
+                |> Duration.addTo (actualTime model)
+
+        Nothing ->
+            actualTime model
 
 
 frameDuration : Duration
@@ -502,7 +554,14 @@ updateLoadedFromBackend msg model =
         CreateLobbyResponse lobbyId lobby ->
             ( case model.page of
                 LobbyPage _ ->
-                    { model | page = MatchSetupPage { lobbyId = lobbyId, networkModel = NetworkModel.init lobby } }
+                    { model
+                        | page =
+                            MatchPage
+                                { lobbyId = lobbyId
+                                , networkModel = NetworkModel.init lobby
+                                , matchData = Nothing
+                                }
+                    }
 
                 _ ->
                     model
@@ -516,8 +575,11 @@ updateLoadedFromBackend msg model =
                         Ok lobby ->
                             { model
                                 | page =
-                                    MatchSetupPage
-                                        { lobbyId = lobbyId, networkModel = NetworkModel.init lobby }
+                                    MatchPage
+                                        { lobbyId = lobbyId
+                                        , networkModel = NetworkModel.init lobby
+                                        , matchData = Nothing
+                                        }
                             }
 
                         Err LobbyNotFound ->
@@ -538,59 +600,6 @@ updateLoadedFromBackend msg model =
                     }
 
                 _ ->
-                    model
-            , Command.none
-            )
-
-        StartMatchBroadcast matchId serverStartTime userIds ->
-            case model.page of
-                MatchSetupPage _ ->
-                    ( { model
-                        | page =
-                            MatchPage
-                                { startTime = serverStartTime
-                                , localStartTime = actualTime model
-                                , timeline = Set.empty
-                                , timelineCache = List.Nonempty.map Tuple.first userIds |> initMatch |> Timeline.init
-                                , userIds =
-                                    List.Nonempty.map
-                                        (\( id, playerData ) ->
-                                            { userId = id, playerData = playerData, mesh = playerMesh playerData }
-                                        )
-                                        userIds
-                                , wallMesh = wallMesh (Math.Vector3.vec3 1 0 0) wallSegments
-                                , matchId = matchId
-                                , zoom = 1
-                                , touchPosition = Nothing
-                                , previousTouchPosition = Nothing
-                                }
-                      }
-                    , Command.none
-                    )
-
-                LobbyPage _ ->
-                    ( model, Command.none )
-
-                MatchPage _ ->
-                    ( model, Command.none )
-
-        MatchInputBroadcast matchId frameId event ->
-            ( case model.page of
-                MatchPage match ->
-                    if match.matchId == matchId then
-                        let
-                            ( newCache, newTimeline ) =
-                                Timeline.addInput frameId event match.timelineCache match.timeline
-                        in
-                        { model | page = MatchPage { match | timelineCache = newCache, timeline = newTimeline } }
-
-                    else
-                        model
-
-                LobbyPage _ ->
-                    model
-
-                MatchSetupPage _ ->
                     model
             , Command.none
             )
@@ -659,7 +668,7 @@ updateLoadedFromBackend msg model =
 
         MatchSetupBroadcast lobbyId userId matchSetupMsg maybeLobbyData ->
             case model.page of
-                MatchSetupPage matchSetup ->
+                MatchPage matchSetup ->
                     ( { model
                         | page =
                             case ( userId == model.userId, maybeLobbyData, matchSetupMsg ) of
@@ -668,18 +677,28 @@ updateLoadedFromBackend msg model =
 
                                 _ ->
                                     (if lobbyId == matchSetup.lobbyId then
-                                        { matchSetup
-                                            | networkModel =
+                                        let
+                                            newNetworkModel : NetworkModel { userId : Id UserId, msg : MatchSetupMsg } MatchSetup
+                                            newNetworkModel =
                                                 NetworkModel.updateFromBackend
                                                     (\a b -> MatchSetup.matchSetupUpdate a b |> Maybe.withDefault b)
                                                     { userId = userId, msg = matchSetupMsg }
                                                     matchSetup.networkModel
+                                        in
+                                        { matchSetup
+                                            | networkModel = newNetworkModel
+                                            , matchData =
+                                                updateMatchData
+                                                    (timeToFrameId model)
+                                                    newNetworkModel
+                                                    matchSetup.networkModel
+                                                    matchSetup.matchData
                                         }
 
                                      else
                                         matchSetup
                                     )
-                                        |> MatchSetupPage
+                                        |> MatchPage
                       }
                     , Command.none
                     )
@@ -687,21 +706,103 @@ updateLoadedFromBackend msg model =
                 LobbyPage _ ->
                     ( model, Command.none )
 
-                MatchPage _ ->
-                    ( model, Command.none )
-
         RemoveLobbyBroadcast lobbyId ->
             ( case model.page of
                 LobbyPage lobbyData ->
                     { model | page = LobbyPage { lobbyData | lobbies = Dict.remove lobbyId lobbyData.lobbies } }
 
-                MatchSetupPage _ ->
-                    model
-
                 MatchPage _ ->
                     model
             , Command.none
             )
+
+
+updateMatchData :
+    (Match -> Id FrameId)
+    -> NetworkModel { userId : Id UserId, msg : MatchSetupMsg } MatchSetup
+    -> NetworkModel { userId : Id UserId, msg : MatchSetupMsg } MatchSetup
+    -> Maybe MatchPage_
+    -> Maybe MatchPage_
+updateMatchData getCurrentFrame newNetworkModel oldNetworkModel oldMatchData =
+    let
+        newMatchState : MatchSetup
+        newMatchState =
+            NetworkModel.localState
+                (\a b -> MatchSetup.matchSetupUpdate a b |> Maybe.withDefault b)
+                newNetworkModel
+
+        oldMatchState : MatchSetup
+        oldMatchState =
+            NetworkModel.localState
+                (\a b -> MatchSetup.matchSetupUpdate a b |> Maybe.withDefault b)
+                oldNetworkModel
+
+        newUserIds : Nonempty ( Id UserId, PlayerData )
+        newUserIds =
+            MatchSetup.allUsers newMatchState
+
+        initHelper : Maybe MatchPage_
+        initHelper =
+            { timelineCache = List.Nonempty.map Tuple.first newUserIds |> initMatch |> Timeline.init
+            , userIds =
+                List.Nonempty.toList newUserIds
+                    |> List.filterMap
+                        (\( id, playerData ) ->
+                            case playerData.mode of
+                                PlayerMode ->
+                                    Just ( id, playerMesh playerData )
+
+                                SpectatorMode ->
+                                    Nothing
+                        )
+                    |> Dict.fromList
+            , wallMesh = wallMesh (Math.Vector3.vec3 1 0 0) wallSegments
+            , zoom = 1
+            , touchPosition = Nothing
+            , previousTouchPosition = Nothing
+            }
+                |> Just
+    in
+    case ( MatchSetup.getMatch newMatchState, MatchSetup.getMatch oldMatchState ) of
+        ( Just newMatch, Just oldMatch ) ->
+            case oldMatchData of
+                Just matchData ->
+                    let
+                        inputDiff : Set ( Id FrameId, TimelineEvent )
+                        inputDiff =
+                            Set.diff newMatch.timeline oldMatch.timeline
+                    in
+                    { matchData
+                        | timelineCache =
+                            Set.toList inputDiff
+                                |> List.foldl
+                                    (\( frameId, input ) cache ->
+                                        Timeline.addInput frameId input cache newMatch.timeline
+                                            |> Tuple.first
+                                    )
+                                    matchData.timelineCache
+                                |> (\cache ->
+                                        Timeline.getStateAt
+                                            gameUpdate
+                                            (getCurrentFrame newMatch)
+                                            cache
+                                            newMatch.timeline
+                                   )
+                                |> Tuple.first
+                    }
+                        |> Just
+
+                Nothing ->
+                    initHelper
+
+        ( Just _, Nothing ) ->
+            initHelper
+
+        ( Nothing, Just _ ) ->
+            Nothing
+
+        _ ->
+            oldMatchData
 
 
 actualTime : { a | time : Time.Posix, debugTimeOffset : Duration } -> Time.Posix
@@ -729,6 +830,7 @@ initMatch userIds =
                       , rotation = Quantity.zero
                       , input = Nothing
                       , finishTime = Nothing
+                      , lastCollision = Nothing
                       }
                     )
                 )
@@ -824,7 +926,7 @@ loadedView model =
         , Element.clip
         ]
         (case model.page of
-            MatchSetupPage matchSetup ->
+            MatchPage matchSetup ->
                 matchSetupView model matchSetup
 
             LobbyPage lobbyData ->
@@ -841,33 +943,6 @@ loadedView model =
                             |> Element.column []
                         ]
                     ]
-
-            MatchPage matchPage ->
-                let
-                    ( _, matchState ) =
-                        Timeline.getStateAt
-                            gameUpdate
-                            (timeToFrameId model matchPage)
-                            matchPage.timelineCache
-                            matchPage.timeline
-                in
-                Element.el
-                    (Element.width Element.fill
-                        :: Element.height Element.fill
-                        :: Element.htmlAttribute (Html.Events.Extra.Touch.onStart PointerDown)
-                        :: Element.htmlAttribute (Html.Events.Extra.Touch.onCancel PointerUp)
-                        :: Element.htmlAttribute (Html.Events.Extra.Touch.onEnd PointerUp)
-                        :: Element.inFront (countdown model matchPage)
-                        :: (case matchPage.touchPosition of
-                                Just _ ->
-                                    [ Element.htmlAttribute (Html.Events.Extra.Touch.onMove PointerMoved) ]
-
-                                Nothing ->
-                                    []
-                           )
-                    )
-                    (placementText matchState model)
-                    |> Element.map MatchMsg
          --Element.column
          --    []
          --    [ Element.text "Players: "
@@ -897,6 +972,7 @@ loadedView model =
 matchSetupView : FrontendLoaded -> MatchSetupPage_ -> Element FrontendMsg_
 matchSetupView model matchSetup =
     let
+        lobby : MatchSetup
         lobby =
             NetworkModel.localState
                 (\a b -> MatchSetup.matchSetupUpdate a b |> Maybe.withDefault b)
@@ -910,94 +986,128 @@ matchSetupView model matchSetup =
         maybeCurrentPlayerData =
             MatchSetup.allUsers_ lobby |> Dict.get model.userId
     in
-    Element.column
-        [ Element.spacing 8, Element.padding 16 ]
-        [ if MatchSetup.isOwner model.userId lobby then
-            button PressedStartMatchSetup (Element.text "Start match")
+    case MatchSetup.getMatch lobby of
+        Just match ->
+            case matchSetup.matchData of
+                Just matchData ->
+                    let
+                        ( _, matchState ) =
+                            Timeline.getStateAt
+                                gameUpdate
+                                (timeToFrameId model match)
+                                matchData.timelineCache
+                                match.timeline
+                    in
+                    Element.el
+                        (Element.width Element.fill
+                            :: Element.height Element.fill
+                            :: Element.htmlAttribute (Html.Events.Extra.Touch.onStart PointerDown)
+                            :: Element.htmlAttribute (Html.Events.Extra.Touch.onCancel PointerUp)
+                            :: Element.htmlAttribute (Html.Events.Extra.Touch.onEnd PointerUp)
+                            :: Element.inFront (countdown model match)
+                            :: (case matchData.touchPosition of
+                                    Just _ ->
+                                        [ Element.htmlAttribute (Html.Events.Extra.Touch.onMove PointerMoved) ]
 
-          else
-            Element.none
-        , button PressedLeaveMatchSetup (Element.text "Leave")
-        , case maybeCurrentPlayerData of
-            Just currentPlayerData ->
-                Element.column
-                    [ Element.spacing 8 ]
-                    [ case currentPlayerData.mode of
-                        PlayerMode ->
-                            button (PressedPlayerMode SpectatorMode) (Element.text "Switch to spectator")
+                                    Nothing ->
+                                        []
+                               )
+                        )
+                        (placementText matchState model)
+                        |> Element.map MatchMsg
 
-                        SpectatorMode ->
-                            button (PressedPlayerMode PlayerMode) (Element.text "Switch to player")
-                    , Element.column
-                        [ Element.spacing 8
-                        , Element.alpha
-                            (case currentPlayerData.mode of
+                Nothing ->
+                    Element.text "Missing match data"
+
+        Nothing ->
+            Element.column
+                [ Element.spacing 8, Element.padding 16 ]
+                [ if MatchSetup.isOwner model.userId lobby then
+                    button PressedStartMatchSetup (Element.text "Start match")
+
+                  else
+                    Element.none
+                , button PressedLeaveMatchSetup (Element.text "Leave")
+                , case maybeCurrentPlayerData of
+                    Just currentPlayerData ->
+                        Element.column
+                            [ Element.spacing 8 ]
+                            [ case currentPlayerData.mode of
                                 PlayerMode ->
-                                    1
+                                    button (PressedPlayerMode SpectatorMode) (Element.text "Switch to spectator")
 
                                 SpectatorMode ->
-                                    0.5
+                                    button (PressedPlayerMode PlayerMode) (Element.text "Switch to player")
+                            , Element.column
+                                [ Element.spacing 8
+                                , Element.alpha
+                                    (case currentPlayerData.mode of
+                                        PlayerMode ->
+                                            1
+
+                                        SpectatorMode ->
+                                            0.5
+                                    )
+                                ]
+                                [ Element.column
+                                    [ Element.spacing 4 ]
+                                    [ Element.text "Primary color"
+                                    , colorSelector PressedPrimaryColor currentPlayerData.primaryColor
+                                    ]
+                                , Element.column
+                                    [ Element.spacing 4 ]
+                                    [ Element.text "Secondary color"
+                                    , colorSelector PressedSecondaryColor currentPlayerData.secondaryColor
+                                    ]
+                                , Element.column
+                                    [ Element.spacing 4 ]
+                                    [ Element.text "Decal"
+                                    , List.map
+                                        (\decal ->
+                                            Ui.button
+                                                [ Element.padding 4
+                                                , Element.Background.color
+                                                    (if decal == currentPlayerData.decal then
+                                                        Element.rgb 0.6 0.7 1
+
+                                                     else
+                                                        Element.rgb 0.8 0.8 0.8
+                                                    )
+                                                ]
+                                                { onPress = PressedDecal decal
+                                                , label = Decal.toString decal |> Element.text
+                                                }
+                                        )
+                                        Decal.allDecals
+                                        |> Element.row [ Element.spacing 8 ]
+                                    ]
+                                ]
+                            ]
+
+                    Nothing ->
+                        Element.none
+                , Element.column
+                    [ Element.spacing 8 ]
+                    [ Element.text "Participants:"
+                    , Element.column
+                        []
+                        (List.map
+                            (\( userId, playerData ) ->
+                                "User "
+                                    ++ String.fromInt (Id.toInt userId)
+                                    ++ (case playerData.mode of
+                                            PlayerMode ->
+                                                ""
+
+                                            SpectatorMode ->
+                                                " (spectator)"
+                                       )
+                                    |> Element.text
                             )
-                        ]
-                        [ Element.column
-                            [ Element.spacing 4 ]
-                            [ Element.text "Primary color"
-                            , colorSelector PressedPrimaryColor currentPlayerData.primaryColor
-                            ]
-                        , Element.column
-                            [ Element.spacing 4 ]
-                            [ Element.text "Secondary color"
-                            , colorSelector PressedSecondaryColor currentPlayerData.secondaryColor
-                            ]
-                        , Element.column
-                            [ Element.spacing 4 ]
-                            [ Element.text "Decal"
-                            , List.map
-                                (\decal ->
-                                    Ui.button
-                                        [ Element.padding 4
-                                        , Element.Background.color
-                                            (if decal == currentPlayerData.decal then
-                                                Element.rgb 0.6 0.7 1
-
-                                             else
-                                                Element.rgb 0.8 0.8 0.8
-                                            )
-                                        ]
-                                        { onPress = PressedDecal decal
-                                        , label = Decal.toString decal |> Element.text
-                                        }
-                                )
-                                Decal.allDecals
-                                |> Element.row [ Element.spacing 8 ]
-                            ]
-                        ]
+                            users
+                        )
                     ]
-
-            Nothing ->
-                Element.none
-        , Element.column
-            [ Element.spacing 8 ]
-            [ Element.text "Participants:"
-            , Element.column
-                []
-                (List.map
-                    (\( userId, playerData ) ->
-                        "User "
-                            ++ String.fromInt (Id.toInt userId)
-                            ++ (case playerData.mode of
-                                    PlayerMode ->
-                                        ""
-
-                                    SpectatorMode ->
-                                        " (spectator)"
-                               )
-                            |> Element.text
-                    )
-                    users
-                )
-            ]
-        ]
+                ]
 
 
 placementText : MatchState -> FrontendLoaded -> Element msg
@@ -1091,12 +1201,12 @@ countdownDelay =
     Duration.seconds 3
 
 
-countdown : FrontendLoaded -> MatchPage_ -> Element msg
-countdown model matchPage =
+countdown : FrontendLoaded -> Match -> Element msg
+countdown model match =
     let
         elapsed : Duration
         elapsed =
-            Quantity.multiplyBy (timeToFrameId model matchPage |> Id.toInt |> toFloat) frameDuration
+            Quantity.multiplyBy (timeToFrameId model match |> Id.toInt |> toFloat) frameDuration
 
         countdownValue =
             Duration.inSeconds elapsed |> floor |> (-) 3
@@ -1198,25 +1308,26 @@ timestamp time =
         ++ String.padLeft 4 '0' (String.fromInt (Time.toMillis Time.utc time))
 
 
-inputsView : MatchPage_ -> Element msg
-inputsView matchPage =
-    List.map
-        (\( frameId, event ) ->
-            String.fromInt (Id.toInt frameId)
-                ++ ", User "
-                ++ String.fromInt (Id.toInt event.userId)
-                ++ ", "
-                ++ (case event.input of
-                        Just input ->
-                            Direction2d.toAngle input |> Angle.inDegrees |> round |> String.fromInt |> (\a -> a ++ "°")
 
-                        Nothing ->
-                            "No input"
-                   )
-                |> Element.text
-        )
-        (Set.toList matchPage.timeline)
-        |> Element.column [ Element.alignTop ]
+--inputsView : MatchPage_ -> Element msg
+--inputsView matchPage =
+--    List.map
+--        (\( frameId, event ) ->
+--            String.fromInt (Id.toInt frameId)
+--                ++ ", User "
+--                ++ String.fromInt (Id.toInt event.userId)
+--                ++ ", "
+--                ++ (case event.input of
+--                        Just input ->
+--                            Direction2d.toAngle input |> Angle.inDegrees |> round |> String.fromInt |> (\a -> a ++ "°")
+--
+--                        Nothing ->
+--                            "No input"
+--                   )
+--                |> Element.text
+--        )
+--        (Set.toList matchPage.timeline)
+--        |> Element.column [ Element.alignTop ]
 
 
 button : msg -> Element msg -> Element msg
@@ -1301,114 +1412,126 @@ canvasView model =
         , Html.Attributes.style "height" (String.fromInt (Pixels.inPixels cssWindowHeight) ++ "px")
         ]
         (case model.page of
-            MatchPage match ->
+            MatchPage matchSetup ->
                 let
-                    ( _, state ) =
-                        Timeline.getStateAt gameUpdate (timeToFrameId model match) match.timelineCache match.timeline
-
-                    { x, y } =
-                        case Dict.get model.userId state.players of
-                            Just player ->
-                                Point2d.toMeters player.position
-
-                            Nothing ->
-                                { x = 0, y = 0 }
-
-                    viewMatrix =
-                        Mat4.makeScale3
-                            (match.zoom * 2 / toFloat windowWidth)
-                            (match.zoom * 2 / toFloat windowHeight)
-                            1
-                            |> Mat4.translate3 -x -y 0
-
-                    playerRadius_ : Float
-                    playerRadius_ =
-                        Length.inMeters playerRadius
-
-                    input : Maybe (Direction2d WorldCoordinate)
-                    input =
-                        getInputDirection model.windowSize model.currentKeys match.touchPosition
+                    matchSetupState =
+                        NetworkModel.localState
+                            (\a b -> MatchSetup.matchSetupUpdate a b |> Maybe.withDefault b)
+                            matchSetup.networkModel
                 in
-                WebGL.entityWith
-                    [ WebGL.Settings.cullFace WebGL.Settings.back ]
-                    backgroundVertexShader
-                    backgroundFragmentShader
-                    squareMesh
-                    { view = Math.Vector2.vec2 x y
-                    , viewZoom = match.zoom
-                    , windowSize = Math.Vector2.vec2 (toFloat windowWidth) (toFloat windowHeight)
-                    }
-                    :: WebGL.entityWith
-                        [ WebGL.Settings.cullFace WebGL.Settings.back ]
-                        vertexShader
-                        fragmentShader
-                        finishLineMesh
-                        { view = viewMatrix
-                        , model =
-                            Mat4.makeTranslate3
-                                (BoundingBox2d.minX finishLine |> Length.inMeters)
-                                (BoundingBox2d.minY finishLine |> Length.inMeters)
-                                0
-                        }
-                    :: WebGL.entityWith
-                        [ WebGL.Settings.cullFace WebGL.Settings.back ]
-                        vertexShader
-                        fragmentShader
-                        match.wallMesh
-                        { view = viewMatrix
-                        , model = Mat4.identity
-                        }
-                    :: List.filterMap
-                        (\( userId, player ) ->
-                            case List.Nonempty.toList match.userIds |> List.find (.userId >> (==) userId) of
-                                Just { mesh } ->
-                                    WebGL.entityWith
-                                        [ WebGL.Settings.cullFace WebGL.Settings.back ]
-                                        vertexShader
-                                        fragmentShader
-                                        mesh
-                                        { view = viewMatrix
-                                        , model =
-                                            pointToMatrix player.position
-                                                |> Mat4.scale3 playerRadius_ playerRadius_ playerRadius_
-                                                |> Mat4.rotate (Angle.inRadians player.rotation) (Math.Vector3.vec3 0 0 1)
-                                        }
-                                        |> Just
+                case ( MatchSetup.getMatch matchSetupState, matchSetup.matchData ) of
+                    ( Just match, Just matchData ) ->
+                        let
+                            ( _, state ) =
+                                Timeline.getStateAt
+                                    gameUpdate
+                                    (timeToFrameId model match)
+                                    matchData.timelineCache
+                                    match.timeline
 
-                                Nothing ->
-                                    Nothing
-                        )
-                        (Dict.toList state.players)
-                    ++ (case ( Dict.get model.userId state.players, input ) of
-                            ( Just player, Just direction ) ->
-                                case player.finishTime of
-                                    Just _ ->
-                                        []
+                            { x, y } =
+                                case Dict.get model.userId state.players of
+                                    Just player ->
+                                        Point2d.toMeters player.position
 
                                     Nothing ->
-                                        [ WebGL.entityWith
-                                            [ WebGL.Settings.cullFace WebGL.Settings.back ]
-                                            vertexShader
-                                            fragmentShader
-                                            arrow
-                                            { view = viewMatrix
-                                            , model =
-                                                pointToMatrix player.position
-                                                    |> Mat4.scale3 30 30 30
-                                                    |> Mat4.rotate
-                                                        (Direction2d.toAngle direction |> Angle.inRadians |> (+) (pi / 2))
-                                                        (Math.Vector3.vec3 0 0 1)
-                                            }
-                                        ]
+                                        { x = 0, y = 0 }
 
-                            _ ->
-                                []
-                       )
+                            viewMatrix =
+                                Mat4.makeScale3
+                                    (matchData.zoom * 2 / toFloat windowWidth)
+                                    (matchData.zoom * 2 / toFloat windowHeight)
+                                    1
+                                    |> Mat4.translate3 -x -y 0
+
+                            playerRadius_ : Float
+                            playerRadius_ =
+                                Length.inMeters playerRadius
+
+                            input : Maybe (Direction2d WorldCoordinate)
+                            input =
+                                getInputDirection model.windowSize model.currentKeys matchData.touchPosition
+                        in
+                        WebGL.entityWith
+                            [ WebGL.Settings.cullFace WebGL.Settings.back ]
+                            backgroundVertexShader
+                            backgroundFragmentShader
+                            squareMesh
+                            { view = Math.Vector2.vec2 x y
+                            , viewZoom = matchData.zoom
+                            , windowSize = Math.Vector2.vec2 (toFloat windowWidth) (toFloat windowHeight)
+                            }
+                            :: WebGL.entityWith
+                                [ WebGL.Settings.cullFace WebGL.Settings.back ]
+                                vertexShader
+                                fragmentShader
+                                finishLineMesh
+                                { view = viewMatrix
+                                , model =
+                                    Mat4.makeTranslate3
+                                        (BoundingBox2d.minX finishLine |> Length.inMeters)
+                                        (BoundingBox2d.minY finishLine |> Length.inMeters)
+                                        0
+                                }
+                            :: WebGL.entityWith
+                                [ WebGL.Settings.cullFace WebGL.Settings.back ]
+                                vertexShader
+                                fragmentShader
+                                matchData.wallMesh
+                                { view = viewMatrix
+                                , model = Mat4.identity
+                                }
+                            :: List.filterMap
+                                (\( userId, player ) ->
+                                    case Dict.get userId matchData.userIds of
+                                        Just mesh ->
+                                            WebGL.entityWith
+                                                [ WebGL.Settings.cullFace WebGL.Settings.back ]
+                                                vertexShader
+                                                fragmentShader
+                                                mesh
+                                                { view = viewMatrix
+                                                , model =
+                                                    pointToMatrix player.position
+                                                        |> Mat4.scale3 playerRadius_ playerRadius_ playerRadius_
+                                                        |> Mat4.rotate (Angle.inRadians player.rotation) (Math.Vector3.vec3 0 0 1)
+                                                }
+                                                |> Just
+
+                                        Nothing ->
+                                            Nothing
+                                )
+                                (Dict.toList state.players)
+                            ++ (case ( Dict.get model.userId state.players, input ) of
+                                    ( Just player, Just direction ) ->
+                                        case player.finishTime of
+                                            Just _ ->
+                                                []
+
+                                            Nothing ->
+                                                [ WebGL.entityWith
+                                                    [ WebGL.Settings.cullFace WebGL.Settings.back ]
+                                                    vertexShader
+                                                    fragmentShader
+                                                    arrow
+                                                    { view = viewMatrix
+                                                    , model =
+                                                        pointToMatrix player.position
+                                                            |> Mat4.scale3 30 30 30
+                                                            |> Mat4.rotate
+                                                                (Direction2d.toAngle direction |> Angle.inRadians |> (+) (pi / 2))
+                                                                (Math.Vector3.vec3 0 0 1)
+                                                    }
+                                                ]
+
+                                    _ ->
+                                        []
+                               )
+
+                    _ ->
+                        []
 
             LobbyPage _ ->
-                []
-
-            MatchSetupPage matchSetup ->
                 []
         )
         |> Element.html
@@ -1450,7 +1573,57 @@ playerStart =
 wallSegments : List (LineSegment2d Meters WorldCoordinate)
 wallSegments =
     verticesToLineSegments (Polygon2d.outerLoop wall)
-        ++ List.concatMap verticesToLineSegments (Polygon2d.innerLoops wall |> Debug.log "")
+        ++ List.concatMap verticesToLineSegments (Polygon2d.innerLoops wall)
+
+
+gridSize : Length
+gridSize =
+    Quantity.multiplyBy 2 playerRadius
+
+
+pointToGrid : Point2d Meters coordinates -> { x : Int, y : Int }
+pointToGrid point =
+    let
+        { x, y } =
+            Point2d.scaleAbout Point2d.origin (Quantity.ratio Length.meter gridSize) point |> Point2d.toMeters
+    in
+    { x = floor x, y = floor x }
+
+
+wallLookUp : RegularDict.Dict ( Int, Int ) (Set (LineSegment2d Meters WorldCoordinate))
+wallLookUp =
+    List.foldl
+        (\segment dict ->
+            let
+                ( start, end ) =
+                    LineSegment2d.endpoints segment
+
+                addPoint x y =
+                    RegularDict.update ( x, y ) (Maybe.withDefault Set.empty >> Set.insert segment >> Just)
+            in
+            RasterShapes.line (pointToGrid start) (pointToGrid end)
+                |> List.foldl
+                    (\{ x, y } dict2 ->
+                        dict2
+                            |> addPoint (x - 1) (y - 1)
+                            |> addPoint x (y - 1)
+                            |> addPoint (x + 1) (y - 1)
+                            |> addPoint (x - 1) y
+                            |> addPoint x y
+                            |> addPoint (x + 1) y
+                            |> addPoint (x - 1) (y + 1)
+                            |> addPoint x (y + 1)
+                            |> addPoint (x + 1) (y + 1)
+                    )
+                    dict
+        )
+        RegularDict.empty
+        wallSegments
+
+
+getCollisionCandidates : Point2d Meters coordinates -> Set (LineSegment2d Meters WorldCoordinate)
+getCollisionCandidates point =
+    RegularDict.get (pointToGrid point |> (\{ x, y } -> ( x, y ))) wallLookUp |> Maybe.withDefault Set.empty
 
 
 verticesToLineSegments : List (Point2d units coordinates) -> List (LineSegment2d units coordinates)
@@ -1476,7 +1649,7 @@ verticesToLineSegments points =
 
 wallMesh : Vec3 -> List (LineSegment2d Meters WorldCoordinate) -> Mesh Vertex
 wallMesh color lines =
-    List.concatMap (lineMesh color) (Debug.log "lines" lines) |> WebGL.triangles
+    List.concatMap (lineMesh color) lines |> WebGL.triangles
 
 
 lineMesh : Vec3 -> LineSegment2d Meters WorldCoordinate -> List ( Vertex, Vertex, Vertex )
@@ -1536,6 +1709,7 @@ gameUpdate frameId inputs model =
                 model
                 inputs
 
+        checkFinish : Player -> Maybe (Id FrameId)
         checkFinish player =
             case player.finishTime of
                 Just _ ->
@@ -1558,50 +1732,51 @@ gameUpdate frameId inputs model =
                                 , collisionPosition : Point2d Meters WorldCoordinate
                                 }
                         nearestCollision =
-                            List.filterMap
-                                (\line ->
-                                    let
-                                        lineCollision =
-                                            Collision.circleLine playerRadius a.position a.velocity line
-                                    in
-                                    case ( lineCollision, LineSegment2d.direction line ) of
-                                        ( Just collisionPosition, Just lineDirection ) ->
-                                            { collisionPosition = collisionPosition
-                                            , collisionVelocity =
-                                                Vector2d.mirrorAcross
-                                                    (Axis2d.withDirection lineDirection (LineSegment2d.startPoint line))
-                                                    newVelocity
-                                            }
-                                                |> Just
+                            getCollisionCandidates a.position
+                                |> Set.toList
+                                |> List.filterMap
+                                    (\line ->
+                                        let
+                                            lineCollision =
+                                                Collision.circleLine playerRadius a.position a.velocity line
+                                        in
+                                        case ( lineCollision, LineSegment2d.direction line ) of
+                                            ( Just collisionPosition, Just lineDirection ) ->
+                                                { collisionPosition = collisionPosition
+                                                , collisionVelocity =
+                                                    Vector2d.mirrorAcross
+                                                        (Axis2d.withDirection lineDirection (LineSegment2d.startPoint line))
+                                                        newVelocity
+                                                }
+                                                    |> Just
 
-                                        _ ->
-                                            let
-                                                point : Point2d Meters WorldCoordinate
-                                                point =
-                                                    LineSegment2d.startPoint line
-                                            in
-                                            case Collision.circlePoint playerRadius a.position a.velocity point of
-                                                Just collisionPoint ->
-                                                    case Direction2d.from collisionPoint point of
-                                                        Just direction ->
-                                                            { collisionPosition = collisionPoint
-                                                            , collisionVelocity =
-                                                                Vector2d.mirrorAcross
-                                                                    (Axis2d.withDirection
-                                                                        (Direction2d.perpendicularTo direction)
-                                                                        collisionPoint
-                                                                    )
-                                                                    newVelocity
-                                                            }
-                                                                |> Just
+                                            _ ->
+                                                let
+                                                    point : Point2d Meters WorldCoordinate
+                                                    point =
+                                                        LineSegment2d.startPoint line
+                                                in
+                                                case Collision.circlePoint playerRadius a.position a.velocity point of
+                                                    Just collisionPoint ->
+                                                        case Direction2d.from collisionPoint point of
+                                                            Just direction ->
+                                                                { collisionPosition = collisionPoint
+                                                                , collisionVelocity =
+                                                                    Vector2d.mirrorAcross
+                                                                        (Axis2d.withDirection
+                                                                            (Direction2d.perpendicularTo direction)
+                                                                            collisionPoint
+                                                                        )
+                                                                        newVelocity
+                                                                }
+                                                                    |> Just
 
-                                                        Nothing ->
-                                                            Nothing
+                                                            Nothing ->
+                                                                Nothing
 
-                                                Nothing ->
-                                                    Nothing
-                                )
-                                wallSegments
+                                                    Nothing ->
+                                                        Nothing
+                                    )
                                 |> Quantity.sortBy (.collisionPosition >> Point2d.distanceFrom a.position)
                                 |> List.head
 
@@ -1630,30 +1805,32 @@ gameUpdate frameId inputs model =
                                         (Vector2d.direction a.velocity)
                                         |> Maybe.withDefault (Angle.turns 0.5)
                             in
-                            { a
-                                | position = collisionPosition
-                                , velocity = collisionVelocity
-                                , rotation = Quantity.plus a.rotation a.rotationalVelocity
-                                , rotationalVelocity =
-                                    Angle.turns 0.5
-                                        |> Quantity.minus (Quantity.abs angleChange)
-                                        |> Quantity.multiplyBy
-                                            (if Quantity.lessThanZero angleChange then
-                                                -0.01 * Length.inMeters (Vector2d.length collisionVelocity)
+                            { position = collisionPosition
+                            , velocity = collisionVelocity
+                            , rotation = Quantity.plus a.rotation a.rotationalVelocity
+                            , rotationalVelocity =
+                                Angle.turns 0.5
+                                    |> Quantity.minus (Quantity.abs angleChange)
+                                    |> Quantity.multiplyBy
+                                        (if Quantity.lessThanZero angleChange then
+                                            -0.01 * Length.inMeters (Vector2d.length collisionVelocity)
 
-                                             else
-                                                0.01 * Length.inMeters (Vector2d.length collisionVelocity)
-                                            )
-                                , finishTime = checkFinish a
+                                         else
+                                            0.01 * Length.inMeters (Vector2d.length collisionVelocity)
+                                        )
+                            , finishTime = checkFinish a
+                            , input = a.input
+                            , lastCollision = Just frameId
                             }
 
                         Nothing ->
-                            { a
-                                | position = Point2d.translateBy a.velocity a.position
-                                , velocity = newVelocity
-                                , rotation = Quantity.plus a.rotation a.rotationalVelocity
-                                , rotationalVelocity = Quantity.multiplyBy 0.995 a.rotationalVelocity
-                                , finishTime = checkFinish a
+                            { position = Point2d.translateBy a.velocity a.position
+                            , velocity = newVelocity
+                            , rotation = Quantity.plus a.rotation a.rotationalVelocity
+                            , rotationalVelocity = Quantity.multiplyBy 0.995 a.rotationalVelocity
+                            , finishTime = checkFinish a
+                            , input = a.input
+                            , lastCollision = a.lastCollision
                             }
                 )
                 newModel.players
@@ -1663,7 +1840,7 @@ gameUpdate frameId inputs model =
             (\id player ->
                 Dict.remove id updatedVelocities
                     |> Dict.values
-                    |> List.foldl (\a b -> handleCollision b a |> Tuple.first) player
+                    |> List.foldl (\a b -> handleCollision frameId b a |> Tuple.first) player
             )
             updatedVelocities
     }
@@ -1690,11 +1867,11 @@ arrow =
         |> WebGL.triangles
 
 
-handleCollision : Player -> Player -> ( Player, Player )
-handleCollision playerA playerB =
+handleCollision : Id FrameId -> Player -> Player -> ( Player, Player )
+handleCollision frameId playerA playerB =
     case Collision.circleCircle playerRadius playerA.position playerA.velocity playerB.position playerB.velocity of
         Just ( v1, v2 ) ->
-            ( { playerA | velocity = v1 }, { playerB | velocity = v2 } )
+            ( { playerA | velocity = v1, lastCollision = Just frameId }, { playerB | velocity = v2 } )
 
         Nothing ->
             ( playerA, playerB )

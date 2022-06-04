@@ -40,7 +40,6 @@ init =
     { userSessions = Dict.empty
     , users = Dict.empty
     , lobbies = Dict.empty
-    , matches = Dict.empty
     , counter = 0
     }
 
@@ -172,7 +171,12 @@ updateFromFrontendWithTime sessionId clientId msg model time =
 
                                     _ ->
                                         Command.none
-                                , Effect.Lamdera.broadcast (RemoveLobbyBroadcast lobbyId)
+                                , case matchSetup2 of
+                                    Just _ ->
+                                        Command.none
+
+                                    Nothing ->
+                                        Effect.Lamdera.broadcast (RemoveLobbyBroadcast lobbyId)
                                 , MatchSetup.allUsers matchSetup
                                     |> List.Nonempty.toList
                                     |> List.concatMap
@@ -201,72 +205,6 @@ updateFromFrontendWithTime sessionId clientId msg model time =
                             ( model
                             , Err LobbyNotFound |> JoinLobbyResponse lobbyId |> Effect.Lamdera.sendToFrontend clientId
                             )
-
-                StartMatchRequest ->
-                    case getUserOwnedLobby userId model of
-                        Just ( lobbyId, lobby ) ->
-                            let
-                                users : Nonempty ( Id UserId, PlayerData )
-                                users =
-                                    MatchSetup.allUsers lobby
-
-                                userIds : Nonempty (Id UserId)
-                                userIds =
-                                    List.Nonempty.map Tuple.first users
-
-                                ( matchId, model2 ) =
-                                    getId model
-                            in
-                            ( { model2
-                                | lobbies = Dict.remove lobbyId model2.lobbies
-                                , matches =
-                                    Dict.insert
-                                        matchId
-                                        { users = userIds }
-                                        model2.matches
-                              }
-                            , List.Nonempty.toList userIds
-                                |> List.concatMap
-                                    (\lobbyUserId ->
-                                        getSessionIdsFromUserId lobbyUserId model2
-                                            |> List.map
-                                                (\lobbySessionId ->
-                                                    StartMatchBroadcast matchId time users
-                                                        |> Effect.Lamdera.sendToFrontends lobbySessionId
-                                                )
-                                    )
-                                |> Command.batch
-                            )
-
-                        Nothing ->
-                            ( model, Command.none )
-
-                MatchInputRequest matchId frameId input ->
-                    case Dict.get matchId model.matches of
-                        Just match ->
-                            if List.Nonempty.any ((==) userId) match.users then
-                                ( model
-                                , List.Nonempty.toList match.users
-                                    |> List.concatMap
-                                        (\matchUserId ->
-                                            getSessionIdsFromUserId matchUserId model
-                                                |> List.map
-                                                    (\matchSessionId ->
-                                                        MatchInputBroadcast
-                                                            matchId
-                                                            frameId
-                                                            { userId = userId, input = input }
-                                                            |> Effect.Lamdera.sendToFrontends matchSessionId
-                                                    )
-                                        )
-                                    |> Command.batch
-                                )
-
-                            else
-                                ( model, Command.none )
-
-                        Nothing ->
-                            ( model, Command.none )
 
                 PingRequest ->
                     ( model, PingResponse time |> Effect.Lamdera.sendToFrontend clientId )
