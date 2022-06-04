@@ -10,6 +10,7 @@ import Browser exposing (UrlRequest(..))
 import Collision
 import ColorIndex exposing (ColorIndex)
 import Decal
+import Dict as RegularDict
 import Direction2d exposing (Direction2d)
 import Duration exposing (Duration)
 import Effect.Browser.Dom
@@ -48,6 +49,7 @@ import Point2d exposing (Point2d)
 import Polygon2d exposing (Polygon2d)
 import Ports
 import Quantity exposing (Quantity(..), Rate)
+import RasterShapes
 import Sounds exposing (Sounds)
 import Time
 import Timeline exposing (FrameId)
@@ -89,12 +91,7 @@ audio audioData model =
             Audio.silence
 
         Loaded loaded ->
-            case loaded.lastButtonPress of
-                Just lastButtonPress ->
-                    Audio.audio loaded.sounds.buttonPress lastButtonPress
-
-                Nothing ->
-                    Audio.silence
+            Audio.silence
     )
         |> Audio.offsetBy (Duration.milliseconds 30)
 
@@ -115,7 +112,6 @@ loadedInit loading time sounds ( userId, lobbyData ) =
       , debugTimeOffset = loading.debugTimeOffset
       , page = LobbyPage lobbyData
       , sounds = sounds
-      , lastButtonPress = Nothing
       , userId = userId
       , pingStartTime = Nothing
       , pingData = Nothing
@@ -243,7 +239,7 @@ updateLoaded msg model =
                     { model | time = time_, previousKeys = model.currentKeys }
             in
             case model2.page of
-                MatchSetupPage matchSetupPage ->
+                MatchPage matchSetupPage ->
                     let
                         matchSetupState : MatchSetup
                         matchSetupState =
@@ -325,7 +321,7 @@ updateLoaded msg model =
 
         MatchMsg matchMsg ->
             case model.page of
-                MatchSetupPage matchPage ->
+                MatchPage matchPage ->
                     ( { model
                         | page =
                             { matchPage
@@ -337,7 +333,7 @@ updateLoaded msg model =
                                         Nothing ->
                                             matchPage.matchData
                             }
-                                |> MatchSetupPage
+                                |> MatchPage
                       }
                     , Command.none
                     )
@@ -364,7 +360,7 @@ matchSetupUpdate msg model =
         LobbyPage _ ->
             ( model, Command.none )
 
-        MatchSetupPage matchSetup ->
+        MatchPage matchSetup ->
             let
                 newNetworkModel : NetworkModel { userId : Id UserId, msg : MatchSetupMsg } MatchSetup
                 newNetworkModel =
@@ -381,7 +377,7 @@ matchSetupUpdate msg model =
                                 matchSetup.networkModel
                                 matchSetup.matchData
                     }
-                        |> MatchSetupPage
+                        |> MatchPage
               }
             , MatchSetupRequest matchSetup.lobbyId msg |> Effect.Lamdera.sendToBackend
             )
@@ -521,7 +517,7 @@ updateLoadedFromBackend msg model =
                 LobbyPage _ ->
                     { model
                         | page =
-                            MatchSetupPage
+                            MatchPage
                                 { lobbyId = lobbyId
                                 , networkModel = NetworkModel.init lobby
                                 , matchData = Nothing
@@ -540,7 +536,7 @@ updateLoadedFromBackend msg model =
                         Ok lobby ->
                             { model
                                 | page =
-                                    MatchSetupPage
+                                    MatchPage
                                         { lobbyId = lobbyId
                                         , networkModel = NetworkModel.init lobby
                                         , matchData = Nothing
@@ -633,7 +629,7 @@ updateLoadedFromBackend msg model =
 
         MatchSetupBroadcast lobbyId userId matchSetupMsg maybeLobbyData ->
             case model.page of
-                MatchSetupPage matchSetup ->
+                MatchPage matchSetup ->
                     ( { model
                         | page =
                             case ( userId == model.userId, maybeLobbyData, matchSetupMsg ) of
@@ -663,7 +659,7 @@ updateLoadedFromBackend msg model =
                                      else
                                         matchSetup
                                     )
-                                        |> MatchSetupPage
+                                        |> MatchPage
                       }
                     , Command.none
                     )
@@ -676,7 +672,7 @@ updateLoadedFromBackend msg model =
                 LobbyPage lobbyData ->
                     { model | page = LobbyPage { lobbyData | lobbies = Dict.remove lobbyId lobbyData.lobbies } }
 
-                MatchSetupPage _ ->
+                MatchPage _ ->
                     model
             , Command.none
             )
@@ -890,7 +886,7 @@ loadedView model =
         , Element.clip
         ]
         (case model.page of
-            MatchSetupPage matchSetup ->
+            MatchPage matchSetup ->
                 matchSetupView model matchSetup
 
             LobbyPage lobbyData ->
@@ -1376,7 +1372,7 @@ canvasView model =
         , Html.Attributes.style "height" (String.fromInt (Pixels.inPixels cssWindowHeight) ++ "px")
         ]
         (case model.page of
-            MatchSetupPage matchSetup ->
+            MatchPage matchSetup ->
                 let
                     matchSetupState =
                         NetworkModel.localState
@@ -1540,6 +1536,56 @@ wallSegments =
         ++ List.concatMap verticesToLineSegments (Polygon2d.innerLoops wall)
 
 
+gridSize : Length
+gridSize =
+    Quantity.multiplyBy 2 playerRadius
+
+
+pointToGrid : Point2d Meters coordinates -> { x : Int, y : Int }
+pointToGrid point =
+    let
+        { x, y } =
+            Point2d.scaleAbout Point2d.origin (Quantity.ratio Length.meter gridSize) point |> Point2d.toMeters
+    in
+    { x = floor x, y = floor x }
+
+
+wallLookUp : RegularDict.Dict ( Int, Int ) (Set (LineSegment2d Meters WorldCoordinate))
+wallLookUp =
+    List.foldl
+        (\segment dict ->
+            let
+                ( start, end ) =
+                    LineSegment2d.endpoints segment
+
+                addPoint x y =
+                    RegularDict.update ( x, y ) (Maybe.withDefault Set.empty >> Set.insert segment >> Just)
+            in
+            RasterShapes.line (pointToGrid start) (pointToGrid end)
+                |> List.foldl
+                    (\{ x, y } dict2 ->
+                        dict2
+                            |> addPoint (x - 1) (y - 1)
+                            |> addPoint x (y - 1)
+                            |> addPoint (x + 1) (y - 1)
+                            |> addPoint (x - 1) y
+                            |> addPoint x y
+                            |> addPoint (x + 1) y
+                            |> addPoint (x - 1) (y + 1)
+                            |> addPoint x (y + 1)
+                            |> addPoint (x + 1) (y + 1)
+                    )
+                    dict
+        )
+        RegularDict.empty
+        wallSegments
+
+
+getCollisionCandidates : Point2d Meters coordinates -> Set (LineSegment2d Meters WorldCoordinate)
+getCollisionCandidates point =
+    RegularDict.get (pointToGrid point |> (\{ x, y } -> ( x, y ))) wallLookUp |> Maybe.withDefault Set.empty
+
+
 verticesToLineSegments : List (Point2d units coordinates) -> List (LineSegment2d units coordinates)
 verticesToLineSegments points =
     case ( List.head points, List.reverse points |> List.head ) of
@@ -1645,50 +1691,51 @@ gameUpdate frameId inputs model =
                                 , collisionPosition : Point2d Meters WorldCoordinate
                                 }
                         nearestCollision =
-                            List.filterMap
-                                (\line ->
-                                    let
-                                        lineCollision =
-                                            Collision.circleLine playerRadius a.position a.velocity line
-                                    in
-                                    case ( lineCollision, LineSegment2d.direction line ) of
-                                        ( Just collisionPosition, Just lineDirection ) ->
-                                            { collisionPosition = collisionPosition
-                                            , collisionVelocity =
-                                                Vector2d.mirrorAcross
-                                                    (Axis2d.withDirection lineDirection (LineSegment2d.startPoint line))
-                                                    newVelocity
-                                            }
-                                                |> Just
+                            getCollisionCandidates a.position
+                                |> Set.toList
+                                |> List.filterMap
+                                    (\line ->
+                                        let
+                                            lineCollision =
+                                                Collision.circleLine playerRadius a.position a.velocity line
+                                        in
+                                        case ( lineCollision, LineSegment2d.direction line ) of
+                                            ( Just collisionPosition, Just lineDirection ) ->
+                                                { collisionPosition = collisionPosition
+                                                , collisionVelocity =
+                                                    Vector2d.mirrorAcross
+                                                        (Axis2d.withDirection lineDirection (LineSegment2d.startPoint line))
+                                                        newVelocity
+                                                }
+                                                    |> Just
 
-                                        _ ->
-                                            let
-                                                point : Point2d Meters WorldCoordinate
-                                                point =
-                                                    LineSegment2d.startPoint line
-                                            in
-                                            case Collision.circlePoint playerRadius a.position a.velocity point of
-                                                Just collisionPoint ->
-                                                    case Direction2d.from collisionPoint point of
-                                                        Just direction ->
-                                                            { collisionPosition = collisionPoint
-                                                            , collisionVelocity =
-                                                                Vector2d.mirrorAcross
-                                                                    (Axis2d.withDirection
-                                                                        (Direction2d.perpendicularTo direction)
-                                                                        collisionPoint
-                                                                    )
-                                                                    newVelocity
-                                                            }
-                                                                |> Just
+                                            _ ->
+                                                let
+                                                    point : Point2d Meters WorldCoordinate
+                                                    point =
+                                                        LineSegment2d.startPoint line
+                                                in
+                                                case Collision.circlePoint playerRadius a.position a.velocity point of
+                                                    Just collisionPoint ->
+                                                        case Direction2d.from collisionPoint point of
+                                                            Just direction ->
+                                                                { collisionPosition = collisionPoint
+                                                                , collisionVelocity =
+                                                                    Vector2d.mirrorAcross
+                                                                        (Axis2d.withDirection
+                                                                            (Direction2d.perpendicularTo direction)
+                                                                            collisionPoint
+                                                                        )
+                                                                        newVelocity
+                                                                }
+                                                                    |> Just
 
-                                                        Nothing ->
-                                                            Nothing
+                                                            Nothing ->
+                                                                Nothing
 
-                                                Nothing ->
-                                                    Nothing
-                                )
-                                wallSegments
+                                                    Nothing ->
+                                                        Nothing
+                                    )
                                 |> Quantity.sortBy (.collisionPosition >> Point2d.distanceFrom a.position)
                                 |> List.head
 

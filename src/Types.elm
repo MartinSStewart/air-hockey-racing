@@ -95,7 +95,6 @@ type alias FrontendLoaded =
     , debugTimeOffset : Duration
     , page : Page
     , sounds : Sounds
-    , lastButtonPress : Maybe Time.Posix
     , userId : Id UserId
     , pingStartTime : Maybe Time.Posix
     , pingData : Maybe PingData
@@ -115,7 +114,7 @@ type alias PingData =
 
 type Page
     = LobbyPage LobbyData
-    | MatchSetupPage MatchSetupPage_
+    | MatchPage MatchSetupPage_
 
 
 type alias MatchSetupPage_ =
