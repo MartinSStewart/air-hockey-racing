@@ -91,7 +91,46 @@ audio audioData model =
             Audio.silence
 
         Loaded loaded ->
-            Audio.silence
+            case loaded.page of
+                MatchPage matchPage ->
+                    let
+                        localState : MatchSetup
+                        localState =
+                            NetworkModel.localState
+                                (\a b -> MatchSetup.matchSetupUpdate a b |> Maybe.withDefault b)
+                                matchPage.networkModel
+                    in
+                    case ( MatchSetup.getMatch localState, matchPage.matchData ) of
+                        ( Just match, Just matchData ) ->
+                            let
+                                ( _, state ) =
+                                    Timeline.getStateAt
+                                        gameUpdate
+                                        (timeToFrameId loaded match)
+                                        matchData.timelineCache
+                                        match.timeline
+                            in
+                            Dict.values state.players
+                                |> List.filterMap .lastCollision
+                                |> Set.fromList
+                                |> Set.toList
+                                |> List.map
+                                    (\frameId ->
+                                        let
+                                            collisionTime : Time.Posix
+                                            collisionTime =
+                                                Quantity.multiplyBy (Id.toInt frameId |> toFloat) frameDuration
+                                                    |> Duration.addTo match.startTime
+                                        in
+                                        Audio.audio loaded.sounds.buttonPress collisionTime
+                                    )
+                                |> Audio.group
+
+                        _ ->
+                            Audio.silence
+
+                LobbyPage _ ->
+                    Audio.silence
     )
         |> Audio.offsetBy (Duration.milliseconds 30)
 
@@ -791,6 +830,7 @@ initMatch userIds =
                       , rotation = Quantity.zero
                       , input = Nothing
                       , finishTime = Nothing
+                      , lastCollision = Nothing
                       }
                     )
                 )
@@ -1669,6 +1709,7 @@ gameUpdate frameId inputs model =
                 model
                 inputs
 
+        checkFinish : Player -> Maybe (Id FrameId)
         checkFinish player =
             case player.finishTime of
                 Just _ ->
@@ -1764,30 +1805,32 @@ gameUpdate frameId inputs model =
                                         (Vector2d.direction a.velocity)
                                         |> Maybe.withDefault (Angle.turns 0.5)
                             in
-                            { a
-                                | position = collisionPosition
-                                , velocity = collisionVelocity
-                                , rotation = Quantity.plus a.rotation a.rotationalVelocity
-                                , rotationalVelocity =
-                                    Angle.turns 0.5
-                                        |> Quantity.minus (Quantity.abs angleChange)
-                                        |> Quantity.multiplyBy
-                                            (if Quantity.lessThanZero angleChange then
-                                                -0.01 * Length.inMeters (Vector2d.length collisionVelocity)
+                            { position = collisionPosition
+                            , velocity = collisionVelocity
+                            , rotation = Quantity.plus a.rotation a.rotationalVelocity
+                            , rotationalVelocity =
+                                Angle.turns 0.5
+                                    |> Quantity.minus (Quantity.abs angleChange)
+                                    |> Quantity.multiplyBy
+                                        (if Quantity.lessThanZero angleChange then
+                                            -0.01 * Length.inMeters (Vector2d.length collisionVelocity)
 
-                                             else
-                                                0.01 * Length.inMeters (Vector2d.length collisionVelocity)
-                                            )
-                                , finishTime = checkFinish a
+                                         else
+                                            0.01 * Length.inMeters (Vector2d.length collisionVelocity)
+                                        )
+                            , finishTime = checkFinish a
+                            , input = a.input
+                            , lastCollision = Just frameId
                             }
 
                         Nothing ->
-                            { a
-                                | position = Point2d.translateBy a.velocity a.position
-                                , velocity = newVelocity
-                                , rotation = Quantity.plus a.rotation a.rotationalVelocity
-                                , rotationalVelocity = Quantity.multiplyBy 0.995 a.rotationalVelocity
-                                , finishTime = checkFinish a
+                            { position = Point2d.translateBy a.velocity a.position
+                            , velocity = newVelocity
+                            , rotation = Quantity.plus a.rotation a.rotationalVelocity
+                            , rotationalVelocity = Quantity.multiplyBy 0.995 a.rotationalVelocity
+                            , finishTime = checkFinish a
+                            , input = a.input
+                            , lastCollision = a.lastCollision
                             }
                 )
                 newModel.players
@@ -1797,7 +1840,7 @@ gameUpdate frameId inputs model =
             (\id player ->
                 Dict.remove id updatedVelocities
                     |> Dict.values
-                    |> List.foldl (\a b -> handleCollision b a |> Tuple.first) player
+                    |> List.foldl (\a b -> handleCollision frameId b a |> Tuple.first) player
             )
             updatedVelocities
     }
@@ -1824,11 +1867,11 @@ arrow =
         |> WebGL.triangles
 
 
-handleCollision : Player -> Player -> ( Player, Player )
-handleCollision playerA playerB =
+handleCollision : Id FrameId -> Player -> Player -> ( Player, Player )
+handleCollision frameId playerA playerB =
     case Collision.circleCircle playerRadius playerA.position playerA.velocity playerB.position playerB.velocity of
         Just ( v1, v2 ) ->
-            ( { playerA | velocity = v1 }, { playerB | velocity = v2 } )
+            ( { playerA | velocity = v1, lastCollision = Just frameId }, { playerB | velocity = v2 } )
 
         Nothing ->
             ( playerA, playerB )

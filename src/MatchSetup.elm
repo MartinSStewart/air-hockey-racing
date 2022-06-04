@@ -68,6 +68,7 @@ type alias Player =
     , rotation : Angle
     , input : Maybe (Direction2d WorldCoordinate)
     , finishTime : Maybe (Id FrameId)
+    , lastCollision : Maybe (Id FrameId)
     }
 
 
