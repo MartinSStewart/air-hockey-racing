@@ -1,6 +1,6 @@
 module Backend exposing (app)
 
-import AssocList as Dict
+import AssocList as Dict exposing (Dict)
 import Duration
 import Effect.Command as Command exposing (BackendOnly, Command)
 import Effect.Lamdera exposing (ClientId, SessionId)
@@ -86,8 +86,14 @@ update msg model =
             updateFromFrontendWithTime sessionId clientId toBackend model time
 
 
+getLobbyData : BackendModel -> { lobbies : Dict (Id LobbyId) MatchSetup.LobbyPreview }
 getLobbyData model =
-    { lobbies = Dict.map (\_ lobby -> MatchSetup.preview lobby) model.lobbies }
+    { lobbies =
+        Dict.filter
+            (\_ lobby -> MatchSetup.getMatch lobby == Nothing)
+            model.lobbies
+            |> Dict.map (\_ lobby -> MatchSetup.preview lobby)
+    }
 
 
 getUserFromSessionId : SessionId -> BackendModel -> Maybe ( Id UserId, BackendUserData )

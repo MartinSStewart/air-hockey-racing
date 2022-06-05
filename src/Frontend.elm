@@ -579,12 +579,21 @@ updateLoadedFromBackend msg model =
                 LobbyPage _ ->
                     case result of
                         Ok lobby ->
+                            let
+                                networkModel =
+                                    NetworkModel.init lobby
+                            in
                             { model
                                 | page =
                                     MatchPage
                                         { lobbyId = lobbyId
-                                        , networkModel = NetworkModel.init lobby
-                                        , matchData = Nothing
+                                        , networkModel = networkModel
+                                        , matchData =
+                                            updateMatchData
+                                                (timeToFrameId model)
+                                                networkModel
+                                                networkModel
+                                                Nothing
                                         }
                             }
 
