@@ -1,6 +1,7 @@
 module Backend exposing (app)
 
 import AssocList as Dict
+import Duration
 import Effect.Command as Command exposing (BackendOnly, Command)
 import Effect.Lamdera exposing (ClientId, SessionId)
 import Effect.Subscription as Subscription exposing (Subscription)
@@ -207,7 +208,7 @@ updateFromFrontendWithTime sessionId clientId msg model time =
                             )
 
                 PingRequest ->
-                    ( model, PingResponse time |> Effect.Lamdera.sendToFrontend clientId )
+                    ( model, PingResponse (Duration.addTo time (Duration.seconds -3)) |> Effect.Lamdera.sendToFrontend clientId )
 
         Nothing ->
             ( model, Command.none )

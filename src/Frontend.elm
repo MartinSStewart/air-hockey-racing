@@ -121,8 +121,10 @@ audio audioData model =
                                             collisionTime =
                                                 Quantity.multiplyBy (Id.toInt frameId |> toFloat) frameDuration
                                                     |> Duration.addTo match.startTime
+                                                    |> (\a -> Duration.subtractFrom a (pingOffset loaded))
+                                                    |> (\a -> Duration.subtractFrom a loaded.debugTimeOffset)
                                         in
-                                        Audio.audio loaded.sounds.buttonPress collisionTime
+                                        Audio.audio loaded.sounds.collision collisionTime
                                     )
                                 |> Audio.group
 
@@ -495,15 +497,19 @@ timeToFrameId model match =
 
 timeToServerTime : FrontendLoaded -> Time.Posix
 timeToServerTime model =
+    pingOffset model |> Duration.addTo (actualTime model)
+
+
+pingOffset : FrontendLoaded -> Duration
+pingOffset model =
     case model.pingData of
         Just pingData ->
             Quantity.plus pingData.lowEstimate pingData.highEstimate
                 |> Quantity.divideBy 2
                 |> Quantity.negate
-                |> Duration.addTo (actualTime model)
 
         Nothing ->
-            actualTime model
+            Quantity.zero
 
 
 frameDuration : Duration

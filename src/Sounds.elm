@@ -5,7 +5,7 @@ import Audio exposing (AudioCmd)
 
 
 type alias Sounds =
-    { buttonPress : Audio.Source }
+    { collision : Audio.Source }
 
 
 soundUrls : List String
