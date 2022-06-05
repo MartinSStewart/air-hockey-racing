@@ -138,7 +138,7 @@ updateFromFrontendWithTime sessionId clientId msg model time =
                             getId model
 
                         lobby =
-                            MatchSetup.init "New lobby" userId
+                            MatchSetup.init userId
 
                         lobbyPreview =
                             MatchSetup.preview lobby

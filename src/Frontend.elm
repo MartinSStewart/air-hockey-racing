@@ -26,6 +26,7 @@ import Element exposing (Element)
 import Element.Background
 import Element.Border
 import Element.Font
+import Element.Input
 import Env
 import Html exposing (Html)
 import Html.Attributes
@@ -38,6 +39,7 @@ import Length exposing (Length, Meters)
 import LineSegment2d exposing (LineSegment2d)
 import List.Extra as List
 import List.Nonempty exposing (Nonempty)
+import MatchName
 import MatchSetup exposing (LobbyPreview, Match, MatchSetup, MatchSetupMsg, MatchState, Player, PlayerData, PlayerMode(..), TimelineEvent, WorldCoordinate)
 import Math.Matrix4 as Mat4 exposing (Mat4)
 import Math.Vector2 exposing (Vec2)
@@ -101,7 +103,7 @@ audio audioData model =
                                 matchPage.networkModel
                     in
                     case ( MatchSetup.getMatch localState, matchPage.matchData ) of
-                        ( Just match, Just matchData ) ->
+                        ( Just match, MatchData matchData ) ->
                             let
                                 ( _, state ) =
                                     Timeline.getStateAt
@@ -289,7 +291,7 @@ updateLoaded msg model =
                                 matchSetupPage.networkModel
                     in
                     case ( matchSetupPage.matchData, MatchSetup.getMatch matchSetupState ) of
-                        ( Just matchData, Just match ) ->
+                        ( MatchData matchData, Just match ) ->
                             let
                                 --newZoom =
                                 --    if keyPressed (Character "Q") model then
@@ -347,12 +349,6 @@ updateLoaded msg model =
         PressedJoinLobby lobbyId ->
             ( model, MatchSetupRequest lobbyId MatchSetup.JoinMatchSetup |> Effect.Lamdera.sendToBackend )
 
-        PressedStartMatchSetup ->
-            matchSetupUpdate (MatchSetup.StartMatch (timeToServerTime model)) model
-
-        PressedLeaveMatchSetup ->
-            matchSetupUpdate MatchSetup.LeaveMatchSetup model
-
         SoundLoaded _ _ ->
             -- Shouldn't happen
             ( model, Command.none )
@@ -368,10 +364,10 @@ updateLoaded msg model =
                             { matchPage
                                 | matchData =
                                     case matchPage.matchData of
-                                        Just matchData ->
-                                            matchUpdate matchMsg matchData |> Just
+                                        MatchData matchData ->
+                                            matchUpdate matchMsg matchData |> MatchData
 
-                                        Nothing ->
+                                        MatchSetupData _ ->
                                             matchPage.matchData
                             }
                                 |> MatchPage
@@ -382,17 +378,78 @@ updateLoaded msg model =
                 _ ->
                     ( model, Command.none )
 
-        PressedPrimaryColor colorIndex ->
-            matchSetupUpdate (MatchSetup.SetPrimaryColor colorIndex) model
+        MatchSetupMsg matchSetupMsg_ ->
+            case model.page of
+                MatchPage matchPage ->
+                    case matchSetupMsg_ of
+                        PressedStartMatchSetup ->
+                            matchSetupUpdate (MatchSetup.StartMatch (timeToServerTime model)) model
 
-        PressedSecondaryColor colorIndex ->
-            matchSetupUpdate (MatchSetup.SetSecondaryColor colorIndex) model
+                        PressedLeaveMatchSetup ->
+                            matchSetupUpdate MatchSetup.LeaveMatchSetup model
 
-        PressedDecal decal ->
-            matchSetupUpdate (MatchSetup.SetDecal decal) model
+                        PressedPrimaryColor colorIndex ->
+                            matchSetupUpdate (MatchSetup.SetPrimaryColor colorIndex) model
 
-        PressedPlayerMode mode ->
-            matchSetupUpdate (MatchSetup.SetPlayerMode mode) model
+                        PressedSecondaryColor colorIndex ->
+                            matchSetupUpdate (MatchSetup.SetSecondaryColor colorIndex) model
+
+                        PressedDecal decal ->
+                            matchSetupUpdate (MatchSetup.SetDecal decal) model
+
+                        PressedPlayerMode mode ->
+                            matchSetupUpdate (MatchSetup.SetPlayerMode mode) model
+
+                        TypedMatchName matchName ->
+                            ( { model
+                                | page =
+                                    { matchPage
+                                        | matchData =
+                                            case matchPage.matchData of
+                                                MatchData _ ->
+                                                    matchPage.matchData
+
+                                                MatchSetupData matchSetupData ->
+                                                    { matchSetupData | matchName = matchName } |> MatchSetupData
+                                    }
+                                        |> MatchPage
+                              }
+                            , Command.none
+                            )
+
+                        PressedSaveMatchName matchName ->
+                            matchSetupUpdate (MatchSetup.SetMatchName matchName) model
+
+                        PressedResetMatchName ->
+                            ( { model
+                                | page =
+                                    { matchPage
+                                        | matchData =
+                                            case matchPage.matchData of
+                                                MatchData _ ->
+                                                    matchPage.matchData
+
+                                                MatchSetupData matchSetupData ->
+                                                    let
+                                                        matchSetup =
+                                                            NetworkModel.localState
+                                                                (\a b -> MatchSetup.matchSetupUpdate a b |> Maybe.withDefault b)
+                                                                matchPage.networkModel
+                                                    in
+                                                    { matchSetupData
+                                                        | matchName =
+                                                            MatchSetup.name matchSetup
+                                                                |> MatchName.toString
+                                                    }
+                                                        |> MatchSetupData
+                                    }
+                                        |> MatchPage
+                              }
+                            , Command.none
+                            )
+
+                _ ->
+                    ( model, Command.none )
 
 
 matchSetupUpdate : MatchSetupMsg -> FrontendLoaded -> ( FrontendLoaded, Command FrontendOnly ToBackend FrontendMsg_ )
@@ -565,7 +622,7 @@ updateLoadedFromBackend msg model =
                             MatchPage
                                 { lobbyId = lobbyId
                                 , networkModel = NetworkModel.init lobby
-                                , matchData = Nothing
+                                , matchData = MatchSetupData { matchName = MatchSetup.name lobby |> MatchName.toString }
                                 }
                     }
 
@@ -593,7 +650,9 @@ updateLoadedFromBackend msg model =
                                                 (timeToFrameId model)
                                                 networkModel
                                                 networkModel
-                                                Nothing
+                                                (MatchSetupData
+                                                    { matchName = MatchSetup.name lobby |> MatchName.toString }
+                                                )
                                         }
                             }
 
@@ -736,8 +795,8 @@ updateMatchData :
     (Match -> Id FrameId)
     -> NetworkModel { userId : Id UserId, msg : MatchSetupMsg } MatchSetup
     -> NetworkModel { userId : Id UserId, msg : MatchSetupMsg } MatchSetup
-    -> Maybe MatchPage_
-    -> Maybe MatchPage_
+    -> MatchData
+    -> MatchData
 updateMatchData getCurrentFrame newNetworkModel oldNetworkModel oldMatchData =
     let
         newMatchState : MatchSetup
@@ -756,7 +815,7 @@ updateMatchData getCurrentFrame newNetworkModel oldNetworkModel oldMatchData =
         newUserIds =
             MatchSetup.allUsers newMatchState
 
-        initHelper : Maybe MatchPage_
+        initHelper : MatchData
         initHelper =
             { timelineCache = List.Nonempty.map Tuple.first newUserIds |> initMatch |> Timeline.init
             , userIds =
@@ -776,12 +835,12 @@ updateMatchData getCurrentFrame newNetworkModel oldNetworkModel oldMatchData =
             , touchPosition = Nothing
             , previousTouchPosition = Nothing
             }
-                |> Just
+                |> MatchData
     in
     case ( MatchSetup.getMatch newMatchState, MatchSetup.getMatch oldMatchState ) of
         ( Just newMatch, Just oldMatch ) ->
             case oldMatchData of
-                Just matchData ->
+                MatchData matchData ->
                     let
                         inputDiff : Set ( Id FrameId, TimelineEvent )
                         inputDiff =
@@ -805,16 +864,16 @@ updateMatchData getCurrentFrame newNetworkModel oldNetworkModel oldMatchData =
                                    )
                                 |> Tuple.first
                     }
-                        |> Just
+                        |> MatchData
 
-                Nothing ->
+                MatchSetupData _ ->
                     initHelper
 
         ( Just _, Nothing ) ->
             initHelper
 
         ( Nothing, Just _ ) ->
-            Nothing
+            MatchSetupData { matchName = MatchSetup.name newMatchState |> MatchName.toString }
 
         _ ->
             oldMatchData
@@ -946,16 +1005,25 @@ loadedView model =
 
             LobbyPage lobbyData ->
                 Element.column
-                    [ Element.spacing 16, Element.padding 16 ]
-                    [ button PressedCreateLobby (Element.text "Create lobby")
+                    [ Element.width Element.fill
+                    , Element.height Element.fill
+                    , Element.spacing 16
+                    , Element.padding 16
+                    ]
+                    [ Element.el [ Element.Font.bold ] (Element.text "Air Hockey Racing")
+                    , button PressedCreateLobby (Element.text "Create match")
                     , Element.column
-                        [ Element.spacing 8 ]
+                        [ Element.width Element.fill, Element.height Element.fill, Element.spacing 8 ]
                         [ Element.text "Lobbies"
                         , lobbyData
                             |> .lobbies
                             |> Dict.toList
-                            |> List.map lobbyRowView
-                            |> Element.column []
+                            |> List.indexedMap (\index lobby -> lobbyRowView (modBy 2 index == 0) lobby)
+                            |> Element.column
+                                [ Element.width (Element.maximum 800 Element.fill)
+                                , Element.height Element.fill
+                                , Element.Border.width 1
+                                ]
                         ]
                     ]
          --Element.column
@@ -993,6 +1061,10 @@ matchSetupView model matchSetup =
                 (\a b -> MatchSetup.matchSetupUpdate a b |> Maybe.withDefault b)
                 matchSetup.networkModel
 
+        matchName : String
+        matchName =
+            MatchName.toString (MatchSetup.name lobby)
+
         users : List ( Id UserId, PlayerData )
         users =
             MatchSetup.allUsers lobby |> List.Nonempty.toList
@@ -1001,43 +1073,72 @@ matchSetupView model matchSetup =
         maybeCurrentPlayerData =
             MatchSetup.allUsers_ lobby |> Dict.get model.userId
     in
-    case MatchSetup.getMatch lobby of
-        Just match ->
-            case matchSetup.matchData of
-                Just matchData ->
-                    let
-                        ( _, matchState ) =
-                            Timeline.getStateAt
-                                gameUpdate
-                                (timeToFrameId model match)
-                                matchData.timelineCache
-                                match.timeline
-                    in
-                    Element.el
-                        (Element.width Element.fill
-                            :: Element.height Element.fill
-                            :: Element.htmlAttribute (Html.Events.Extra.Touch.onStart PointerDown)
-                            :: Element.htmlAttribute (Html.Events.Extra.Touch.onCancel PointerUp)
-                            :: Element.htmlAttribute (Html.Events.Extra.Touch.onEnd PointerUp)
-                            :: Element.inFront (countdown model match)
-                            :: (case matchData.touchPosition of
-                                    Just _ ->
-                                        [ Element.htmlAttribute (Html.Events.Extra.Touch.onMove PointerMoved) ]
+    case ( MatchSetup.getMatch lobby, matchSetup.matchData ) of
+        ( Just match, MatchData matchData ) ->
+            let
+                ( _, matchState ) =
+                    Timeline.getStateAt
+                        gameUpdate
+                        (timeToFrameId model match)
+                        matchData.timelineCache
+                        match.timeline
+            in
+            Element.el
+                (Element.width Element.fill
+                    :: Element.height Element.fill
+                    :: Element.htmlAttribute (Html.Events.Extra.Touch.onStart PointerDown)
+                    :: Element.htmlAttribute (Html.Events.Extra.Touch.onCancel PointerUp)
+                    :: Element.htmlAttribute (Html.Events.Extra.Touch.onEnd PointerUp)
+                    :: Element.inFront (countdown model match)
+                    :: (case matchData.touchPosition of
+                            Just _ ->
+                                [ Element.htmlAttribute (Html.Events.Extra.Touch.onMove PointerMoved) ]
 
-                                    Nothing ->
-                                        []
-                               )
-                        )
-                        (placementText matchState model)
-                        |> Element.map MatchMsg
+                            Nothing ->
+                                []
+                       )
+                )
+                (placementText matchState model)
+                |> Element.map MatchMsg
 
-                Nothing ->
-                    Element.text "Missing match data"
-
-        Nothing ->
+        ( Nothing, MatchSetupData matchSetupData ) ->
             Element.column
                 [ Element.spacing 8, Element.padding 16 ]
                 [ if MatchSetup.isOwner model.userId lobby then
+                    Element.row
+                        [ Element.spacing 8 ]
+                        (Element.Input.text
+                            [ Element.padding 4 ]
+                            { onChange = TypedMatchName
+                            , text = matchSetupData.matchName
+                            , placeholder = Element.Input.placeholder [] unnamedMatchText |> Just
+                            , label = Element.Input.labelLeft [] (Element.text "Match name")
+                            }
+                            :: (case
+                                    ( MatchName.fromString matchSetupData.matchName
+                                    , matchSetupData.matchName == matchName
+                                    )
+                                of
+                                    ( Ok matchName_, False ) ->
+                                        [ button (PressedSaveMatchName matchName_) (Element.text "Save")
+                                        , button PressedResetMatchName (Element.text "Reset")
+                                        ]
+
+                                    _ ->
+                                        []
+                               )
+                        )
+
+                  else
+                    Element.row [ Element.Font.bold ]
+                        [ Element.text "Match name: "
+                        , if matchName == "" then
+                            unnamedMatchText
+
+                          else
+                            Element.text matchName
+                        ]
+                , if MatchSetup.isOwner model.userId lobby then
                     button PressedStartMatchSetup (Element.text "Start match")
 
                   else
@@ -1123,6 +1224,10 @@ matchSetupView model matchSetup =
                         )
                     ]
                 ]
+                |> Element.map MatchSetupMsg
+
+        _ ->
+            Element.text "Inconsistent state"
 
 
 placementText : MatchState -> FrontendLoaded -> Element msg
@@ -1356,13 +1461,37 @@ button onPress label =
         }
 
 
-lobbyRowView : ( Id LobbyId, LobbyPreview ) -> Element FrontendMsg_
-lobbyRowView ( lobbyId, lobby ) =
+lobbyRowView : Bool -> ( Id LobbyId, LobbyPreview ) -> Element FrontendMsg_
+lobbyRowView evenRow ( lobbyId, lobby ) =
     Element.row
-        []
-        [ Element.text <| "Players: " ++ String.fromInt lobby.userCount
-        , button (PressedJoinLobby lobbyId) (Element.text "Join")
+        [ Element.width Element.fill
+        , Element.Background.color
+            (if evenRow then
+                Element.rgb 1 1 1
+
+             else
+                Element.rgb 0.95 0.95 0.95
+            )
+        , Element.padding 4
         ]
+        [ if lobby.name == MatchName.empty then
+            unnamedMatchText
+
+          else
+            Element.text (MatchName.toString lobby.name)
+        , Element.row
+            [ Element.alignRight, Element.spacing 8 ]
+            [ Element.text <| "Players: " ++ String.fromInt lobby.userCount
+            , button (PressedJoinLobby lobbyId) (Element.text "Join")
+            ]
+        ]
+
+
+unnamedMatchText : Element msg
+unnamedMatchText =
+    Element.el
+        [ Element.Font.italic, Element.Font.color (Element.rgb 0.6 0.6 0.6) ]
+        (Element.text "Unnamed match")
 
 
 offlineWarningView : Element msg
@@ -1435,7 +1564,7 @@ canvasView model =
                             matchSetup.networkModel
                 in
                 case ( MatchSetup.getMatch matchSetupState, matchSetup.matchData ) of
-                    ( Just match, Just matchData ) ->
+                    ( Just match, MatchData matchData ) ->
                         let
                             ( _, state ) =
                                 Timeline.getStateAt

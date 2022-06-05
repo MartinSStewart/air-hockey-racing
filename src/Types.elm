@@ -11,9 +11,11 @@ module Types exposing
     , JoinLobbyError(..)
     , LobbyData
     , LobbyId
+    , MatchData(..)
     , MatchId
     , MatchMsg(..)
     , MatchPage_
+    , MatchSetupMsg_(..)
     , MatchSetupPage_
     , Page(..)
     , PingData
@@ -40,6 +42,7 @@ import Html.Events.Extra.Touch
 import Id exposing (Id)
 import Keyboard
 import List.Nonempty exposing (Nonempty)
+import MatchName exposing (MatchName)
 import MatchSetup exposing (LobbyPreview, MatchSetup, MatchSetupMsg, MatchState, PlayerData, PlayerMode, WorldCoordinate)
 import Math.Vector2 exposing (Vec2)
 import Math.Vector3 exposing (Vec3)
@@ -120,8 +123,13 @@ type Page
 type alias MatchSetupPage_ =
     { lobbyId : Id LobbyId
     , networkModel : NetworkModel { userId : Id UserId, msg : MatchSetupMsg } MatchSetup
-    , matchData : Maybe MatchPage_
+    , matchData : MatchData
     }
+
+
+type MatchData
+    = MatchSetupData { matchName : String }
+    | MatchData MatchPage_
 
 
 type alias LobbyData =
@@ -169,15 +177,22 @@ type FrontendMsg_
     | AnimationFrame Time.Posix
     | PressedCreateLobby
     | PressedJoinLobby (Id LobbyId)
-    | PressedStartMatchSetup
+    | SoundLoaded String (Result Audio.LoadError Audio.Source)
+    | MatchMsg MatchMsg
+    | MatchSetupMsg MatchSetupMsg_
+    | GotTime Time.Posix
+
+
+type MatchSetupMsg_
+    = PressedStartMatchSetup
     | PressedLeaveMatchSetup
     | PressedPrimaryColor ColorIndex
     | PressedSecondaryColor ColorIndex
     | PressedDecal Decal
-    | SoundLoaded String (Result Audio.LoadError Audio.Source)
-    | MatchMsg MatchMsg
-    | GotTime Time.Posix
+    | TypedMatchName String
     | PressedPlayerMode PlayerMode
+    | PressedSaveMatchName MatchName
+    | PressedResetMatchName
 
 
 type MatchMsg

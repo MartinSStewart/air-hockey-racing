@@ -17,6 +17,7 @@ module MatchSetup exposing
     , isOwner
     , joinUser
     , matchSetupUpdate
+    , name
     , preview
     )
 
@@ -29,6 +30,7 @@ import Direction2d exposing (Direction2d)
 import Id exposing (Id)
 import Length exposing (Meters)
 import List.Nonempty exposing (Nonempty(..))
+import MatchName exposing (MatchName)
 import Point2d exposing (Point2d)
 import Time
 import Timeline exposing (FrameId, Timeline)
@@ -41,11 +43,11 @@ type MatchSetup
 
 
 type alias LobbyPreview =
-    { name : String, userCount : Int }
+    { name : MatchName, userCount : Int }
 
 
 type alias MatchSetupData =
-    { name : String
+    { name : MatchName
     , owner : Id UserId
     , ownerPlayerData : PlayerData
     , users : Dict (Id UserId) PlayerData
@@ -93,6 +95,7 @@ type MatchSetupMsg
     | SetPlayerMode PlayerMode
     | StartMatch Time.Posix
     | MatchInputRequest (Id FrameId) (Maybe (Direction2d WorldCoordinate))
+    | SetMatchName MatchName
 
 
 type PlayerMode
@@ -100,9 +103,9 @@ type PlayerMode
     | SpectatorMode
 
 
-init : String -> Id UserId -> MatchSetup
-init name owner =
-    { name = name
+init : Id UserId -> MatchSetup
+init owner =
+    { name = MatchName.empty
     , owner = owner
     , ownerPlayerData = defaultPlayerData
     , users = Dict.empty
@@ -156,6 +159,11 @@ getMatch (MatchSetup matchSetup) =
     matchSetup.match
 
 
+name : MatchSetup -> MatchName
+name (MatchSetup matchSetup) =
+    matchSetup.name
+
+
 isOwner : Id UserId -> MatchSetup -> Bool
 isOwner userId (MatchSetup lobby) =
     lobby.owner == userId
@@ -203,6 +211,13 @@ matchSetupUpdate { userId, msg } lobby =
         MatchInputRequest frameId input ->
             addInput userId frameId input lobby |> Just
 
+        SetMatchName matchName ->
+            if isOwner userId lobby then
+                setMatchName matchName lobby |> Just
+
+            else
+                Just lobby
+
 
 startMatch : Time.Posix -> Id UserId -> MatchSetup -> MatchSetup
 startMatch time userId (MatchSetup matchSetup) =
@@ -212,6 +227,11 @@ startMatch time userId (MatchSetup matchSetup) =
 
     else
         MatchSetup matchSetup
+
+
+setMatchName : MatchName -> MatchSetup -> MatchSetup
+setMatchName matchName (MatchSetup matchSetup) =
+    { matchSetup | name = matchName } |> MatchSetup
 
 
 addInput : Id UserId -> Id FrameId -> Maybe (Direction2d WorldCoordinate) -> MatchSetup -> MatchSetup
