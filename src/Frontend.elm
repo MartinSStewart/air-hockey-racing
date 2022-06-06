@@ -313,12 +313,24 @@ updateLoaded msg model =
                                 inputUnchanged : Bool
                                 inputUnchanged =
                                     previousInput == input
+
+                                model3 : FrontendLoaded
+                                model3 =
+                                    { model2
+                                        | page =
+                                            { matchSetupPage
+                                                | matchData =
+                                                    { matchData | previousTouchPosition = matchData.touchPosition }
+                                                        |> MatchData
+                                            }
+                                                |> MatchPage
+                                    }
                             in
                             if inputUnchanged then
-                                ( model2, Command.none )
+                                ( model3, Command.none )
 
                             else
-                                matchSetupUpdate (MatchSetup.MatchInputRequest (timeToFrameId model2 match) input) model2
+                                matchSetupUpdate (MatchSetup.MatchInputRequest (timeToFrameId model3 match) input) model3
 
                         _ ->
                             ( model2, Command.none )
@@ -890,14 +902,23 @@ initMatch userIds =
         List.Nonempty.toList userIds
             |> List.indexedMap
                 (\index userId ->
+                    let
+                        playersPerRow =
+                            6
+
+                        spacing =
+                            Length.inMeters playerRadius * 2.1
+
+                        x =
+                            modBy playersPerRow index
+
+                        y =
+                            index // playersPerRow
+                    in
                     ( userId
                     , { position =
                             Point2d.translateBy
-                                (Vector2d.fromMeters
-                                    { x = toFloat index * Length.inMeters playerRadius * 2.1
-                                    , y = 0
-                                    }
-                                )
+                                (Vector2d.fromMeters { x = toFloat x * spacing, y = toFloat y * spacing })
                                 playerStart
                       , velocity = Vector2d.zero
                       , rotationalVelocity = Quantity.zero
@@ -1701,6 +1722,9 @@ wall =
          , Point2d.meters 631 300
          , Point2d.meters 631 141
          , Point2d.meters 438 141
+         , Point2d.meters 438 270
+         , Point2d.meters 455 300
+         , Point2d.meters 438 300
          , Point2d.meters 438 487
          , Point2d.meters 509 560
          , Point2d.meters 1090 560
@@ -1711,7 +1735,7 @@ wall =
 
 playerStart : Point2d Meters WorldCoordinate
 playerStart =
-    Point2d.fromMeters { x = 2500, y = 1000 }
+    Point2d.fromMeters { x = 2300, y = 1000 }
 
 
 wallSegments : List (LineSegment2d Meters WorldCoordinate)
