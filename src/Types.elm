@@ -210,7 +210,7 @@ type MatchId
 
 
 type ToBackend
-    = CreateLobbyRequest
+    = CreateMatchRequest
     | MatchSetupRequest (Id LobbyId) MatchSetupMsg
     | PingRequest
 

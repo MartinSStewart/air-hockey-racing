@@ -344,7 +344,7 @@ updateLoaded msg model =
                     ( model2, Command.none )
 
         PressedCreateLobby ->
-            ( model, Effect.Lamdera.sendToBackend CreateLobbyRequest )
+            ( model, Effect.Lamdera.sendToBackend CreateMatchRequest )
 
         PressedJoinLobby lobbyId ->
             ( model, MatchSetupRequest lobbyId MatchSetup.JoinMatchSetup |> Effect.Lamdera.sendToBackend )

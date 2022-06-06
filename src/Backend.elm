@@ -68,19 +68,45 @@ update msg model =
             )
 
         ClientDisconnected sessionId clientId ->
-            ( { model
-                | userSessions =
-                    Dict.update
-                        sessionId
-                        (Maybe.map
-                            (\userSession ->
-                                { userSession | clientIds = Dict.remove clientId userSession.clientIds }
-                            )
+            case getUserFromSessionId sessionId model of
+                Just ( userId, _ ) ->
+                    let
+                        matchIds : List (Id LobbyId)
+                        matchIds =
+                            Dict.toList model.lobbies
+                                |> List.filterMap
+                                    (\( lobbyId, match ) ->
+                                        if MatchSetup.allUsers_ match |> Dict.member userId then
+                                            Just lobbyId
+
+                                        else
+                                            Nothing
+                                    )
+                    in
+                    List.foldl
+                        (\matchId ( model2, cmd ) ->
+                            matchSetupRequest matchId userId clientId LeaveMatchSetup model2
+                                |> Tuple.mapSecond (\cmd2 -> Command.batch [ cmd, cmd2 ])
                         )
-                        model.userSessions
-              }
-            , Command.none
-            )
+                        ( { model
+                            | userSessions =
+                                Dict.update
+                                    sessionId
+                                    (Maybe.map
+                                        (\userSession ->
+                                            { userSession
+                                                | clientIds = Dict.remove clientId userSession.clientIds
+                                            }
+                                        )
+                                    )
+                                    model.userSessions
+                          }
+                        , Command.none
+                        )
+                        matchIds
+
+                Nothing ->
+                    ( model, Command.none )
 
         GotTimeForUpdateFromFrontend sessionId clientId toBackend time ->
             updateFromFrontendWithTime sessionId clientId toBackend model time
@@ -132,7 +158,7 @@ updateFromFrontendWithTime sessionId clientId msg model time =
     case Dict.get sessionId model.userSessions of
         Just { userId } ->
             case msg of
-                CreateLobbyRequest ->
+                CreateMatchRequest ->
                     let
                         ( lobbyId, model2 ) =
                             getId model
@@ -157,67 +183,78 @@ updateFromFrontendWithTime sessionId clientId msg model time =
                     )
 
                 MatchSetupRequest lobbyId matchSetupMsg ->
-                    case Dict.get lobbyId model.lobbies of
-                        Just matchSetup ->
-                            let
-                                matchSetup2 : Maybe MatchSetup
-                                matchSetup2 =
-                                    MatchSetup.matchSetupUpdate { userId = userId, msg = matchSetupMsg } matchSetup
-
-                                model2 =
-                                    { model | lobbies = Dict.update lobbyId (\_ -> matchSetup2) model.lobbies }
-                            in
-                            ( model2
-                            , Command.batch
-                                [ case matchSetupMsg of
-                                    JoinMatchSetup ->
-                                        MatchSetup.joinUser userId matchSetup
-                                            |> Ok
-                                            |> JoinLobbyResponse lobbyId
-                                            |> Effect.Lamdera.sendToFrontend clientId
-
-                                    _ ->
-                                        Command.none
-                                , case matchSetup2 of
-                                    Just _ ->
-                                        Command.none
-
-                                    Nothing ->
-                                        Effect.Lamdera.broadcast (RemoveLobbyBroadcast lobbyId)
-                                , MatchSetup.allUsers matchSetup
-                                    |> List.Nonempty.toList
-                                    |> List.concatMap
-                                        (\( lobbyUserId, _ ) ->
-                                            getSessionIdsFromUserId lobbyUserId model
-                                                |> List.map
-                                                    (\lobbyUserSessionId ->
-                                                        MatchSetupBroadcast lobbyId
-                                                            userId
-                                                            matchSetupMsg
-                                                            (case ( lobbyUserId == userId, matchSetupMsg ) of
-                                                                ( True, LeaveMatchSetup ) ->
-                                                                    getLobbyData model2 |> Just
-
-                                                                _ ->
-                                                                    Nothing
-                                                            )
-                                                            |> Effect.Lamdera.sendToFrontends lobbyUserSessionId
-                                                    )
-                                        )
-                                    |> Command.batch
-                                ]
-                            )
-
-                        Nothing ->
-                            ( model
-                            , Err LobbyNotFound |> JoinLobbyResponse lobbyId |> Effect.Lamdera.sendToFrontend clientId
-                            )
+                    matchSetupRequest lobbyId userId clientId matchSetupMsg model
 
                 PingRequest ->
                     ( model, PingResponse time |> Effect.Lamdera.sendToFrontend clientId )
 
         Nothing ->
             ( model, Command.none )
+
+
+matchSetupRequest :
+    Id LobbyId
+    -> Id UserId
+    -> ClientId
+    -> MatchSetupMsg
+    -> BackendModel
+    -> ( BackendModel, Command BackendOnly ToFrontend BackendMsg )
+matchSetupRequest lobbyId userId clientId matchSetupMsg model =
+    case Dict.get lobbyId model.lobbies of
+        Just matchSetup ->
+            let
+                matchSetup2 : Maybe MatchSetup
+                matchSetup2 =
+                    MatchSetup.matchSetupUpdate { userId = userId, msg = matchSetupMsg } matchSetup
+
+                model2 =
+                    { model | lobbies = Dict.update lobbyId (\_ -> matchSetup2) model.lobbies }
+            in
+            ( model2
+            , Command.batch
+                [ case matchSetupMsg of
+                    JoinMatchSetup ->
+                        MatchSetup.joinUser userId matchSetup
+                            |> Ok
+                            |> JoinLobbyResponse lobbyId
+                            |> Effect.Lamdera.sendToFrontend clientId
+
+                    _ ->
+                        Command.none
+                , case matchSetup2 of
+                    Just _ ->
+                        Command.none
+
+                    Nothing ->
+                        Effect.Lamdera.broadcast (RemoveLobbyBroadcast lobbyId)
+                , MatchSetup.allUsers matchSetup
+                    |> List.Nonempty.toList
+                    |> List.concatMap
+                        (\( lobbyUserId, _ ) ->
+                            getSessionIdsFromUserId lobbyUserId model
+                                |> List.map
+                                    (\lobbyUserSessionId ->
+                                        MatchSetupBroadcast lobbyId
+                                            userId
+                                            matchSetupMsg
+                                            (case ( lobbyUserId == userId, matchSetupMsg ) of
+                                                ( True, LeaveMatchSetup ) ->
+                                                    getLobbyData model2 |> Just
+
+                                                _ ->
+                                                    Nothing
+                                            )
+                                            |> Effect.Lamdera.sendToFrontends lobbyUserSessionId
+                                    )
+                        )
+                    |> Command.batch
+                ]
+            )
+
+        Nothing ->
+            ( model
+            , Err LobbyNotFound |> JoinLobbyResponse lobbyId |> Effect.Lamdera.sendToFrontend clientId
+            )
 
 
 getId : BackendModel -> ( Id a, BackendModel )
