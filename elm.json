@@ -10,6 +10,7 @@
     "dependencies": {
         "direct": {
             "Elm-Canvas/raster-shapes": "1.1.2",
+            "MartinSStewart/elm-nonempty-string": "2.0.0",
             "avh4/elm-color": "1.0.0",
             "elm/browser": "1.0.2",
             "elm/bytes": "1.0.8",

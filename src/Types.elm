@@ -51,6 +51,7 @@ import Pixels exposing (Pixels)
 import Point2d exposing (Point2d)
 import Quantity exposing (Quantity, Rate)
 import Sounds exposing (Sounds)
+import TextMessage exposing (TextMessage)
 import Timeline exposing (FrameId, Timeline, TimelineCache)
 import Url exposing (Url)
 import User exposing (UserId)
@@ -128,7 +129,7 @@ type alias MatchSetupPage_ =
 
 
 type MatchData
-    = MatchSetupData { matchName : String }
+    = MatchSetupData { matchName : String, message : String }
     | MatchData MatchPage_
 
 
@@ -181,6 +182,7 @@ type FrontendMsg_
     | MatchMsg MatchMsg
     | MatchSetupMsg MatchSetupMsg_
     | GotTime Time.Posix
+    | ScrolledToBottom
 
 
 type MatchSetupMsg_
@@ -193,6 +195,8 @@ type MatchSetupMsg_
     | PressedPlayerMode PlayerMode
     | PressedSaveMatchName MatchName
     | PressedResetMatchName
+    | TypedTextMessage String
+    | SubmittedTextMessage TextMessage
 
 
 type MatchMsg
