@@ -13,13 +13,13 @@ import Decal
 import Dict as RegularDict
 import Direction2d exposing (Direction2d)
 import Duration exposing (Duration)
-import Effect.Browser.Dom
+import Effect.Browser.Dom exposing (HtmlId)
 import Effect.Browser.Events
 import Effect.Browser.Navigation
 import Effect.Command as Command exposing (Command, FrontendOnly)
 import Effect.Lamdera
 import Effect.Subscription as Subscription exposing (Subscription)
-import Effect.Task
+import Effect.Task as Task
 import Effect.Time
 import Effect.WebGL as WebGL exposing (Mesh, Shader)
 import Element exposing (Element)
@@ -30,8 +30,10 @@ import Element.Input
 import Env
 import Html exposing (Html)
 import Html.Attributes
+import Html.Events
 import Html.Events.Extra.Touch
 import Id exposing (Id)
+import Json.Decode
 import Keyboard exposing (Key(..))
 import Keyboard.Arrows
 import Lamdera
@@ -203,7 +205,7 @@ init url key =
         , debugTimeOffset = offset
         }
     , Command.batch
-        [ Effect.Task.perform
+        [ Task.perform
             (\{ viewport } ->
                 WindowResized
                     { width = round viewport.width |> Pixels.pixels
@@ -211,7 +213,7 @@ init url key =
                     }
             )
             Effect.Browser.Dom.getViewport
-        , Effect.Time.now |> Effect.Task.perform GotTime
+        , Effect.Time.now |> Task.perform GotTime
         ]
     , Sounds.requestSounds SoundLoaded
     )
@@ -478,8 +480,34 @@ updateLoaded msg model =
                             , Command.none
                             )
 
+                        SubmittedTextMessage message ->
+                            matchSetupUpdate
+                                (MatchSetup.SendTextMessage message)
+                                { model
+                                    | page =
+                                        { matchPage
+                                            | matchData =
+                                                case matchPage.matchData of
+                                                    MatchData _ ->
+                                                        matchPage.matchData
+
+                                                    MatchSetupData matchSetupData ->
+                                                        { matchSetupData | message = "" } |> MatchSetupData
+                                        }
+                                            |> MatchPage
+                                }
+                                |> Tuple.mapSecond (\cmd -> Command.batch [ cmd, scrollToBottom ])
+
                 _ ->
                     ( model, Command.none )
+
+        ScrolledToBottom ->
+            ( model, Command.none )
+
+
+textMessageContainerId : HtmlId
+textMessageContainerId =
+    Effect.Browser.Dom.id "textMessageContainer"
 
 
 matchSetupUpdate : MatchSetupMsg -> FrontendLoaded -> ( FrontendLoaded, Command FrontendOnly ToBackend FrontendMsg_ )
@@ -644,6 +672,11 @@ initMatchSetupData lobby =
     }
 
 
+scrollToBottom =
+    Effect.Browser.Dom.setViewportOf textMessageContainerId 0 99999
+        |> Task.attempt (\_ -> ScrolledToBottom)
+
+
 updateLoadedFromBackend : ToFrontend -> FrontendLoaded -> ( FrontendLoaded, Command FrontendOnly ToBackend FrontendMsg_ )
 updateLoadedFromBackend msg model =
     case msg of
@@ -669,7 +702,7 @@ updateLoadedFromBackend msg model =
             )
 
         JoinLobbyResponse lobbyId result ->
-            ( case model.page of
+            case model.page of
                 LobbyPage _ ->
                     case result of
                         Ok lobby ->
@@ -677,7 +710,7 @@ updateLoadedFromBackend msg model =
                                 networkModel =
                                     NetworkModel.init lobby
                             in
-                            { model
+                            ( { model
                                 | page =
                                     MatchPage
                                         { lobbyId = lobbyId
@@ -689,15 +722,15 @@ updateLoadedFromBackend msg model =
                                                 networkModel
                                                 (initMatchSetupData lobby |> MatchSetupData)
                                         }
-                            }
+                              }
+                            , scrollToBottom
+                            )
 
                         Err LobbyNotFound ->
-                            model
+                            ( model, Command.none )
 
                 _ ->
-                    model
-            , Command.none
-            )
+                    ( model, Command.none )
 
         CreateLobbyBroadcast lobbyId lobbyPreview ->
             ( case model.page of
@@ -778,39 +811,41 @@ updateLoadedFromBackend msg model =
         MatchSetupBroadcast lobbyId userId matchSetupMsg maybeLobbyData ->
             case model.page of
                 MatchPage matchSetup ->
-                    ( { model
-                        | page =
-                            case ( userId == model.userId, maybeLobbyData, matchSetupMsg ) of
-                                ( True, Just lobbyData, MatchSetup.LeaveMatchSetup ) ->
-                                    LobbyPage lobbyData
+                    let
+                        updateHelper =
+                            (if lobbyId == matchSetup.lobbyId then
+                                let
+                                    newNetworkModel : NetworkModel { userId : Id UserId, msg : MatchSetupMsg } MatchSetup
+                                    newNetworkModel =
+                                        NetworkModel.updateFromBackend
+                                            (\a b -> MatchSetup.matchSetupUpdate a b |> Maybe.withDefault b)
+                                            { userId = userId, msg = matchSetupMsg }
+                                            matchSetup.networkModel
+                                in
+                                { matchSetup
+                                    | networkModel = newNetworkModel
+                                    , matchData =
+                                        updateMatchData
+                                            (timeToFrameId model)
+                                            newNetworkModel
+                                            matchSetup.networkModel
+                                            matchSetup.matchData
+                                }
 
-                                _ ->
-                                    (if lobbyId == matchSetup.lobbyId then
-                                        let
-                                            newNetworkModel : NetworkModel { userId : Id UserId, msg : MatchSetupMsg } MatchSetup
-                                            newNetworkModel =
-                                                NetworkModel.updateFromBackend
-                                                    (\a b -> MatchSetup.matchSetupUpdate a b |> Maybe.withDefault b)
-                                                    { userId = userId, msg = matchSetupMsg }
-                                                    matchSetup.networkModel
-                                        in
-                                        { matchSetup
-                                            | networkModel = newNetworkModel
-                                            , matchData =
-                                                updateMatchData
-                                                    (timeToFrameId model)
-                                                    newNetworkModel
-                                                    matchSetup.networkModel
-                                                    matchSetup.matchData
-                                        }
+                             else
+                                matchSetup
+                            )
+                                |> MatchPage
+                    in
+                    case ( userId == model.userId, maybeLobbyData, matchSetupMsg ) of
+                        ( True, Just lobbyData, MatchSetup.LeaveMatchSetup ) ->
+                            ( { model | page = LobbyPage lobbyData }, Command.none )
 
-                                     else
-                                        matchSetup
-                                    )
-                                        |> MatchPage
-                      }
-                    , Command.none
-                    )
+                        ( False, _, MatchSetup.SendTextMessage _ ) ->
+                            ( { model | page = updateHelper }, scrollToBottom )
+
+                        _ ->
+                            ( { model | page = updateHelper }, Command.none )
 
                 LobbyPage _ ->
                     ( model, Command.none )
@@ -1147,7 +1182,7 @@ matchSetupView model matchSetup =
 
         ( Nothing, MatchSetupData matchSetupData ) ->
             Element.column
-                [ Element.spacing 8, Element.padding 16 ]
+                [ Element.spacing 8, Element.padding 16, Element.height Element.fill ]
                 [ if MatchSetup.isOwner model.userId lobby then
                     Element.row
                         [ Element.spacing 8 ]
@@ -1247,9 +1282,9 @@ matchSetupView model matchSetup =
                     Nothing ->
                         Element.none
                 , Element.row
-                    [ Element.spacing 16 ]
+                    [ Element.spacing 16, Element.width Element.fill, Element.height Element.fill ]
                     [ Element.column
-                        [ Element.spacing 8 ]
+                        [ Element.spacing 8, Element.alignTop ]
                         [ Element.text "Participants:"
                         , Element.column
                             []
@@ -1270,7 +1305,11 @@ matchSetupView model matchSetup =
                             )
                         ]
                     , Element.column
-                        [ Element.spacing 16, Element.scrollbarY ]
+                        [ Element.scrollbarY
+                        , Element.width Element.fill
+                        , Element.height Element.fill
+                        , Element.padding 4
+                        ]
                         [ MatchSetup.messagesOldestToNewest lobby
                             |> List.map
                                 (\{ userId, message } ->
@@ -1292,9 +1331,34 @@ matchSetupView model matchSetup =
                                         , TextMessage.toString message |> Element.text
                                         ]
                                 )
-                            |> Element.column [ Element.spacing 4, Element.scrollbarY ]
+                            |> Element.column
+                                [ Element.spacing 4
+                                , Element.scrollbarY
+                                , Element.width Element.fill
+                                , Element.height Element.fill
+                                , Element.paddingXY 0 8
+                                , Element.htmlAttribute (Effect.Browser.Dom.idToAttribute textMessageContainerId)
+                                ]
                         , Element.Input.text
-                            []
+                            (case TextMessage.fromString matchSetupData.message of
+                                Ok message ->
+                                    [ Html.Events.on "keydown"
+                                        (Json.Decode.field "keyCode" Json.Decode.int
+                                            |> Json.Decode.andThen
+                                                (\key ->
+                                                    if key == 13 then
+                                                        SubmittedTextMessage message |> Json.Decode.succeed
+
+                                                    else
+                                                        Json.Decode.fail ""
+                                                )
+                                        )
+                                        |> Element.htmlAttribute
+                                    ]
+
+                                Err _ ->
+                                    []
+                            )
                             { onChange = TypedTextMessage
                             , text = matchSetupData.message
                             , placeholder = Nothing
