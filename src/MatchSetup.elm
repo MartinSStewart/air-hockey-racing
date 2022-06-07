@@ -17,6 +17,7 @@ module MatchSetup exposing
     , isOwner
     , joinUser
     , matchSetupUpdate
+    , messagesOldestToNewest
     , name
     , preview
     )
@@ -32,6 +33,7 @@ import Length exposing (Meters)
 import List.Nonempty exposing (Nonempty(..))
 import MatchName exposing (MatchName)
 import Point2d exposing (Point2d)
+import TextMessage exposing (TextMessage)
 import Time
 import Timeline exposing (FrameId, Timeline)
 import User exposing (UserId)
@@ -52,6 +54,7 @@ type alias MatchSetupData =
     , ownerPlayerData : PlayerData
     , users : Dict (Id UserId) PlayerData
     , match : Maybe Match
+    , messages : List { userId : Id UserId, message : TextMessage }
     }
 
 
@@ -96,6 +99,7 @@ type MatchSetupMsg
     | StartMatch Time.Posix
     | MatchInputRequest (Id FrameId) (Maybe (Direction2d WorldCoordinate))
     | SetMatchName MatchName
+    | SendTextMessage TextMessage
 
 
 type PlayerMode
@@ -110,6 +114,7 @@ init owner =
     , ownerPlayerData = defaultPlayerData
     , users = Dict.empty
     , match = Nothing
+    , messages = []
     }
         |> MatchSetup
 
@@ -184,39 +189,52 @@ allUsers_ (MatchSetup lobby) =
     Dict.insert lobby.owner lobby.ownerPlayerData lobby.users
 
 
+messagesOldestToNewest : MatchSetup -> List { userId : Id UserId, message : TextMessage }
+messagesOldestToNewest (MatchSetup matchSetup) =
+    List.reverse matchSetup.messages
+
+
 matchSetupUpdate : { userId : Id UserId, msg : MatchSetupMsg } -> MatchSetup -> Maybe MatchSetup
-matchSetupUpdate { userId, msg } lobby =
+matchSetupUpdate { userId, msg } match =
     case msg of
         JoinMatchSetup ->
-            joinUser userId lobby |> Just
+            joinUser userId match |> Just
 
         LeaveMatchSetup ->
-            leaveUser userId lobby
+            leaveUser userId match
 
         SetPrimaryColor colorIndex ->
-            updatePlayerData userId (\a -> { a | primaryColor = colorIndex }) lobby |> Just
+            updatePlayerData userId (\a -> { a | primaryColor = colorIndex }) match |> Just
 
         SetSecondaryColor colorIndex ->
-            updatePlayerData userId (\a -> { a | secondaryColor = colorIndex }) lobby |> Just
+            updatePlayerData userId (\a -> { a | secondaryColor = colorIndex }) match |> Just
 
         SetDecal decal ->
-            updatePlayerData userId (\a -> { a | decal = decal }) lobby |> Just
+            updatePlayerData userId (\a -> { a | decal = decal }) match |> Just
 
         SetPlayerMode mode ->
-            updatePlayerData userId (\a -> { a | mode = mode }) lobby |> Just
+            updatePlayerData userId (\a -> { a | mode = mode }) match |> Just
 
         StartMatch time ->
-            startMatch time userId lobby |> Just
+            startMatch time userId match |> Just
 
         MatchInputRequest frameId input ->
-            addInput userId frameId input lobby |> Just
+            addInput userId frameId input match |> Just
 
         SetMatchName matchName ->
-            if isOwner userId lobby then
-                setMatchName matchName lobby |> Just
+            if isOwner userId match then
+                setMatchName matchName match |> Just
 
             else
-                Just lobby
+                Just match
+
+        SendTextMessage message ->
+            sendTextMessage userId message match |> Just
+
+
+sendTextMessage : Id UserId -> TextMessage -> MatchSetup -> MatchSetup
+sendTextMessage userId message (MatchSetup match) =
+    { match | messages = { userId = userId, message = message } :: match.messages } |> MatchSetup
 
 
 startMatch : Time.Posix -> Id UserId -> MatchSetup -> MatchSetup

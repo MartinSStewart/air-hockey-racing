@@ -128,7 +128,7 @@ type alias MatchSetupPage_ =
 
 
 type MatchData
-    = MatchSetupData { matchName : String }
+    = MatchSetupData { matchName : String, message : String }
     | MatchData MatchPage_
 
 
@@ -193,6 +193,7 @@ type MatchSetupMsg_
     | PressedPlayerMode PlayerMode
     | PressedSaveMatchName MatchName
     | PressedResetMatchName
+    | TypedTextMessage String
 
 
 type MatchMsg

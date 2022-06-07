@@ -53,6 +53,7 @@ import Ports
 import Quantity exposing (Quantity(..), Rate)
 import RasterShapes
 import Sounds exposing (Sounds)
+import TextMessage
 import Time
 import Timeline exposing (FrameId)
 import Types exposing (..)
@@ -460,6 +461,23 @@ updateLoaded msg model =
                             , Command.none
                             )
 
+                        TypedTextMessage text ->
+                            ( { model
+                                | page =
+                                    { matchPage
+                                        | matchData =
+                                            case matchPage.matchData of
+                                                MatchData _ ->
+                                                    matchPage.matchData
+
+                                                MatchSetupData matchSetupData ->
+                                                    { matchSetupData | message = text } |> MatchSetupData
+                                    }
+                                        |> MatchPage
+                              }
+                            , Command.none
+                            )
+
                 _ ->
                     ( model, Command.none )
 
@@ -619,6 +637,13 @@ updateFromBackend audioData msg model =
             ( model, Command.none, Audio.cmdNone )
 
 
+initMatchSetupData : MatchSetup -> { matchName : String, message : String }
+initMatchSetupData lobby =
+    { matchName = MatchSetup.name lobby |> MatchName.toString
+    , message = ""
+    }
+
+
 updateLoadedFromBackend : ToFrontend -> FrontendLoaded -> ( FrontendLoaded, Command FrontendOnly ToBackend FrontendMsg_ )
 updateLoadedFromBackend msg model =
     case msg of
@@ -634,7 +659,7 @@ updateLoadedFromBackend msg model =
                             MatchPage
                                 { lobbyId = lobbyId
                                 , networkModel = NetworkModel.init lobby
-                                , matchData = MatchSetupData { matchName = MatchSetup.name lobby |> MatchName.toString }
+                                , matchData = initMatchSetupData lobby |> MatchSetupData
                                 }
                     }
 
@@ -662,9 +687,7 @@ updateLoadedFromBackend msg model =
                                                 (timeToFrameId model)
                                                 networkModel
                                                 networkModel
-                                                (MatchSetupData
-                                                    { matchName = MatchSetup.name lobby |> MatchName.toString }
-                                                )
+                                                (initMatchSetupData lobby |> MatchSetupData)
                                         }
                             }
 
@@ -885,7 +908,7 @@ updateMatchData getCurrentFrame newNetworkModel oldNetworkModel oldMatchData =
             initHelper
 
         ( Nothing, Just _ ) ->
-            MatchSetupData { matchName = MatchSetup.name newMatchState |> MatchName.toString }
+            initMatchSetupData newMatchState |> MatchSetupData
 
         _ ->
             oldMatchData
@@ -1223,26 +1246,61 @@ matchSetupView model matchSetup =
 
                     Nothing ->
                         Element.none
-                , Element.column
-                    [ Element.spacing 8 ]
-                    [ Element.text "Participants:"
-                    , Element.column
-                        []
-                        (List.map
-                            (\( userId, playerData ) ->
-                                "User "
-                                    ++ String.fromInt (Id.toInt userId)
-                                    ++ (case playerData.mode of
-                                            PlayerMode ->
-                                                ""
+                , Element.row
+                    [ Element.spacing 16 ]
+                    [ Element.column
+                        [ Element.spacing 8 ]
+                        [ Element.text "Participants:"
+                        , Element.column
+                            []
+                            (List.map
+                                (\( userId, playerData ) ->
+                                    "User "
+                                        ++ String.fromInt (Id.toInt userId)
+                                        ++ (case playerData.mode of
+                                                PlayerMode ->
+                                                    ""
 
-                                            SpectatorMode ->
-                                                " (spectator)"
-                                       )
-                                    |> Element.text
+                                                SpectatorMode ->
+                                                    " (spectator)"
+                                           )
+                                        |> Element.text
+                                )
+                                users
                             )
-                            users
-                        )
+                        ]
+                    , Element.column
+                        [ Element.spacing 16, Element.scrollbarY ]
+                        [ MatchSetup.messagesOldestToNewest lobby
+                            |> List.map
+                                (\{ userId, message } ->
+                                    let
+                                        userName : String
+                                        userName =
+                                            Id.toInt userId |> String.fromInt
+                                    in
+                                    Element.row
+                                        [ Element.spacing 8 ]
+                                        [ (if MatchSetup.isOwner userId lobby then
+                                            "👑 " ++ userName
+
+                                           else
+                                            userName
+                                          )
+                                            |> Element.text
+                                            |> Element.el [ Element.Font.bold ]
+                                        , TextMessage.toString message |> Element.text
+                                        ]
+                                )
+                            |> Element.column [ Element.spacing 4, Element.scrollbarY ]
+                        , Element.Input.text
+                            []
+                            { onChange = TypedTextMessage
+                            , text = matchSetupData.message
+                            , placeholder = Nothing
+                            , label = Element.Input.labelHidden "Write message"
+                            }
+                        ]
                     ]
                 ]
                 |> Element.map MatchSetupMsg

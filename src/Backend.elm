@@ -1,7 +1,6 @@
 module Backend exposing (app)
 
 import AssocList as Dict exposing (Dict)
-import Duration
 import Effect.Command as Command exposing (BackendOnly, Command)
 import Effect.Lamdera exposing (ClientId, SessionId)
 import Effect.Subscription as Subscription exposing (Subscription)

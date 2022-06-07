@@ -13,7 +13,7 @@ type MatchName
 
 
 type Error
-    = GroupNameTooLong
+    = MatchNameTooLong
 
 
 empty : MatchName
@@ -33,7 +33,7 @@ fromString text =
             String.trim text
     in
     if String.length trimmed > maxLength then
-        Err GroupNameTooLong
+        Err MatchNameTooLong
 
     else
         Ok (MatchName trimmed)
