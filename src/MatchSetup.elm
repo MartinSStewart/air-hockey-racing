@@ -16,6 +16,7 @@ module MatchSetup exposing
     , isOwner
     , joinUser
     , matchSetupUpdate
+    , maxFrameIdDelay
     , messagesOldestToNewest
     , name
     , preview
@@ -99,11 +100,17 @@ type MatchSetupMsg
     | MatchInputRequest (Id FrameId) (Maybe (Direction2d WorldCoordinate))
     | SetMatchName MatchName
     | SendTextMessage TextMessage
+    | MatchFinished
 
 
 type PlayerMode
     = PlayerMode
     | SpectatorMode
+
+
+maxFrameIdDelay : number
+maxFrameIdDelay =
+    60
 
 
 init : Id UserId -> MatchSetup
@@ -229,6 +236,14 @@ matchSetupUpdate { userId, msg } match =
 
         SendTextMessage message ->
             sendTextMessage userId message match |> Just
+
+        MatchFinished ->
+            matchFinished match |> Just
+
+
+matchFinished : MatchSetup -> MatchSetup
+matchFinished (MatchSetup matchSetup) =
+    MatchSetup { matchSetup | match = Nothing }
 
 
 sendTextMessage : Id UserId -> TextMessage -> MatchSetup -> MatchSetup

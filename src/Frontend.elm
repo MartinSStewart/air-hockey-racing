@@ -58,7 +58,7 @@ import RasterShapes
 import Sounds exposing (Sounds)
 import TextMessage
 import Time
-import Timeline exposing (FrameId)
+import Timeline exposing (FrameId, TimelineCache)
 import Types exposing (..)
 import Ui
 import Url exposing (Url)
@@ -325,17 +325,48 @@ updateLoaded msg model =
                                         | page =
                                             { matchSetupPage
                                                 | matchData =
-                                                    { matchData | previousTouchPosition = matchData.touchPosition }
+                                                    { matchData
+                                                        | previousTouchPosition = matchData.touchPosition
+                                                        , timelineCache = newCache
+                                                    }
                                                         |> MatchData
                                             }
                                                 |> MatchPage
                                     }
+
+                                ( newCache, matchState ) =
+                                    Timeline.getStateAt
+                                        gameUpdate
+                                        (timeToFrameId model2 match)
+                                        matchData.timelineCache
+                                        match.timeline
+
+                                currentFrameId =
+                                    timeToFrameId model3 match
                             in
-                            if inputUnchanged then
+                            (if inputUnchanged then
                                 ( model3, Command.none )
 
-                            else
-                                matchSetupUpdate (MatchSetup.MatchInputRequest (timeToFrameId model3 match) input) model3
+                             else
+                                matchSetupUpdate (MatchSetup.MatchInputRequest currentFrameId input) model3
+                            )
+                                |> (\( model4, cmd ) ->
+                                        case
+                                            ( matchTimeLeft currentFrameId matchState
+                                            , matchTimeLeft (Id.decrement currentFrameId) matchState
+                                            )
+                                        of
+                                            ( Just timeLeft, Just previousTimeLeft ) ->
+                                                if Quantity.lessThanZero timeLeft && not (Quantity.lessThanZero previousTimeLeft) then
+                                                    matchSetupUpdate MatchSetup.MatchFinished model4
+                                                        |> Tuple.mapSecond (\cmd2 -> Command.batch [ cmd, cmd2 ])
+
+                                                else
+                                                    ( model4, cmd )
+
+                                            _ ->
+                                                ( model4, cmd )
+                                   )
 
                         _ ->
                             ( model2, Command.none )
@@ -499,6 +530,50 @@ updateLoaded msg model =
 
         ScrolledToBottom ->
             ( model, Command.none )
+
+
+matchTimeLeft : Id FrameId -> MatchState -> Maybe Duration
+matchTimeLeft currentFrameId matchState =
+    let
+        finishes : List Duration
+        finishes =
+            Dict.toList matchState.players
+                |> List.filterMap
+                    (\( _, player ) ->
+                        case player.finishTime of
+                            Just finishTime ->
+                                Quantity.multiplyBy
+                                    (Id.toInt currentFrameId - Id.toInt finishTime |> toFloat)
+                                    frameDuration
+                                    |> Just
+
+                            Nothing ->
+                                Nothing
+                    )
+
+        earliestFinish =
+            Quantity.maximum finishes |> Maybe.withDefault Quantity.zero
+
+        latestFinish =
+            Quantity.minimum finishes |> Maybe.withDefault Quantity.zero
+
+        allFinished =
+            Dict.size matchState.players == List.length finishes
+
+        allFinishedTimeLeft =
+            Duration.seconds 3 |> Quantity.minus latestFinish
+
+        earliestFinishTimeLeft =
+            Duration.seconds 10 |> Quantity.minus earliestFinish
+    in
+    if allFinished then
+        Quantity.min earliestFinishTimeLeft allFinishedTimeLeft |> Just
+
+    else if List.isEmpty finishes then
+        Nothing
+
+    else
+        Just earliestFinishTimeLeft
 
 
 textMessageContainerId : HtmlId
@@ -1162,7 +1237,7 @@ matchSetupView model matchSetup =
                                 []
                        )
                 )
-                (placementText matchState model)
+                (placementText match matchState model)
                 |> Element.map MatchMsg
 
         ( Nothing, MatchSetupData matchSetupData, Just currentPlayerData ) ->
@@ -1284,67 +1359,7 @@ matchSetupView model matchSetup =
                                 users
                             )
                         ]
-                    , Element.column
-                        [ Element.scrollbarY
-                        , Element.width Element.fill
-                        , Element.height Element.fill
-                        , Element.padding 4
-                        ]
-                        [ MatchSetup.messagesOldestToNewest lobby
-                            |> List.map
-                                (\{ userId, message } ->
-                                    let
-                                        userName : String
-                                        userName =
-                                            Id.toInt userId |> String.fromInt
-                                    in
-                                    Element.row
-                                        [ Element.spacing 8 ]
-                                        [ (if MatchSetup.isOwner userId lobby then
-                                            "👑 " ++ userName
-
-                                           else
-                                            userName
-                                          )
-                                            |> Element.text
-                                            |> Element.el [ Element.Font.bold ]
-                                        , TextMessage.toString message |> Element.text
-                                        ]
-                                )
-                            |> Element.column
-                                [ Element.spacing 4
-                                , Element.scrollbarY
-                                , Element.width Element.fill
-                                , Element.height Element.fill
-                                , Element.paddingXY 0 8
-                                , Element.htmlAttribute (Effect.Browser.Dom.idToAttribute textMessageContainerId)
-                                ]
-                        , Element.Input.text
-                            (case TextMessage.fromString matchSetupData.message of
-                                Ok message ->
-                                    [ Html.Events.on "keydown"
-                                        (Json.Decode.field "keyCode" Json.Decode.int
-                                            |> Json.Decode.andThen
-                                                (\key ->
-                                                    if key == 13 then
-                                                        SubmittedTextMessage message |> Json.Decode.succeed
-
-                                                    else
-                                                        Json.Decode.fail ""
-                                                )
-                                        )
-                                        |> Element.htmlAttribute
-                                    ]
-
-                                Err _ ->
-                                    []
-                            )
-                            { onChange = TypedTextMessage
-                            , text = matchSetupData.message
-                            , placeholder = Nothing
-                            , label = Element.Input.labelHidden "Write message"
-                            }
-                        ]
+                    , textChat matchSetupData lobby
                     ]
                 ]
                 |> Element.map MatchSetupMsg
@@ -1353,8 +1368,73 @@ matchSetupView model matchSetup =
             Element.text "Inconsistent state"
 
 
-placementText : MatchState -> FrontendLoaded -> Element msg
-placementText matchState model =
+textChat : { matchName : String, message : String } -> MatchSetup -> Element MatchSetupMsg_
+textChat matchSetupData lobby =
+    Element.column
+        [ Element.scrollbarY
+        , Element.width Element.fill
+        , Element.height Element.fill
+        , Element.padding 4
+        ]
+        [ MatchSetup.messagesOldestToNewest lobby
+            |> List.map
+                (\{ userId, message } ->
+                    let
+                        userName : String
+                        userName =
+                            Id.toInt userId |> String.fromInt |> (++) "User "
+                    in
+                    Element.row
+                        [ Element.spacing 8 ]
+                        [ (if MatchSetup.isOwner userId lobby then
+                            userName ++ " (host)"
+
+                           else
+                            userName
+                          )
+                            |> Element.text
+                            |> Element.el [ Element.Font.bold, Element.alignTop ]
+                        , TextMessage.toString message |> Element.text |> List.singleton |> Element.paragraph []
+                        ]
+                )
+            |> Element.column
+                [ Element.spacing 4
+                , Element.scrollbarY
+                , Element.width Element.fill
+                , Element.height Element.fill
+                , Element.paddingXY 0 8
+                , Element.htmlAttribute (Effect.Browser.Dom.idToAttribute textMessageContainerId)
+                ]
+        , Element.Input.text
+            (case TextMessage.fromString matchSetupData.message of
+                Ok message ->
+                    [ Html.Events.on "keydown"
+                        (Json.Decode.field "keyCode" Json.Decode.int
+                            |> Json.Decode.andThen
+                                (\key ->
+                                    if key == 13 then
+                                        SubmittedTextMessage message |> Json.Decode.succeed
+
+                                    else
+                                        Json.Decode.fail ""
+                                )
+                        )
+                        |> Element.htmlAttribute
+                    ]
+
+                Err _ ->
+                    []
+            )
+            { onChange = TypedTextMessage
+            , text = matchSetupData.message
+            , placeholder = Nothing
+            , label = Element.Input.labelHidden "Write message"
+            }
+        ]
+
+
+placementText : Match -> MatchState -> FrontendLoaded -> Element msg
+placementText match matchState model =
     let
         maybeFinish : Maybe { place : Int, userId : Id UserId, finishTime : Id FrameId }
         maybeFinish =
@@ -1374,6 +1454,10 @@ placementText matchState model =
                         { place = index, userId = userId, finishTime = finishTime }
                     )
                 |> List.find (.userId >> (==) model.userId)
+
+        maybeTimeLeft : Maybe Duration
+        maybeTimeLeft =
+            matchTimeLeft (timeToFrameId model match) matchState
     in
     case maybeFinish of
         Just finish ->
@@ -1434,10 +1518,27 @@ placementText matchState model =
                     |> timestamp_
                     |> Element.text
                     |> Element.el [ Element.centerX, Element.Font.bold, Element.Font.size 24 ]
+                , case maybeTimeLeft of
+                    Just timeLeft ->
+                        "Match will end in "
+                            ++ String.fromInt (round (Duration.inSeconds timeLeft))
+                            |> Element.text
+                            |> Element.el [ Element.centerX, Element.Font.bold, Element.Font.size 24 ]
+
+                    Nothing ->
+                        Element.none
                 ]
 
         Nothing ->
-            Element.none
+            case maybeTimeLeft of
+                Just timeLeft ->
+                    "Someone finished! The match will end in "
+                        ++ String.fromInt (round (Duration.inSeconds timeLeft))
+                        |> Element.text
+                        |> Element.el [ Element.centerX, Element.Font.bold, Element.Font.size 24 ]
+
+                Nothing ->
+                    Element.none
 
 
 countdownDelay =
