@@ -2,7 +2,6 @@ module TextMessage exposing
     ( Error(..)
     , TextMessage(..)
     , fromString
-    , maxLength
     , toString
     )
 

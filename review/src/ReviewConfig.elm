@@ -33,4 +33,4 @@ config =
     , NoUnused.Patterns.rule
     , NoUnused.Variables.rule
     ]
-        |> List.map (Review.Rule.ignoreErrorsForDirectories [ "src/Evergreen" ])
+        |> List.map (Review.Rule.ignoreErrorsForDirectories [ "src/Evergreen", "packages" ])

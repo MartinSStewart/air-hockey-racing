@@ -12,7 +12,6 @@ module Types exposing
     , LobbyData
     , LobbyId
     , MatchData(..)
-    , MatchId
     , MatchMsg(..)
     , MatchPage_
     , MatchSetupMsg_(..)
@@ -32,8 +31,7 @@ import Audio
 import Browser
 import ColorIndex exposing (ColorIndex)
 import Decal exposing (Decal)
-import Direction2d exposing (Direction2d)
-import Duration exposing (Duration, Seconds)
+import Duration exposing (Duration)
 import Effect.Browser.Navigation
 import Effect.Lamdera exposing (ClientId, SessionId)
 import Effect.Time as Time
@@ -41,9 +39,8 @@ import Effect.WebGL exposing (Mesh)
 import Html.Events.Extra.Touch
 import Id exposing (Id)
 import Keyboard
-import List.Nonempty exposing (Nonempty)
 import MatchName exposing (MatchName)
-import MatchSetup exposing (LobbyPreview, MatchSetup, MatchSetupMsg, MatchState, PlayerData, PlayerMode, WorldCoordinate)
+import MatchSetup exposing (LobbyPreview, MatchSetup, MatchSetupMsg, MatchState, PlayerMode)
 import Math.Vector2 exposing (Vec2)
 import Math.Vector3 exposing (Vec3)
 import NetworkModel exposing (NetworkModel)
@@ -207,10 +204,6 @@ type MatchMsg
 
 type LobbyId
     = LobbyId Never
-
-
-type MatchId
-    = MatchId Never
 
 
 type ToBackend

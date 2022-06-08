@@ -8,9 +8,8 @@ import Effect.Task as Task
 import Effect.Time
 import Id exposing (Id)
 import Lamdera
-import List.Extra as List
-import List.Nonempty exposing (Nonempty)
-import MatchSetup exposing (MatchSetup, MatchSetupMsg(..), PlayerData)
+import List.Nonempty
+import MatchSetup exposing (MatchSetup, MatchSetupMsg(..))
 import Time
 import Types exposing (..)
 import User exposing (UserId)
@@ -259,12 +258,6 @@ matchSetupRequest lobbyId userId clientId matchSetupMsg model =
 getId : BackendModel -> ( Id a, BackendModel )
 getId model =
     ( Id.fromInt model.counter, { model | counter = model.counter + 1 } )
-
-
-getUserOwnedLobby : Id UserId -> BackendModel -> Maybe ( Id LobbyId, MatchSetup )
-getUserOwnedLobby userId model =
-    Dict.toList model.lobbies
-        |> List.find (\( _, lobby ) -> MatchSetup.isOwner userId lobby)
 
 
 getSessionIdsFromUserId : Id UserId -> BackendModel -> List SessionId

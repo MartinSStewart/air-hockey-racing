@@ -1,4 +1,4 @@
-module Timeline exposing (FrameId, Timeline, TimelineCache, addInput, addInput_, getStateAt, init)
+module Timeline exposing (FrameId, Timeline, TimelineCache, addInput, getStateAt, init)
 
 import AssocSet as Set exposing (Set)
 import Id exposing (Id)
@@ -40,20 +40,6 @@ addInput frame input timelineCache timeline =
           }
         , Set.insert ( frame, input ) timeline
         )
-
-
-addInput_ : Id FrameId -> input -> Timeline input -> Timeline input
-addInput_ frame input timeline =
-    if Id.toInt frame < 0 then
-        timeline
-
-    else
-        Set.insert ( frame, input ) timeline
-
-
-isBefore : Id FrameId -> Id FrameId -> Bool
-isBefore a b =
-    Id.toInt b < Id.toInt a
 
 
 isAfter : Id FrameId -> Id FrameId -> Bool

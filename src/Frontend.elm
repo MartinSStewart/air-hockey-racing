@@ -1,4 +1,4 @@
-module Frontend exposing (app, init, update, updateFromBackend, view)
+module Frontend exposing (app)
 
 import Angle exposing (Angle)
 import AssocList as Dict exposing (Dict)
@@ -6,7 +6,8 @@ import AssocSet as Set exposing (Set)
 import Audio exposing (Audio, AudioCmd, AudioData)
 import Axis2d
 import BoundingBox2d exposing (BoundingBox2d)
-import Browser exposing (UrlRequest(..))
+import Browser
+import Browser.Navigation
 import Collision
 import ColorIndex exposing (ColorIndex)
 import Decal
@@ -34,7 +35,7 @@ import Html.Events
 import Html.Events.Extra.Touch
 import Id exposing (Id)
 import Json.Decode
-import Keyboard exposing (Key(..))
+import Keyboard exposing (Key)
 import Keyboard.Arrows
 import Lamdera
 import Length exposing (Length, Meters)
@@ -60,7 +61,6 @@ import Time
 import Timeline exposing (FrameId)
 import Types exposing (..)
 import Ui
-import UiColors
 import Url exposing (Url)
 import Url.Parser exposing ((<?>))
 import Url.Parser.Query
@@ -69,6 +69,15 @@ import Vector2d exposing (Vector2d)
 import WebGL.Settings
 
 
+app :
+    { init : Url -> Browser.Navigation.Key -> ( FrontendModel, Cmd FrontendMsg )
+    , view : FrontendModel -> Browser.Document FrontendMsg
+    , update : FrontendMsg -> FrontendModel -> ( FrontendModel, Cmd FrontendMsg )
+    , updateFromBackend : ToFrontend -> FrontendModel -> ( FrontendModel, Cmd FrontendMsg )
+    , subscriptions : FrontendModel -> Sub FrontendMsg
+    , onUrlRequest : Browser.UrlRequest -> FrontendMsg
+    , onUrlChange : Url -> FrontendMsg
+    }
 app =
     Effect.Lamdera.frontend
         Lamdera.sendToBackend
@@ -632,11 +641,6 @@ devicePixelRatioUpdate devicePixelRatio model =
     ( { model | devicePixelRatio = devicePixelRatio }
     , Command.none
     )
-
-
-keyPressed : Keyboard.Key -> { a | currentKeys : List Keyboard.Key, previousKeys : List Keyboard.Key } -> Bool
-keyPressed key { currentKeys, previousKeys } =
-    List.any ((==) key) currentKeys && not (List.any ((==) key) previousKeys)
 
 
 updateFromBackend : AudioData -> ToFrontend -> FrontendModel_ -> ( FrontendModel_, Command FrontendOnly ToBackend FrontendMsg_, AudioCmd FrontendMsg_ )
@@ -1613,18 +1617,6 @@ unnamedMatchText =
         (Element.text "Unnamed match")
 
 
-offlineWarningView : Element msg
-offlineWarningView =
-    Element.text "⚠ Unable to reach server. Your changes won't be saved."
-        |> Element.el
-            [ Element.Background.color UiColors.warning
-            , Element.padding 8
-            , Element.Border.rounded 4
-            , Element.centerX
-            , Element.moveUp 8
-            ]
-
-
 findPixelPerfectSize : FrontendLoaded -> { canvasSize : ( Quantity Int Pixels, Quantity Int Pixels ), actualCanvasSize : ( Int, Int ) }
 findPixelPerfectSize frontendModel =
     let
@@ -1847,7 +1839,7 @@ pointToGrid point =
         { x, y } =
             Point2d.scaleAbout Point2d.origin (Quantity.ratio Length.meter gridSize) point |> Point2d.toMeters
     in
-    { x = floor x, y = floor x }
+    { x = floor x, y = floor y }
 
 
 wallLookUp : RegularDict.Dict ( Int, Int ) (Set (LineSegment2d Meters WorldCoordinate))
@@ -2378,7 +2370,7 @@ subscriptions _ model =
             Loading _ ->
                 Subscription.none
 
-            Loaded loaded ->
+            Loaded _ ->
                 Subscription.batch
                     [ Subscription.map KeyMsg Keyboard.subscriptions
                     , Effect.Browser.Events.onAnimationFrame AnimationFrame

@@ -3,7 +3,6 @@ module MatchName exposing
     , MatchName(..)
     , empty
     , fromString
-    , maxLength
     , toString
     )
 

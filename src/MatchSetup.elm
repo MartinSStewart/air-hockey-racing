@@ -2,7 +2,6 @@ module MatchSetup exposing
     ( LobbyPreview
     , Match
     , MatchSetup
-    , MatchSetupData
     , MatchSetupMsg(..)
     , MatchState
     , Player

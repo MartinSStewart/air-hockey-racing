@@ -1,4 +1,4 @@
-module ColorIndex exposing (ColorIndex(..), allColors, colorToElColor, toColor, toElColor, toString, toVec3)
+module ColorIndex exposing (ColorIndex(..), allColors, toElColor, toVec3)
 
 import Color exposing (Color)
 import Element
@@ -61,34 +61,6 @@ toVec3 colorIndex =
 allColors : List ColorIndex
 allColors =
     [ Red, Orange, Yellow, Green, Blue, Purple, Pink, Brown ]
-
-
-toString : ColorIndex -> String
-toString colorIndex =
-    case colorIndex of
-        Red ->
-            "Red"
-
-        Green ->
-            "Green"
-
-        Blue ->
-            "Blue"
-
-        Orange ->
-            "Orange"
-
-        Brown ->
-            "Brown"
-
-        Purple ->
-            "Purple"
-
-        Pink ->
-            "Pink"
-
-        Yellow ->
-            "Yellow"
 
 
 colorToElColor : Color -> Element.Color

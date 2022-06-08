@@ -1,8 +1,7 @@
 module Tests exposing (..)
 
 import Collision
-import Expect exposing (Expectation)
-import Fuzz exposing (Fuzzer, int, list, string)
+import Expect
 import Length
 import LineSegment2d
 import Point2d
