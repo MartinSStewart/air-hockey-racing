@@ -89,6 +89,13 @@ app =
         )
 
 
+getLocalState : MatchSetupPage_ -> MatchSetup
+getLocalState matchPage =
+    NetworkModel.localState
+        (\a b -> MatchSetup.matchSetupUpdate a b |> Maybe.withDefault b)
+        matchPage.networkModel
+
+
 audio : AudioData -> FrontendModel_ -> Audio
 audio audioData model =
     (case model of
@@ -98,14 +105,7 @@ audio audioData model =
         Loaded loaded ->
             case loaded.page of
                 MatchPage matchPage ->
-                    let
-                        localState : MatchSetup
-                        localState =
-                            NetworkModel.localState
-                                (\a b -> MatchSetup.matchSetupUpdate a b |> Maybe.withDefault b)
-                                matchPage.networkModel
-                    in
-                    case ( MatchSetup.getMatch localState, matchPage.matchData ) of
+                    case ( MatchSetup.getMatch (getLocalState matchPage), matchPage.matchData ) of
                         ( Just match, MatchData matchData ) ->
                             let
                                 ( _, state ) =
@@ -286,14 +286,7 @@ updateLoaded msg model =
             in
             case model2.page of
                 MatchPage matchSetupPage ->
-                    let
-                        matchSetupState : MatchSetup
-                        matchSetupState =
-                            NetworkModel.localState
-                                (\a b -> MatchSetup.matchSetupUpdate a b |> Maybe.withDefault b)
-                                matchSetupPage.networkModel
-                    in
-                    case ( matchSetupPage.matchData, MatchSetup.getMatch matchSetupState ) of
+                    case ( matchSetupPage.matchData, MatchSetup.getMatch (getLocalState matchSetupPage) ) of
                         ( MatchData matchData, Just match ) ->
                             let
                                 --newZoom =
@@ -445,15 +438,9 @@ updateLoaded msg model =
                                                     matchPage.matchData
 
                                                 MatchSetupData matchSetupData ->
-                                                    let
-                                                        matchSetup =
-                                                            NetworkModel.localState
-                                                                (\a b -> MatchSetup.matchSetupUpdate a b |> Maybe.withDefault b)
-                                                                matchPage.networkModel
-                                                    in
                                                     { matchSetupData
                                                         | matchName =
-                                                            MatchSetup.name matchSetup
+                                                            MatchSetup.name (getLocalState matchPage)
                                                                 |> MatchName.toString
                                                     }
                                                         |> MatchSetupData
@@ -1001,14 +988,14 @@ view audioData model =
     { title =
         case model of
             Loading _ ->
-                "Hockey Puck Racer"
+                "Air Hockey Racing"
 
             Loaded loadedModel ->
                 if lostConnection loadedModel then
-                    "(offline) Hockey Puck Racer"
+                    "(offline) Air Hockey Racing"
 
                 else
-                    "Hockey Puck Racer"
+                    "Air Hockey Racing"
     , body =
         [ case model of
             Loading loading ->
@@ -1136,9 +1123,7 @@ matchSetupView model matchSetup =
     let
         lobby : MatchSetup
         lobby =
-            NetworkModel.localState
-                (\a b -> MatchSetup.matchSetupUpdate a b |> Maybe.withDefault b)
-                matchSetup.networkModel
+            getLocalState matchSetup
 
         matchName : String
         matchName =
@@ -1147,13 +1132,9 @@ matchSetupView model matchSetup =
         users : List ( Id UserId, PlayerData )
         users =
             MatchSetup.allUsers lobby |> List.Nonempty.toList
-
-        maybeCurrentPlayerData : Maybe PlayerData
-        maybeCurrentPlayerData =
-            MatchSetup.allUsers_ lobby |> Dict.get model.userId
     in
-    case ( MatchSetup.getMatch lobby, matchSetup.matchData ) of
-        ( Just match, MatchData matchData ) ->
+    case ( MatchSetup.getMatch lobby, matchSetup.matchData, MatchSetup.allUsers_ lobby |> Dict.get model.userId ) of
+        ( Just match, MatchData matchData, _ ) ->
             let
                 ( _, matchState ) =
                     Timeline.getStateAt
@@ -1180,7 +1161,7 @@ matchSetupView model matchSetup =
                 (placementText matchState model)
                 |> Element.map MatchMsg
 
-        ( Nothing, MatchSetupData matchSetupData ) ->
+        ( Nothing, MatchSetupData matchSetupData, Just currentPlayerData ) ->
             Element.column
                 [ Element.spacing 8, Element.padding 16, Element.height Element.fill ]
                 [ if MatchSetup.isOwner model.userId lobby then
@@ -1223,64 +1204,59 @@ matchSetupView model matchSetup =
                   else
                     Element.none
                 , button PressedLeaveMatchSetup (Element.text "Leave")
-                , case maybeCurrentPlayerData of
-                    Just currentPlayerData ->
-                        Element.column
-                            [ Element.spacing 8 ]
-                            [ case currentPlayerData.mode of
+                , Element.column
+                    [ Element.spacing 8 ]
+                    [ case currentPlayerData.mode of
+                        PlayerMode ->
+                            button (PressedPlayerMode SpectatorMode) (Element.text "Switch to spectator")
+
+                        SpectatorMode ->
+                            button (PressedPlayerMode PlayerMode) (Element.text "Switch to player")
+                    , Element.column
+                        [ Element.spacing 8
+                        , Element.alpha
+                            (case currentPlayerData.mode of
                                 PlayerMode ->
-                                    button (PressedPlayerMode SpectatorMode) (Element.text "Switch to spectator")
+                                    1
 
                                 SpectatorMode ->
-                                    button (PressedPlayerMode PlayerMode) (Element.text "Switch to player")
-                            , Element.column
-                                [ Element.spacing 8
-                                , Element.alpha
-                                    (case currentPlayerData.mode of
-                                        PlayerMode ->
-                                            1
-
-                                        SpectatorMode ->
-                                            0.5
-                                    )
-                                ]
-                                [ Element.column
-                                    [ Element.spacing 4 ]
-                                    [ Element.text "Primary color"
-                                    , colorSelector PressedPrimaryColor currentPlayerData.primaryColor
-                                    ]
-                                , Element.column
-                                    [ Element.spacing 4 ]
-                                    [ Element.text "Secondary color"
-                                    , colorSelector PressedSecondaryColor currentPlayerData.secondaryColor
-                                    ]
-                                , Element.column
-                                    [ Element.spacing 4 ]
-                                    [ Element.text "Decal"
-                                    , List.map
-                                        (\decal ->
-                                            Ui.button
-                                                [ Element.padding 4
-                                                , Element.Background.color
-                                                    (if decal == currentPlayerData.decal then
-                                                        Element.rgb 0.6 0.7 1
-
-                                                     else
-                                                        Element.rgb 0.8 0.8 0.8
-                                                    )
-                                                ]
-                                                { onPress = PressedDecal decal
-                                                , label = Decal.toString decal |> Element.text
-                                                }
-                                        )
-                                        Decal.allDecals
-                                        |> Element.row [ Element.spacing 8 ]
-                                    ]
-                                ]
+                                    0.5
+                            )
+                        ]
+                        [ Element.column
+                            [ Element.spacing 4 ]
+                            [ Element.text "Primary color"
+                            , colorSelector PressedPrimaryColor currentPlayerData.primaryColor
                             ]
+                        , Element.column
+                            [ Element.spacing 4 ]
+                            [ Element.text "Secondary color"
+                            , colorSelector PressedSecondaryColor currentPlayerData.secondaryColor
+                            ]
+                        , Element.column
+                            [ Element.spacing 4 ]
+                            [ Element.text "Decal"
+                            , List.map
+                                (\decal ->
+                                    Ui.button
+                                        [ Element.padding 4
+                                        , Element.Background.color
+                                            (if decal == currentPlayerData.decal then
+                                                Element.rgb 0.6 0.7 1
 
-                    Nothing ->
-                        Element.none
+                                             else
+                                                Element.rgb 0.8 0.8 0.8
+                                            )
+                                        ]
+                                        { onPress = PressedDecal decal
+                                        , label = Decal.toString decal |> Element.text
+                                        }
+                                )
+                                Decal.allDecals
+                                |> Element.row [ Element.spacing 8 ]
+                            ]
+                        ]
+                    ]
                 , Element.row
                     [ Element.spacing 16, Element.width Element.fill, Element.height Element.fill ]
                     [ Element.column
@@ -1700,13 +1676,7 @@ canvasView model =
         ]
         (case model.page of
             MatchPage matchSetup ->
-                let
-                    matchSetupState =
-                        NetworkModel.localState
-                            (\a b -> MatchSetup.matchSetupUpdate a b |> Maybe.withDefault b)
-                            matchSetup.networkModel
-                in
-                case ( MatchSetup.getMatch matchSetupState, matchSetup.matchData ) of
+                case ( MatchSetup.getMatch (getLocalState matchSetup), matchSetup.matchData ) of
                     ( Just match, MatchData matchData ) ->
                         let
                             ( _, state ) =
