@@ -4,6 +4,7 @@ module MatchSetup exposing
     , MatchSetup
     , MatchSetupMsg(..)
     , MatchState
+    , Place(..)
     , Player
     , PlayerData
     , PlayerMode(..)
@@ -61,7 +62,13 @@ type alias MatchSetupData =
     , users : Dict (Id UserId) PlayerData
     , match : Maybe Match
     , messages : List { userId : Id UserId, message : TextMessage }
+    , previousMatch : Maybe (Dict (Id UserId) Place)
     }
+
+
+type Place
+    = Finished (Id FrameId)
+    | DidNotFinish
 
 
 type alias TimelineEvent =
@@ -78,7 +85,7 @@ type alias Player =
     , rotationalVelocity : Angle
     , rotation : Angle
     , input : Maybe (Direction2d WorldCoordinate)
-    , finishTime : Maybe (Id FrameId)
+    , finishTime : Place
     , lastCollision : Maybe (Id FrameId)
     }
 
@@ -106,7 +113,7 @@ type MatchSetupMsg
     | MatchInputRequest ServerTime (Maybe (Direction2d WorldCoordinate))
     | SetMatchName MatchName
     | SendTextMessage TextMessage
-    | MatchFinished
+    | MatchFinished (Dict (Id UserId) Place)
 
 
 type ServerTime
@@ -146,6 +153,7 @@ init owner =
     , users = Dict.empty
     , match = Nothing
     , messages = []
+    , previousMatch = Nothing
     }
         |> MatchSetup
 
@@ -262,13 +270,20 @@ matchSetupUpdate { userId, msg } match =
         SendTextMessage message ->
             sendTextMessage userId message match |> Just
 
-        MatchFinished ->
-            matchFinished match |> Just
+        MatchFinished placements ->
+            matchFinished placements match |> Just
 
 
-matchFinished : MatchSetup -> MatchSetup
-matchFinished (MatchSetup matchSetup) =
-    MatchSetup { matchSetup | match = Nothing }
+matchFinished : Dict (Id UserId) Place -> MatchSetup -> MatchSetup
+matchFinished placements (MatchSetup matchSetup) =
+    (case matchSetup.match of
+        Just _ ->
+            { matchSetup | match = Nothing, previousMatch = Just placements }
+
+        Nothing ->
+            matchSetup
+    )
+        |> MatchSetup
 
 
 sendTextMessage : Id UserId -> TextMessage -> MatchSetup -> MatchSetup

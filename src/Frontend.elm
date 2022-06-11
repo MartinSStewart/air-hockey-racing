@@ -43,7 +43,7 @@ import LineSegment2d exposing (LineSegment2d)
 import List.Extra as List
 import List.Nonempty exposing (Nonempty)
 import MatchName
-import MatchSetup exposing (LobbyPreview, Match, MatchSetup, MatchSetupMsg, MatchState, Player, PlayerData, PlayerMode(..), ServerTime(..), TimelineEvent, WorldCoordinate)
+import MatchSetup exposing (LobbyPreview, Match, MatchSetup, MatchSetupMsg, MatchState, Place(..), Player, PlayerData, PlayerMode(..), ServerTime(..), TimelineEvent, WorldCoordinate)
 import Math.Matrix4 as Mat4 exposing (Mat4)
 import Math.Vector2 exposing (Vec2)
 import Math.Vector3 exposing (Vec3)
@@ -358,7 +358,14 @@ updateLoaded msg model =
                                         of
                                             ( Just timeLeft, Just previousTimeLeft ) ->
                                                 if Quantity.lessThanZero timeLeft && not (Quantity.lessThanZero previousTimeLeft) then
-                                                    matchSetupUpdate MatchSetup.MatchFinished model4
+                                                    matchSetupUpdate
+                                                        (MatchSetup.MatchFinished
+                                                            (Dict.map
+                                                                (\_ player -> player.finishTime)
+                                                                matchState.players
+                                                            )
+                                                        )
+                                                        model4
                                                         |> Tuple.mapSecond (\cmd2 -> Command.batch [ cmd, cmd2, scrollToBottom ])
 
                                                 else
@@ -543,13 +550,13 @@ matchTimeLeft currentFrameId matchState =
                 |> List.filterMap
                     (\( _, player ) ->
                         case player.finishTime of
-                            Just finishTime ->
+                            Finished finishTime ->
                                 Quantity.multiplyBy
                                     (Id.toInt currentFrameId - Id.toInt finishTime |> toFloat)
                                     MatchSetup.frameDuration
                                     |> Just
 
-                            Nothing ->
+                            DidNotFinish ->
                                 Nothing
                     )
 
@@ -1086,7 +1093,7 @@ initMatch userIds =
                       , rotationalVelocity = Quantity.zero
                       , rotation = Quantity.zero
                       , input = Nothing
-                      , finishTime = Nothing
+                      , finishTime = DidNotFinish
                       , lastCollision = Nothing
                       }
                     )
@@ -1101,7 +1108,7 @@ lostConnection model =
 
 
 view : AudioData -> FrontendModel_ -> Browser.Document FrontendMsg_
-view audioData model =
+view _ model =
     { title =
         case model of
             Loading _ ->
@@ -1445,10 +1452,10 @@ placementText match matchState model =
                 |> List.filterMap
                     (\( userId, player ) ->
                         case player.finishTime of
-                            Just finishTime ->
+                            Finished finishTime ->
                                 Just ( userId, finishTime )
 
-                            Nothing ->
+                            DidNotFinish ->
                                 Nothing
                     )
                 |> List.sortBy (Tuple.second >> Id.toInt)
@@ -1858,10 +1865,10 @@ canvasView model =
                             ++ (case ( Dict.get model.userId state.players, input ) of
                                     ( Just player, Just direction ) ->
                                         case player.finishTime of
-                                            Just _ ->
+                                            Finished _ ->
                                                 []
 
-                                            Nothing ->
+                                            DidNotFinish ->
                                                 [ WebGL.entityWith
                                                     [ WebGL.Settings.cullFace WebGL.Settings.back ]
                                                     vertexShader
@@ -2053,9 +2060,6 @@ pointToVec point2d =
 gameUpdate : Id FrameId -> List TimelineEvent -> MatchState -> MatchState
 gameUpdate frameId inputs model =
     let
-        elapsed =
-            Quantity.multiplyBy (Id.toInt frameId |> toFloat) MatchSetup.frameDuration
-
         newModel : { players : Dict (Id UserId) Player }
         newModel =
             List.foldl
@@ -2065,141 +2069,151 @@ gameUpdate frameId inputs model =
                 model
                 inputs
 
-        checkFinish : Player -> Maybe (Id FrameId)
-        checkFinish player =
-            case player.finishTime of
-                Just _ ->
-                    player.finishTime
-
-                Nothing ->
-                    if BoundingBox2d.contains player.position finishLine then
-                        Just frameId
-
-                    else
-                        player.finishTime
-
-        updatedVelocities =
-            Dict.map
-                (\_ a ->
-                    let
-                        nearestCollision :
-                            Maybe
-                                { collisionVelocity : Vector2d Meters WorldCoordinate
-                                , collisionPosition : Point2d Meters WorldCoordinate
-                                }
-                        nearestCollision =
-                            getCollisionCandidates a.position
-                                |> Set.toList
-                                |> List.filterMap
-                                    (\line ->
-                                        let
-                                            lineCollision =
-                                                Collision.circleLine playerRadius a.position a.velocity line
-                                        in
-                                        case ( lineCollision, LineSegment2d.direction line ) of
-                                            ( Just collisionPosition, Just lineDirection ) ->
-                                                { collisionPosition = collisionPosition
-                                                , collisionVelocity =
-                                                    Vector2d.mirrorAcross
-                                                        (Axis2d.withDirection lineDirection (LineSegment2d.startPoint line))
-                                                        newVelocity
-                                                }
-                                                    |> Just
-
-                                            _ ->
-                                                let
-                                                    point : Point2d Meters WorldCoordinate
-                                                    point =
-                                                        LineSegment2d.startPoint line
-                                                in
-                                                case Collision.circlePoint playerRadius a.position a.velocity point of
-                                                    Just collisionPoint ->
-                                                        case Direction2d.from collisionPoint point of
-                                                            Just direction ->
-                                                                { collisionPosition = collisionPoint
-                                                                , collisionVelocity =
-                                                                    Vector2d.mirrorAcross
-                                                                        (Axis2d.withDirection
-                                                                            (Direction2d.perpendicularTo direction)
-                                                                            collisionPoint
-                                                                        )
-                                                                        newVelocity
-                                                                }
-                                                                    |> Just
-
-                                                            Nothing ->
-                                                                Nothing
-
-                                                    Nothing ->
-                                                        Nothing
-                                    )
-                                |> Quantity.sortBy (.collisionPosition >> Point2d.distanceFrom a.position)
-                                |> List.head
-
-                        newVelocity : Vector2d Meters WorldCoordinate
-                        newVelocity =
-                            (case ( a.finishTime, a.input, elapsed |> Quantity.lessThan countdownDelay ) of
-                                ( Nothing, Just input, False ) ->
-                                    Direction2d.toVector input
-                                        |> Vector2d.scaleBy 0.2
-                                        |> Vector2d.unwrap
-                                        |> Vector2d.unsafe
-
-                                _ ->
-                                    Vector2d.zero
-                            )
-                                |> Vector2d.plus a.velocity
-                                |> Vector2d.scaleBy 0.99
-                    in
-                    case nearestCollision of
-                        Just { collisionVelocity, collisionPosition } ->
-                            let
-                                angleChange : Angle
-                                angleChange =
-                                    Maybe.map2 Direction2d.angleFrom
-                                        (Vector2d.direction collisionVelocity)
-                                        (Vector2d.direction a.velocity)
-                                        |> Maybe.withDefault (Angle.turns 0.5)
-                            in
-                            { position = collisionPosition
-                            , velocity = collisionVelocity
-                            , rotation = Quantity.plus a.rotation a.rotationalVelocity
-                            , rotationalVelocity =
-                                Angle.turns 0.5
-                                    |> Quantity.minus (Quantity.abs angleChange)
-                                    |> Quantity.multiplyBy
-                                        (if Quantity.lessThanZero angleChange then
-                                            -0.01 * Length.inMeters (Vector2d.length collisionVelocity)
-
-                                         else
-                                            0.01 * Length.inMeters (Vector2d.length collisionVelocity)
-                                        )
-                            , finishTime = checkFinish a
-                            , input = a.input
-                            , lastCollision = Just frameId
-                            }
-
-                        Nothing ->
-                            { position = Point2d.translateBy a.velocity a.position
-                            , velocity = newVelocity
-                            , rotation = Quantity.plus a.rotation a.rotationalVelocity
-                            , rotationalVelocity = Quantity.multiplyBy 0.995 a.rotationalVelocity
-                            , finishTime = checkFinish a
-                            , input = a.input
-                            , lastCollision = a.lastCollision
-                            }
-                )
-                newModel.players
+        updatedVelocities_ : Dict (Id UserId) Player
+        updatedVelocities_ =
+            updateVelocities frameId newModel.players
     in
     { players =
         Dict.map
             (\id player ->
-                Dict.remove id updatedVelocities
+                Dict.remove id updatedVelocities_
                     |> Dict.values
                     |> List.foldl (\a b -> handleCollision frameId b a |> Tuple.first) player
             )
-            updatedVelocities
+            updatedVelocities_
     }
+
+
+updateVelocities : Id FrameId -> Dict (Id UserId) Player -> Dict (Id UserId) Player
+updateVelocities frameId players =
+    let
+        checkFinish : Player -> Place
+        checkFinish player =
+            case player.finishTime of
+                Finished _ ->
+                    player.finishTime
+
+                DidNotFinish ->
+                    if BoundingBox2d.contains player.position finishLine then
+                        Finished frameId
+
+                    else
+                        player.finishTime
+
+        elapsed =
+            Quantity.multiplyBy (Id.toInt frameId |> toFloat) MatchSetup.frameDuration
+    in
+    Dict.map
+        (\_ a ->
+            let
+                nearestCollision :
+                    Maybe
+                        { collisionVelocity : Vector2d Meters WorldCoordinate
+                        , collisionPosition : Point2d Meters WorldCoordinate
+                        }
+                nearestCollision =
+                    getCollisionCandidates a.position
+                        |> Set.toList
+                        |> List.filterMap
+                            (\line ->
+                                let
+                                    lineCollision =
+                                        Collision.circleLine playerRadius a.position a.velocity line
+                                in
+                                case ( lineCollision, LineSegment2d.direction line ) of
+                                    ( Just collisionPosition, Just lineDirection ) ->
+                                        { collisionPosition = collisionPosition
+                                        , collisionVelocity =
+                                            Vector2d.mirrorAcross
+                                                (Axis2d.withDirection lineDirection (LineSegment2d.startPoint line))
+                                                newVelocity
+                                        }
+                                            |> Just
+
+                                    _ ->
+                                        let
+                                            point : Point2d Meters WorldCoordinate
+                                            point =
+                                                LineSegment2d.startPoint line
+                                        in
+                                        case Collision.circlePoint playerRadius a.position a.velocity point of
+                                            Just collisionPoint ->
+                                                case Direction2d.from collisionPoint point of
+                                                    Just direction ->
+                                                        { collisionPosition = collisionPoint
+                                                        , collisionVelocity =
+                                                            Vector2d.mirrorAcross
+                                                                (Axis2d.withDirection
+                                                                    (Direction2d.perpendicularTo direction)
+                                                                    collisionPoint
+                                                                )
+                                                                newVelocity
+                                                        }
+                                                            |> Just
+
+                                                    Nothing ->
+                                                        Nothing
+
+                                            Nothing ->
+                                                Nothing
+                            )
+                        |> Quantity.sortBy (.collisionPosition >> Point2d.distanceFrom a.position)
+                        |> List.head
+
+                newVelocity : Vector2d Meters WorldCoordinate
+                newVelocity =
+                    (case ( a.finishTime, a.input, elapsed |> Quantity.lessThan countdownDelay ) of
+                        ( DidNotFinish, Just input, False ) ->
+                            Direction2d.toVector input
+                                |> Vector2d.scaleBy 0.2
+                                |> Vector2d.unwrap
+                                |> Vector2d.unsafe
+
+                        _ ->
+                            Vector2d.zero
+                    )
+                        |> Vector2d.plus a.velocity
+                        |> Vector2d.scaleBy 0.99
+            in
+            case nearestCollision of
+                Just { collisionVelocity, collisionPosition } ->
+                    let
+                        angleChange : Angle
+                        angleChange =
+                            Maybe.map2 Direction2d.angleFrom
+                                (Vector2d.direction collisionVelocity)
+                                (Vector2d.direction a.velocity)
+                                |> Maybe.withDefault (Angle.turns 0.5)
+                    in
+                    { position = collisionPosition
+                    , velocity = collisionVelocity
+                    , rotation = Quantity.plus a.rotation a.rotationalVelocity
+                    , rotationalVelocity =
+                        Angle.turns 0.5
+                            |> Quantity.minus (Quantity.abs angleChange)
+                            |> Quantity.multiplyBy
+                                (if Quantity.lessThanZero angleChange then
+                                    -0.01 * Length.inMeters (Vector2d.length collisionVelocity)
+
+                                 else
+                                    0.01 * Length.inMeters (Vector2d.length collisionVelocity)
+                                )
+                    , finishTime = checkFinish a
+                    , input = a.input
+                    , lastCollision = Just frameId
+                    }
+
+                Nothing ->
+                    { position = Point2d.translateBy a.velocity a.position
+                    , velocity = newVelocity
+                    , rotation = Quantity.plus a.rotation a.rotationalVelocity
+                    , rotationalVelocity = Quantity.multiplyBy 0.995 a.rotationalVelocity
+                    , finishTime = checkFinish a
+                    , input = a.input
+                    , lastCollision = a.lastCollision
+                    }
+        )
+        players
 
 
 playerRadius : Length
