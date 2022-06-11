@@ -93,7 +93,7 @@ getStateAt updateFunc frame timelineCache timeline =
             newCache
                 ++ timelineCache.cache
                 |> List.sortBy (Tuple.first >> Id.toInt >> negate)
-                |> List.take 120
+                |> List.take 180
       }
     , finalState
     )

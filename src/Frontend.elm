@@ -43,7 +43,7 @@ import LineSegment2d exposing (LineSegment2d)
 import List.Extra as List
 import List.Nonempty exposing (Nonempty)
 import MatchName
-import MatchSetup exposing (LobbyPreview, Match, MatchSetup, MatchSetupMsg, MatchState, Player, PlayerData, PlayerMode(..), TimelineEvent, WorldCoordinate)
+import MatchSetup exposing (LobbyPreview, Match, MatchSetup, MatchSetupMsg, MatchState, Player, PlayerData, PlayerMode(..), ServerTime(..), TimelineEvent, WorldCoordinate)
 import Math.Matrix4 as Mat4 exposing (Mat4)
 import Math.Vector2 exposing (Vec2)
 import Math.Vector3 exposing (Vec3)
@@ -133,8 +133,8 @@ audio audioData model =
                                         let
                                             collisionTime : Time.Posix
                                             collisionTime =
-                                                Quantity.multiplyBy (Id.toInt frameId |> toFloat) frameDuration
-                                                    |> Duration.addTo match.startTime
+                                                Quantity.multiplyBy (Id.toInt frameId |> toFloat) MatchSetup.frameDuration
+                                                    |> Duration.addTo (MatchSetup.unwrapServerTime match.startTime)
                                                     |> (\a -> Duration.subtractFrom a (pingOffset loaded))
                                                     |> (\a -> Duration.subtractFrom a loaded.debugTimeOffset)
                                         in
@@ -348,7 +348,7 @@ updateLoaded msg model =
                                 ( model3, Command.none )
 
                              else
-                                matchSetupUpdate (MatchSetup.MatchInputRequest currentFrameId input) model3
+                                matchSetupUpdate (MatchSetup.MatchInputRequest (timeToServerTime model3) input) model3
                             )
                                 |> (\( model4, cmd ) ->
                                         case
@@ -359,7 +359,7 @@ updateLoaded msg model =
                                             ( Just timeLeft, Just previousTimeLeft ) ->
                                                 if Quantity.lessThanZero timeLeft && not (Quantity.lessThanZero previousTimeLeft) then
                                                     matchSetupUpdate MatchSetup.MatchFinished model4
-                                                        |> Tuple.mapSecond (\cmd2 -> Command.batch [ cmd, cmd2 ])
+                                                        |> Tuple.mapSecond (\cmd2 -> Command.batch [ cmd, cmd2, scrollToBottom ])
 
                                                 else
                                                     ( model4, cmd )
@@ -395,7 +395,9 @@ updateLoaded msg model =
             ( model, Effect.Lamdera.sendToBackend CreateMatchRequest )
 
         PressedJoinLobby lobbyId ->
-            ( model, MatchSetupRequest lobbyId MatchSetup.JoinMatchSetup |> Effect.Lamdera.sendToBackend )
+            ( model
+            , MatchSetupRequest lobbyId (Id.fromInt -1) MatchSetup.JoinMatchSetup |> Effect.Lamdera.sendToBackend
+            )
 
         SoundLoaded _ _ ->
             -- Shouldn't happen
@@ -544,7 +546,7 @@ matchTimeLeft currentFrameId matchState =
                             Just finishTime ->
                                 Quantity.multiplyBy
                                     (Id.toInt currentFrameId - Id.toInt finishTime |> toFloat)
-                                    frameDuration
+                                    MatchSetup.frameDuration
                                     |> Just
 
                             Nothing ->
@@ -589,8 +591,7 @@ matchSetupUpdate msg model =
 
         MatchPage matchSetup ->
             let
-                newNetworkModel : NetworkModel { userId : Id UserId, msg : MatchSetupMsg } MatchSetup
-                newNetworkModel =
+                { eventId, newNetworkModel } =
                     NetworkModel.updateFromUser { userId = model.userId, msg = msg } matchSetup.networkModel
             in
             ( { model
@@ -606,7 +607,7 @@ matchSetupUpdate msg model =
                     }
                         |> MatchPage
               }
-            , MatchSetupRequest matchSetup.lobbyId msg |> Effect.Lamdera.sendToBackend
+            , MatchSetupRequest matchSetup.lobbyId eventId msg |> Effect.Lamdera.sendToBackend
             )
 
 
@@ -675,15 +676,16 @@ getInputDirection windowSize keys maybeTouchPosition =
 timeToFrameId : FrontendLoaded -> Match -> Id FrameId
 timeToFrameId model match =
     timeToServerTime model
-        |> Duration.from match.startTime
-        |> (\a -> Quantity.ratio a frameDuration)
+        |> MatchSetup.unwrapServerTime
+        |> Duration.from (MatchSetup.unwrapServerTime match.startTime)
+        |> (\a -> Quantity.ratio a MatchSetup.frameDuration)
         |> round
         |> Id.fromInt
 
 
-timeToServerTime : FrontendLoaded -> Time.Posix
+timeToServerTime : FrontendLoaded -> ServerTime
 timeToServerTime model =
-    pingOffset model |> Duration.addTo (actualTime model)
+    pingOffset model |> Duration.addTo (actualTime model) |> ServerTime
 
 
 pingOffset : FrontendLoaded -> Duration
@@ -696,11 +698,6 @@ pingOffset model =
 
         Nothing ->
             Quantity.zero
-
-
-frameDuration : Duration
-frameDuration =
-    Duration.seconds (1 / 60)
 
 
 windowResizedUpdate : WindowSize -> { b | windowSize : WindowSize } -> ( { b | windowSize : WindowSize }, Command FrontendOnly toMsg FrontendMsg_ )
@@ -825,19 +822,22 @@ updateLoadedFromBackend msg model =
 
                         {- The time stored in the model is potentially out of date by an animation frame. We want to make sure our high estimate overestimates rather than underestimates the true time so we add an extra animation frame here. -}
                         localTimeHighEstimate =
-                            Duration.addTo (actualTime model) frameDuration
+                            Duration.addTo (actualTime model) MatchSetup.frameDuration
+
+                        serverTime2 =
+                            MatchSetup.unwrapServerTime serverTime
 
                         ( newLowEstimate, newHighEstimate, pingCount ) =
                             case model.pingData of
                                 Just oldPingData ->
-                                    ( Duration.from serverTime pingStartTime |> Quantity.max oldPingData.lowEstimate
-                                    , Duration.from serverTime localTimeHighEstimate |> Quantity.min oldPingData.highEstimate
+                                    ( Duration.from serverTime2 pingStartTime |> Quantity.max oldPingData.lowEstimate
+                                    , Duration.from serverTime2 localTimeHighEstimate |> Quantity.min oldPingData.highEstimate
                                     , oldPingData.pingCount + 1
                                     )
 
                                 Nothing ->
-                                    ( Duration.from serverTime pingStartTime
-                                    , Duration.from serverTime localTimeHighEstimate
+                                    ( Duration.from serverTime2 pingStartTime
+                                    , Duration.from serverTime2 localTimeHighEstimate
                                     , 1
                                     )
                     in
@@ -852,7 +852,7 @@ updateLoadedFromBackend msg model =
                                     { roundTripTime = Duration.from pingStartTime (actualTime model)
                                     , lowEstimate = newLowEstimate
                                     , highEstimate = newHighEstimate
-                                    , serverTime = serverTime
+                                    , serverTime = serverTime2
                                     , sendTime = pingStartTime
                                     , receiveTime = actualTime model
                                     , pingCount = pingCount
@@ -874,7 +874,7 @@ updateLoadedFromBackend msg model =
                 Nothing ->
                     ( model, Command.none )
 
-        MatchSetupBroadcast lobbyId userId matchSetupMsg maybeLobbyData ->
+        MatchSetupBroadcast lobbyId userId matchSetupMsg ->
             case model.page of
                 MatchPage matchSetup ->
                     let
@@ -885,6 +885,7 @@ updateLoadedFromBackend msg model =
                                     newNetworkModel =
                                         NetworkModel.updateFromBackend
                                             (\a b -> MatchSetup.matchSetupUpdate a b |> Maybe.withDefault b)
+                                            Nothing
                                             { userId = userId, msg = matchSetupMsg }
                                             matchSetup.networkModel
                                 in
@@ -903,11 +904,8 @@ updateLoadedFromBackend msg model =
                             )
                                 |> MatchPage
                     in
-                    case ( userId == model.userId, maybeLobbyData, matchSetupMsg ) of
-                        ( True, Just lobbyData, MatchSetup.LeaveMatchSetup ) ->
-                            ( { model | page = LobbyPage lobbyData }, Command.none )
-
-                        ( False, _, MatchSetup.SendTextMessage _ ) ->
+                    case matchSetupMsg of
+                        MatchSetup.SendTextMessage _ ->
                             ( { model | page = updateHelper }, scrollToBottom )
 
                         _ ->
@@ -925,6 +923,46 @@ updateLoadedFromBackend msg model =
                     model
             , Command.none
             )
+
+        MatchSetupResponse lobbyId userId matchSetupMsg maybeLobbyData eventId ->
+            case model.page of
+                MatchPage matchSetup ->
+                    let
+                        updateHelper =
+                            (if lobbyId == matchSetup.lobbyId then
+                                let
+                                    newNetworkModel : NetworkModel { userId : Id UserId, msg : MatchSetupMsg } MatchSetup
+                                    newNetworkModel =
+                                        NetworkModel.updateFromBackend
+                                            (\a b -> MatchSetup.matchSetupUpdate a b |> Maybe.withDefault b)
+                                            (Just eventId)
+                                            { userId = userId, msg = matchSetupMsg }
+                                            matchSetup.networkModel
+                                in
+                                { matchSetup
+                                    | networkModel = newNetworkModel
+                                    , matchData =
+                                        updateMatchData
+                                            (timeToFrameId model)
+                                            newNetworkModel
+                                            matchSetup.networkModel
+                                            matchSetup.matchData
+                                }
+
+                             else
+                                matchSetup
+                            )
+                                |> MatchPage
+                    in
+                    case ( maybeLobbyData, matchSetupMsg ) of
+                        ( Just lobbyData, MatchSetup.LeaveMatchSetup ) ->
+                            ( { model | page = LobbyPage lobbyData }, Command.none )
+
+                        _ ->
+                            ( { model | page = updateHelper }, Command.none )
+
+                LobbyPage _ ->
+                    ( model, Command.none )
 
 
 updateMatchData :
@@ -1108,42 +1146,7 @@ isErr a =
 loadedView : FrontendLoaded -> Html FrontendMsg_
 loadedView model =
     Element.layout
-        [ (if Env.isProduction then
-            Element.none
-
-           else
-            Element.column
-                [ Element.alignRight, Element.padding 4, Element.spacing 4 ]
-                [ Id.toInt model.userId
-                    |> String.fromInt
-                    |> (++) "You are User "
-                    |> Element.text
-                , case model.pingData of
-                    Just pingData ->
-                        Element.column
-                            [ Element.spacing 4 ]
-                            [ "Ping (ms): "
-                                ++ String.fromInt (round (Duration.inMilliseconds pingData.roundTripTime))
-                                |> Element.text
-                            , "Server offset (low): "
-                                ++ String.fromInt (round (Duration.inMilliseconds pingData.lowEstimate))
-                                |> Element.text
-                            , "Server offset (high): "
-                                ++ String.fromInt (round (Duration.inMilliseconds pingData.highEstimate))
-                                |> Element.text
-                            , "Send time: " ++ timestamp pingData.sendTime |> Element.text
-                            , "Receive time: " ++ timestamp pingData.receiveTime |> Element.text
-                            , "Server time: " ++ timestamp pingData.serverTime |> Element.text
-                            ]
-
-                    Nothing ->
-                        Element.text "No ping"
-                ]
-          )
-            |> Element.inFront
-        , canvasView model |> Element.behindContent
-        , Element.clip
-        ]
+        [ canvasView model |> Element.behindContent, Element.clip ]
         (case model.page of
             MatchPage matchSetup ->
                 matchSetupView model matchSetup
@@ -1514,7 +1517,7 @@ placementText match matchState model =
                         , Element.Font.bold
                         , Element.centerX
                         ]
-                , Quantity.multiplyBy (Id.toInt finish.finishTime |> toFloat) frameDuration
+                , Quantity.multiplyBy (Id.toInt finish.finishTime |> toFloat) MatchSetup.frameDuration
                     |> timestamp_
                     |> Element.text
                     |> Element.el [ Element.centerX, Element.Font.bold, Element.Font.size 24 ]
@@ -1550,7 +1553,7 @@ countdown model match =
     let
         elapsed : Duration
         elapsed =
-            Quantity.multiplyBy (timeToFrameId model match |> Id.toInt |> toFloat) frameDuration
+            Quantity.multiplyBy (timeToFrameId model match |> Id.toInt |> toFloat) MatchSetup.frameDuration
 
         countdownValue =
             Duration.inSeconds elapsed |> floor |> (-) 3
@@ -1920,7 +1923,7 @@ wall =
 
 playerStart : Point2d Meters WorldCoordinate
 playerStart =
-    Point2d.fromMeters { x = 2300, y = 1000 }
+    Point2d.fromMeters { x = 2300, y = 800 }
 
 
 wallSegments : List (LineSegment2d Meters WorldCoordinate)
@@ -2051,7 +2054,7 @@ gameUpdate : Id FrameId -> List TimelineEvent -> MatchState -> MatchState
 gameUpdate frameId inputs model =
     let
         elapsed =
-            Quantity.multiplyBy (Id.toInt frameId |> toFloat) frameDuration
+            Quantity.multiplyBy (Id.toInt frameId |> toFloat) MatchSetup.frameDuration
 
         newModel : { players : Dict (Id UserId) Player }
         newModel =

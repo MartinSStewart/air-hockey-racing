@@ -40,10 +40,10 @@ import Html.Events.Extra.Touch
 import Id exposing (Id)
 import Keyboard
 import MatchName exposing (MatchName)
-import MatchSetup exposing (LobbyPreview, MatchSetup, MatchSetupMsg, MatchState, PlayerMode)
+import MatchSetup exposing (LobbyPreview, MatchSetup, MatchSetupMsg, MatchState, PlayerMode, ServerTime)
 import Math.Vector2 exposing (Vec2)
 import Math.Vector3 exposing (Vec3)
-import NetworkModel exposing (NetworkModel)
+import NetworkModel exposing (EventId, NetworkModel)
 import Pixels exposing (Pixels)
 import Point2d exposing (Point2d)
 import Quantity exposing (Quantity, Rate)
@@ -208,14 +208,15 @@ type LobbyId
 
 type ToBackend
     = CreateMatchRequest
-    | MatchSetupRequest (Id LobbyId) MatchSetupMsg
+    | MatchSetupRequest (Id LobbyId) (Id EventId) MatchSetupMsg
     | PingRequest
 
 
 type BackendMsg
     = ClientConnected SessionId ClientId
     | ClientDisconnected SessionId ClientId
-    | GotTimeForUpdateFromFrontend SessionId ClientId ToBackend Time.Posix
+    | ClientDisconnectedWithTime SessionId ClientId ServerTime
+    | UpdateFromFrontendWithTime SessionId ClientId ToBackend ServerTime
 
 
 type ToFrontend
@@ -224,8 +225,9 @@ type ToFrontend
     | CreateLobbyBroadcast (Id LobbyId) LobbyPreview
     | ClientInit (Id UserId) LobbyData
     | JoinLobbyResponse (Id LobbyId) (Result JoinLobbyError MatchSetup)
-    | PingResponse Time.Posix
-    | MatchSetupBroadcast (Id LobbyId) (Id UserId) MatchSetupMsg (Maybe LobbyData)
+    | PingResponse ServerTime
+    | MatchSetupBroadcast (Id LobbyId) (Id UserId) MatchSetupMsg
+    | MatchSetupResponse (Id LobbyId) (Id UserId) MatchSetupMsg (Maybe LobbyData) (Id EventId)
 
 
 type JoinLobbyError

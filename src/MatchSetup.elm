@@ -7,19 +7,23 @@ module MatchSetup exposing
     , Player
     , PlayerData
     , PlayerMode(..)
+    , ServerTime(..)
     , TimelineEvent
     , WorldCoordinate
     , allUsers
     , allUsers_
+    , clampTime
+    , frameDuration
     , getMatch
     , init
     , isOwner
     , joinUser
     , matchSetupUpdate
-    , maxFrameIdDelay
+    , maxInputDelay
     , messagesOldestToNewest
     , name
     , preview
+    , unwrapServerTime
     )
 
 import Angle exposing (Angle)
@@ -28,11 +32,13 @@ import AssocSet as Set
 import ColorIndex exposing (ColorIndex(..))
 import Decal exposing (Decal)
 import Direction2d exposing (Direction2d)
+import Duration exposing (Duration)
 import Id exposing (Id)
 import Length exposing (Meters)
 import List.Nonempty exposing (Nonempty(..))
 import MatchName exposing (MatchName)
 import Point2d exposing (Point2d)
+import Quantity
 import TextMessage exposing (TextMessage)
 import Time
 import Timeline exposing (FrameId, Timeline)
@@ -86,7 +92,7 @@ type alias PlayerData =
 
 
 type alias Match =
-    { startTime : Time.Posix, timeline : Timeline TimelineEvent }
+    { startTime : ServerTime, timeline : Timeline TimelineEvent }
 
 
 type MatchSetupMsg
@@ -96,11 +102,30 @@ type MatchSetupMsg
     | SetSecondaryColor ColorIndex
     | SetDecal Decal
     | SetPlayerMode PlayerMode
-    | StartMatch Time.Posix
-    | MatchInputRequest (Id FrameId) (Maybe (Direction2d WorldCoordinate))
+    | StartMatch ServerTime
+    | MatchInputRequest ServerTime (Maybe (Direction2d WorldCoordinate))
     | SetMatchName MatchName
     | SendTextMessage TextMessage
     | MatchFinished
+
+
+type ServerTime
+    = ServerTime Time.Posix
+
+
+unwrapServerTime : ServerTime -> Time.Posix
+unwrapServerTime (ServerTime serverTime) =
+    serverTime
+
+
+clampTime : ServerTime -> ServerTime -> ServerTime
+clampTime (ServerTime currentTime) (ServerTime time) =
+    clamp
+        (Time.posixToMillis (Duration.subtractFrom currentTime maxInputDelay))
+        (Time.posixToMillis currentTime)
+        (Time.posixToMillis time)
+        |> Time.millisToPosix
+        |> ServerTime
 
 
 type PlayerMode
@@ -108,9 +133,9 @@ type PlayerMode
     | SpectatorMode
 
 
-maxFrameIdDelay : number
-maxFrameIdDelay =
-    60
+maxInputDelay : Duration
+maxInputDelay =
+    Duration.second
 
 
 init : Id UserId -> MatchSetup
@@ -165,7 +190,7 @@ leaveUser userId (MatchSetup lobby) =
         { lobby | users = Dict.remove userId lobby.users } |> MatchSetup |> Just
 
 
-getMatch : MatchSetup -> Maybe { startTime : Time.Posix, timeline : Timeline TimelineEvent }
+getMatch : MatchSetup -> Maybe { startTime : ServerTime, timeline : Timeline TimelineEvent }
 getMatch (MatchSetup matchSetup) =
     matchSetup.match
 
@@ -224,8 +249,8 @@ matchSetupUpdate { userId, msg } match =
         StartMatch time ->
             startMatch time userId match |> Just
 
-        MatchInputRequest frameId input ->
-            addInput userId frameId input match |> Just
+        MatchInputRequest serverTime input ->
+            addInput userId serverTime input match |> Just
 
         SetMatchName matchName ->
             if isOwner userId match then
@@ -251,7 +276,7 @@ sendTextMessage userId message (MatchSetup match) =
     { match | messages = { userId = userId, message = message } :: match.messages } |> MatchSetup
 
 
-startMatch : Time.Posix -> Id UserId -> MatchSetup -> MatchSetup
+startMatch : ServerTime -> Id UserId -> MatchSetup -> MatchSetup
 startMatch time userId (MatchSetup matchSetup) =
     if matchSetup.owner == userId then
         { matchSetup | match = Just { startTime = time, timeline = Set.empty } }
@@ -266,15 +291,38 @@ setMatchName matchName (MatchSetup matchSetup) =
     { matchSetup | name = matchName } |> MatchSetup
 
 
-addInput : Id UserId -> Id FrameId -> Maybe (Direction2d WorldCoordinate) -> MatchSetup -> MatchSetup
-addInput userId frameId input (MatchSetup matchSetup) =
+frameDuration : Duration
+frameDuration =
+    Duration.seconds (1 / 60)
+
+
+serverTimeToFrameId : ServerTime -> Match -> Id FrameId
+serverTimeToFrameId time match =
+    time
+        |> unwrapServerTime
+        |> Duration.from (unwrapServerTime match.startTime)
+        |> (\a -> Quantity.ratio a frameDuration)
+        |> round
+        |> Id.fromInt
+
+
+addInput : Id UserId -> ServerTime -> Maybe (Direction2d WorldCoordinate) -> MatchSetup -> MatchSetup
+addInput userId serverTime input (MatchSetup matchSetup) =
     { matchSetup
         | match =
             case ( allUsers_ (MatchSetup matchSetup) |> Dict.get userId, matchSetup.match ) of
                 ( Just playerData, Just match ) ->
                     case playerData.mode of
                         PlayerMode ->
-                            Just { match | timeline = Set.insert ( frameId, { userId = userId, input = input } ) match.timeline }
+                            Just
+                                { match
+                                    | timeline =
+                                        Set.insert
+                                            ( serverTimeToFrameId serverTime match
+                                            , { userId = userId, input = input }
+                                            )
+                                            match.timeline
+                                }
 
                         SpectatorMode ->
                             matchSetup.match

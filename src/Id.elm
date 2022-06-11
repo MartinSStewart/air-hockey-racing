@@ -1,4 +1,4 @@
-module Id exposing (Id, decrement, fromInt, toInt)
+module Id exposing (Id, decrement, fromInt, increment, toInt)
 
 
 type Id idType
@@ -13,6 +13,11 @@ fromInt =
 toInt : Id idType -> Int
 toInt (Id id) =
     id
+
+
+increment : Id idType -> Id idType
+increment (Id id) =
+    id + 1 |> Id
 
 
 decrement : Id idType -> Id idType
