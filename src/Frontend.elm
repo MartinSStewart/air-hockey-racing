@@ -54,6 +54,8 @@ import Point2d exposing (Point2d)
 import Polygon2d exposing (Polygon2d)
 import Ports
 import Quantity exposing (Quantity(..), Rate)
+import Random
+import Random.List as Random
 import RasterShapes
 import Sounds exposing (Sounds)
 import TextMessage
@@ -996,9 +998,9 @@ updateMatchData getCurrentFrame newNetworkModel oldNetworkModel oldMatchData =
         newUserIds =
             MatchSetup.allUsers newMatchState
 
-        initHelper : MatchData
-        initHelper =
-            { timelineCache = List.Nonempty.map Tuple.first newUserIds |> initMatch |> Timeline.init
+        initHelper : ServerTime -> MatchData
+        initHelper serverTime =
+            { timelineCache = List.Nonempty.map Tuple.first newUserIds |> initMatch serverTime |> Timeline.init
             , userIds =
                 List.Nonempty.toList newUserIds
                     |> List.filterMap
@@ -1048,10 +1050,10 @@ updateMatchData getCurrentFrame newNetworkModel oldNetworkModel oldMatchData =
                         |> MatchData
 
                 MatchSetupData _ ->
-                    initHelper
+                    initHelper newMatch.startTime
 
-        ( Just _, Nothing ) ->
-            initHelper
+        ( Just newMatch, Nothing ) ->
+            initHelper newMatch.startTime
 
         ( Nothing, Just _ ) ->
             initMatchSetupData newMatchState |> MatchSetupData
@@ -1065,10 +1067,13 @@ actualTime { time, debugTimeOffset } =
     Duration.addTo time debugTimeOffset
 
 
-initMatch : Nonempty (Id UserId) -> MatchState
-initMatch userIds =
+initMatch : ServerTime -> Nonempty (Id UserId) -> MatchState
+initMatch startTime userIds =
     { players =
-        List.Nonempty.toList userIds
+        Random.step
+            (Random.shuffle (List.Nonempty.toList userIds))
+            (MatchSetup.unwrapServerTime startTime |> Time.posixToMillis |> Random.initialSeed)
+            |> Tuple.first
             |> List.indexedMap
                 (\index userId ->
                     let
@@ -1247,13 +1252,38 @@ matchSetupView model matchSetup =
                                 []
                        )
                 )
-                (placementText match matchState model)
+                (matchEndText match matchState model)
                 |> Element.map MatchMsg
 
         ( Nothing, MatchSetupData matchSetupData, Just currentPlayerData ) ->
+            let
+                places : Dict (Id UserId) Int
+                places =
+                    MatchSetup.previousMatchFinishTimes lobby
+                        |> Maybe.withDefault Dict.empty
+                        |> Dict.toList
+                        |> List.filterMap
+                            (\( userId, place ) ->
+                                case place of
+                                    Finished finishTime ->
+                                        ( userId, Id.toInt finishTime ) |> Just
+
+                                    DidNotFinish ->
+                                        Nothing
+                            )
+                        |> List.sortBy Tuple.second
+                        |> List.indexedMap (\index ( userId, _ ) -> ( userId, index + 1 ))
+                        |> Dict.fromList
+            in
             Element.column
                 [ Element.spacing 8, Element.padding 16, Element.height Element.fill ]
-                [ if MatchSetup.isOwner model.userId lobby then
+                [ case Dict.get model.userId places of
+                    Just place ->
+                        placementText place
+
+                    Nothing ->
+                        Element.none
+                , if MatchSetup.isOwner model.userId lobby then
                     Element.row
                         [ Element.spacing 8 ]
                         (Element.Input.text
@@ -1364,6 +1394,13 @@ matchSetupView model matchSetup =
                                                 SpectatorMode ->
                                                     " (spectator)"
                                            )
+                                        ++ (case Dict.get userId places of
+                                                Just place ->
+                                                    " (" ++ placeToText place ++ ")"
+
+                                                Nothing ->
+                                                    ""
+                                           )
                                         |> Element.text
                                 )
                                 users
@@ -1375,7 +1412,7 @@ matchSetupView model matchSetup =
                 |> Element.map MatchSetupMsg
 
         _ ->
-            Element.text "Inconsistent state"
+            Element.text "Loading..."
 
 
 textChat : { matchName : String, message : String } -> MatchSetup -> Element MatchSetupMsg_
@@ -1443,8 +1480,37 @@ textChat matchSetupData lobby =
         ]
 
 
-placementText : Match -> MatchState -> FrontendLoaded -> Element msg
-placementText match matchState model =
+placementText : Int -> Element msg
+placementText place =
+    placeToText place
+        |> Element.text
+        |> Element.el
+            [ Element.Font.size 64
+            , Element.Font.shadow
+                { offset = ( 0, 0 )
+                , blur = 2
+                , color = Element.rgba 0 0 0 1
+                }
+            , Element.Font.color
+                (case place of
+                    1 ->
+                        Element.rgb 1 0.9 0
+
+                    2 ->
+                        Element.rgb 0.79 0.79 0.8
+
+                    3 ->
+                        Element.rgb 0.7 0.5 0.2
+
+                    _ ->
+                        Element.rgb 0 0 0
+                )
+            , Element.Font.bold
+            ]
+
+
+matchEndText : Match -> MatchState -> FrontendLoaded -> Element msg
+matchEndText match matchState model =
     let
         maybeFinish : Maybe { place : Int, userId : Id UserId, finishTime : Id FrameId }
         maybeFinish =
@@ -1461,7 +1527,7 @@ placementText match matchState model =
                 |> List.sortBy (Tuple.second >> Id.toInt)
                 |> List.indexedMap
                     (\index ( userId, finishTime ) ->
-                        { place = index, userId = userId, finishTime = finishTime }
+                        { place = index + 1, userId = userId, finishTime = finishTime }
                     )
                 |> List.find (.userId >> (==) model.userId)
 
@@ -1477,53 +1543,7 @@ placementText match matchState model =
                 , noPointerEvents
                 , Element.moveDown 24
                 ]
-                [ (case finish.place of
-                    0 ->
-                        "Winner!"
-
-                    1 ->
-                        "2nd place!"
-
-                    2 ->
-                        "3rd place!"
-
-                    21 ->
-                        "21st place"
-
-                    22 ->
-                        "22nd place"
-
-                    23 ->
-                        "23rd place"
-
-                    _ ->
-                        String.fromInt (1 + finish.place) ++ "th place"
-                  )
-                    |> Element.text
-                    |> Element.el
-                        [ Element.Font.size 64
-                        , Element.Font.shadow
-                            { offset = ( 0, 0 )
-                            , blur = 2
-                            , color = Element.rgba 0 0 0 1
-                            }
-                        , Element.Font.color
-                            (case finish.place of
-                                0 ->
-                                    Element.rgb 1 0.9 0
-
-                                1 ->
-                                    Element.rgb 0.79 0.79 0.8
-
-                                2 ->
-                                    Element.rgb 0.7 0.5 0.2
-
-                                _ ->
-                                    Element.rgb 0 0 0
-                            )
-                        , Element.Font.bold
-                        , Element.centerX
-                        ]
+                [ Element.el [ Element.centerX ] (placementText finish.place)
                 , Quantity.multiplyBy (Id.toInt finish.finishTime |> toFloat) MatchSetup.frameDuration
                     |> timestamp_
                     |> Element.text
@@ -1549,6 +1569,31 @@ placementText match matchState model =
 
                 Nothing ->
                     Element.none
+
+
+placeToText : Int -> String
+placeToText place =
+    case place of
+        1 ->
+            "Winner!"
+
+        2 ->
+            "2nd place!"
+
+        3 ->
+            "3rd place!"
+
+        21 ->
+            "21st place"
+
+        22 ->
+            "22nd place"
+
+        23 ->
+            "23rd place"
+
+        _ ->
+            String.fromInt place ++ "th place"
 
 
 countdownDelay =

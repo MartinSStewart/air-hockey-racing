@@ -24,6 +24,7 @@ module MatchSetup exposing
     , messagesOldestToNewest
     , name
     , preview
+    , previousMatchFinishTimes
     , unwrapServerTime
     )
 
@@ -118,6 +119,11 @@ type MatchSetupMsg
 
 type ServerTime
     = ServerTime Time.Posix
+
+
+previousMatchFinishTimes : MatchSetup -> Maybe (Dict (Id UserId) Place)
+previousMatchFinishTimes (MatchSetup matchSetup) =
+    matchSetup.previousMatch
 
 
 unwrapServerTime : ServerTime -> Time.Posix
