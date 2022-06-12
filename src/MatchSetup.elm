@@ -25,6 +25,7 @@ module MatchSetup exposing
     , name
     , preview
     , previousMatchFinishTimes
+    , serverTimeToFrameId
     , unwrapServerTime
     )
 

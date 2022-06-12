@@ -179,6 +179,7 @@ type FrontendMsg_
     | MatchSetupMsg MatchSetupMsg_
     | GotTime Time.Posix
     | ScrolledToBottom
+    | RandomInput Time.Posix
 
 
 type MatchSetupMsg_

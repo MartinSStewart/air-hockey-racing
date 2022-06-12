@@ -261,6 +261,18 @@ update audioData msg model =
 updateLoaded : FrontendMsg_ -> FrontendLoaded -> ( FrontendLoaded, Command FrontendOnly ToBackend FrontendMsg_ )
 updateLoaded msg model =
     case msg of
+        RandomInput _ ->
+            ( { model
+                | currentKeys =
+                    if List.any ((==) Keyboard.ArrowUp) model.currentKeys then
+                        List.remove Keyboard.ArrowUp model.currentKeys
+
+                    else
+                        Keyboard.ArrowUp :: model.currentKeys
+              }
+            , Command.none
+            )
+
         UrlClicked urlRequest ->
             case urlRequest of
                 Browser.Internal url ->
@@ -610,6 +622,8 @@ matchSetupUpdate msg model =
                         , matchData =
                             updateMatchData
                                 (timeToFrameId model)
+                                model.userId
+                                msg
                                 newNetworkModel
                                 matchSetup.networkModel
                                 matchSetup.matchData
@@ -790,6 +804,8 @@ updateLoadedFromBackend msg model =
                                         , matchData =
                                             updateMatchData
                                                 (timeToFrameId model)
+                                                model.userId
+                                                MatchSetup.JoinMatchSetup
                                                 networkModel
                                                 networkModel
                                                 (initMatchSetupData lobby |> MatchSetupData)
@@ -903,6 +919,8 @@ updateLoadedFromBackend msg model =
                                     , matchData =
                                         updateMatchData
                                             (timeToFrameId model)
+                                            userId
+                                            matchSetupMsg
                                             newNetworkModel
                                             matchSetup.networkModel
                                             matchSetup.matchData
@@ -953,6 +971,8 @@ updateLoadedFromBackend msg model =
                                     , matchData =
                                         updateMatchData
                                             (timeToFrameId model)
+                                            userId
+                                            matchSetupMsg
                                             newNetworkModel
                                             matchSetup.networkModel
                                             matchSetup.matchData
@@ -976,11 +996,13 @@ updateLoadedFromBackend msg model =
 
 updateMatchData :
     (Match -> Id FrameId)
+    -> Id UserId
+    -> MatchSetupMsg
     -> NetworkModel { userId : Id UserId, msg : MatchSetupMsg } MatchSetup
     -> NetworkModel { userId : Id UserId, msg : MatchSetupMsg } MatchSetup
     -> MatchData
     -> MatchData
-updateMatchData getCurrentFrame newNetworkModel oldNetworkModel oldMatchData =
+updateMatchData getCurrentFrame userId newMsg newNetworkModel oldNetworkModel oldMatchData =
     let
         newMatchState : MatchSetup
         newMatchState =
@@ -1026,7 +1048,17 @@ updateMatchData getCurrentFrame newNetworkModel oldNetworkModel oldMatchData =
                     let
                         inputDiff : Set ( Id FrameId, TimelineEvent )
                         inputDiff =
-                            Set.diff newMatch.timeline oldMatch.timeline
+                            case newMsg of
+                                MatchSetup.MatchInputRequest serverTime input ->
+                                    Set.singleton
+                                        ( MatchSetup.serverTimeToFrameId serverTime newMatch
+                                        , { userId = userId, input = input }
+                                        )
+
+                                _ ->
+                                    Set.empty
+
+                        --Set.diff newMatch.timeline oldMatch.timeline
                     in
                     { matchData
                         | timelineCache =
@@ -2591,6 +2623,8 @@ subscriptions : AudioData -> FrontendModel_ -> Subscription FrontendOnly Fronten
 subscriptions _ model =
     Subscription.batch
         [ Ports.devicePixelRatioResponse (Quantity.Quantity >> Quantity.per Pixels.pixel >> GotDevicePixelRatio)
+
+        --, Effect.Time.every (Duration.milliseconds 500) RandomInput
         , Effect.Browser.Events.onResize
             (\width height -> WindowResized { width = Pixels.pixels width, height = Pixels.pixels height })
         , case model of
