@@ -1142,6 +1142,7 @@ view _ model =
                 Element.layout
                     [ Element.width Element.fill
                     , Element.height Element.fill
+                    , Element.padding 16
                     ]
                     (if Dict.values loading.sounds |> List.any isErr then
                         Element.text "Loading failed"
@@ -1168,6 +1169,10 @@ isErr a =
 
 loadedView : FrontendLoaded -> Html FrontendMsg_
 loadedView model =
+    let
+        displayType =
+            Ui.displayType model.windowSize
+    in
     Element.layout
         [ canvasView model |> Element.behindContent, Element.clip ]
         (case model.page of
@@ -1179,53 +1184,42 @@ loadedView model =
                     [ Element.width Element.fill
                     , Element.height Element.fill
                     , Element.spacing 16
-                    , Element.padding 16
+                    , Element.padding (Ui.ifMobile displayType 8 16)
                     ]
                     [ Element.el [ Element.Font.bold ] (Element.text "Air Hockey Racing")
-                    , button PressedCreateLobby (Element.text "Create match")
+                    , button PressedCreateLobby (Element.text "Create new match")
                     , Element.column
                         [ Element.width Element.fill, Element.height Element.fill, Element.spacing 8 ]
-                        [ Element.text "Lobbies"
-                        , lobbyData
-                            |> .lobbies
-                            |> Dict.toList
-                            |> List.indexedMap (\index lobby -> lobbyRowView (modBy 2 index == 0) lobby)
-                            |> Element.column
-                                [ Element.width (Element.maximum 800 Element.fill)
-                                , Element.height Element.fill
-                                , Element.Border.width 1
-                                ]
+                        [ Element.text "Or join existing match"
+                        , if Dict.isEmpty lobbyData.lobbies then
+                            Element.paragraph
+                                [ Element.Font.center, Element.centerY ]
+                                [ Element.text "There are currently no existing matches" ]
+                                |> Element.el
+                                    [ Element.width (Element.maximum 800 Element.fill)
+                                    , Element.height Element.fill
+                                    , Element.Border.width 1
+                                    ]
+
+                          else
+                            Dict.toList lobbyData.lobbies
+                                |> List.indexedMap (\index lobby -> lobbyRowView (modBy 2 index == 0) lobby)
+                                |> Element.column
+                                    [ Element.width (Element.maximum 800 Element.fill)
+                                    , Element.height Element.fill
+                                    , Element.Border.width 1
+                                    ]
                         ]
                     ]
-         --Element.column
-         --    []
-         --    [ Element.text "Players: "
-         --    , Element.row
-         --        [ Element.spacing 16 ]
-         --        [ List.Nonempty.toList matchPage.userIds
-         --            |> List.map (Id.toInt >> String.fromInt >> (++) "User " >> Element.text)
-         --            |> Element.column [ Element.spacing 4 ]
-         --        , Element.column
-         --            []
-         --            [ "Start time:  " ++ timestamp matchPage.startTime |> Element.text
-         --            , "Local time: " ++ timestamp matchPage.localStartTime |> Element.text
-         --            ]
-         --        ]
-         --    , Element.row
-         --        [ Element.Font.size 14, Element.spacing 16 ]
-         --        [ inputsView matchPage
-         --        , List.map
-         --            (\( frameId, _ ) -> Id.toInt frameId |> String.fromInt |> Element.text)
-         --            matchPage.timelineCache.cache
-         --            |> Element.column [ Element.alignTop ]
-         --        ]
-         --    ]
         )
 
 
 matchSetupView : FrontendLoaded -> MatchSetupPage_ -> Element FrontendMsg_
 matchSetupView model matchSetup =
     let
+        displayType =
+            Ui.displayType model.windowSize
+
         lobby : MatchSetup
         lobby =
             getLocalState matchSetup
@@ -1287,7 +1281,11 @@ matchSetupView model matchSetup =
                         |> Dict.fromList
             in
             Element.column
-                [ Element.spacing 8, Element.padding 16, Element.height Element.fill ]
+                [ Element.spacing 8
+                , Element.padding (Ui.ifMobile displayType 8 16)
+                , Element.width (Element.maximum 800 Element.fill)
+                , Element.height Element.fill
+                ]
                 [ case Dict.get model.userId places of
                     Just place ->
                         placementText place
@@ -1296,13 +1294,13 @@ matchSetupView model matchSetup =
                         Element.none
                 , if MatchSetup.isOwner model.userId lobby then
                     Element.row
-                        [ Element.spacing 8 ]
+                        [ Element.spacing 8, Element.width Element.fill ]
                         (Element.Input.text
-                            [ Element.padding 4 ]
+                            [ Element.padding 4, Element.width Element.fill ]
                             { onChange = TypedMatchName
                             , text = matchSetupData.matchName
                             , placeholder = Element.Input.placeholder [] unnamedMatchText |> Just
-                            , label = Element.Input.labelLeft [] (Element.text "Match name")
+                            , label = Element.Input.labelHidden "Match name"
                             }
                             :: (case
                                     ( MatchName.fromString matchSetupData.matchName
@@ -1321,28 +1319,31 @@ matchSetupView model matchSetup =
 
                   else
                     Element.row [ Element.Font.bold ]
-                        [ Element.text "Match name: "
+                        [ Element.text "Match: "
                         , if matchName == "" then
                             unnamedMatchText
 
                           else
                             Element.text matchName
                         ]
-                , if MatchSetup.isOwner model.userId lobby then
-                    button PressedStartMatchSetup (Element.text "Start match")
-
-                  else
-                    Element.none
-                , button PressedLeaveMatchSetup (Element.text "Leave")
-                , Element.column
+                , Element.wrappedRow
                     [ Element.spacing 8 ]
-                    [ case currentPlayerData.mode of
+                    [ if MatchSetup.isOwner model.userId lobby then
+                        button PressedStartMatchSetup (Element.text "Start match")
+
+                      else
+                        Element.none
+                    , button PressedLeaveMatchSetup (Element.text "Leave")
+                    , case currentPlayerData.mode of
                         PlayerMode ->
                             button (PressedPlayerMode SpectatorMode) (Element.text "Switch to spectator")
 
                         SpectatorMode ->
                             button (PressedPlayerMode PlayerMode) (Element.text "Switch to player")
-                    , Element.column
+                    ]
+                , Element.column
+                    [ Element.spacing 8 ]
+                    [ Element.column
                         [ Element.spacing 8
                         , Element.alpha
                             (case currentPlayerData.mode of
@@ -1354,22 +1355,22 @@ matchSetupView model matchSetup =
                             )
                         ]
                         [ Element.column
-                            [ Element.spacing 4 ]
+                            [ Element.spacing 4, Element.Font.size 16, Element.Font.bold ]
                             [ Element.text "Primary color"
                             , colorSelector PressedPrimaryColor currentPlayerData.primaryColor
                             ]
                         , Element.column
-                            [ Element.spacing 4 ]
+                            [ Element.spacing 4, Element.Font.size 16, Element.Font.bold ]
                             [ Element.text "Secondary color"
                             , colorSelector PressedSecondaryColor currentPlayerData.secondaryColor
                             ]
                         , Element.column
-                            [ Element.spacing 4 ]
-                            [ Element.text "Decal"
+                            [ Element.spacing 4, Element.width Element.fill ]
+                            [ Element.el [ Element.Font.size 16, Element.Font.bold ] (Element.text "Decal")
                             , List.map
                                 (\decal ->
                                     Ui.button
-                                        [ Element.padding 4
+                                        [ Element.paddingXY 4 4
                                         , Element.Background.color
                                             (if decal == currentPlayerData.decal then
                                                 Element.rgb 0.6 0.7 1
@@ -1383,14 +1384,14 @@ matchSetupView model matchSetup =
                                         }
                                 )
                                 Decal.allDecals
-                                |> Element.row [ Element.spacing 8 ]
+                                |> Element.row [ Element.spacing 8, Element.width Element.fill ]
                             ]
                         ]
                     ]
                 , Element.row
                     [ Element.spacing 16, Element.width Element.fill, Element.height Element.fill ]
                     [ Element.column
-                        [ Element.spacing 8, Element.alignTop ]
+                        [ Element.spacing 8, Element.alignTop, Element.Font.size 16 ]
                         [ Element.text "Participants:"
                         , Element.column
                             []
@@ -1443,12 +1444,12 @@ textChat matchSetupData lobby =
                             Id.toInt userId |> String.fromInt |> (++) "User "
                     in
                     Element.row
-                        [ Element.spacing 8 ]
+                        [ Element.Font.size 16 ]
                         [ (if MatchSetup.isOwner userId lobby then
-                            userName ++ " (host)"
+                            userName ++ " (host)" ++ " "
 
                            else
-                            userName
+                            userName ++ " "
                           )
                             |> Element.text
                             |> Element.el [ Element.Font.bold, Element.alignTop ]
@@ -1464,28 +1465,31 @@ textChat matchSetupData lobby =
                 , Element.htmlAttribute (Effect.Browser.Dom.idToAttribute textMessageContainerId)
                 ]
         , Element.Input.text
-            (case TextMessage.fromString matchSetupData.message of
-                Ok message ->
-                    [ Html.Events.on "keydown"
-                        (Json.Decode.field "keyCode" Json.Decode.int
-                            |> Json.Decode.andThen
-                                (\key ->
-                                    if key == 13 then
-                                        SubmittedTextMessage message |> Json.Decode.succeed
+            (Element.Font.size 16
+                :: Element.padding 8
+                :: (case TextMessage.fromString matchSetupData.message of
+                        Ok message ->
+                            [ Html.Events.on "keydown"
+                                (Json.Decode.field "keyCode" Json.Decode.int
+                                    |> Json.Decode.andThen
+                                        (\key ->
+                                            if key == 13 then
+                                                SubmittedTextMessage message |> Json.Decode.succeed
 
-                                    else
-                                        Json.Decode.fail ""
+                                            else
+                                                Json.Decode.fail ""
+                                        )
                                 )
-                        )
-                        |> Element.htmlAttribute
-                    ]
+                                |> Element.htmlAttribute
+                            ]
 
-                Err _ ->
-                    []
+                        Err _ ->
+                            []
+                   )
             )
             { onChange = TypedTextMessage
             , text = matchSetupData.message
-            , placeholder = Nothing
+            , placeholder = Element.Input.placeholder [] (Element.text "Press enter to send") |> Just
             , label = Element.Input.labelHidden "Write message"
             }
         ]
@@ -1687,8 +1691,8 @@ colorSelector onSelect currentColor =
     List.map
         (\colorIndex ->
             Ui.button
-                [ Element.width (Element.px 48)
-                , Element.height (Element.px 48)
+                [ Element.width (Element.px 36)
+                , Element.height (Element.px 36)
                 , Element.Border.width
                     (if currentColor == colorIndex then
                         3
@@ -1704,7 +1708,7 @@ colorSelector onSelect currentColor =
                 }
         )
         ColorIndex.allColors
-        |> Element.row []
+        |> Element.wrappedRow []
 
 
 timestamp : Time.Posix -> String

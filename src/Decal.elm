@@ -24,22 +24,22 @@ toString : Decal -> String
 toString decal =
     case decal of
         Star ->
-            "Star"
+            "★"
 
         Triangle ->
-            "Triangle"
+            "▲"
 
         Plus ->
-            "Plus"
+            " + "
 
         Minus ->
-            "Minus"
+            " - "
 
         Square ->
-            "Square"
+            " ■ "
 
         HollowSquare ->
-            "Hollow square"
+            " □ "
 
         NoDecal ->
             "None"
