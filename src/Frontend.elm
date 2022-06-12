@@ -1000,7 +1000,7 @@ updateMatchData getCurrentFrame newNetworkModel oldNetworkModel oldMatchData =
 
         initHelper : ServerTime -> MatchData
         initHelper serverTime =
-            { timelineCache = List.Nonempty.map Tuple.first newUserIds |> initMatch serverTime |> Timeline.init
+            { timelineCache = initMatch serverTime newUserIds |> Timeline.init
             , userIds =
                 List.Nonempty.toList newUserIds
                     |> List.filterMap
@@ -1067,11 +1067,22 @@ actualTime { time, debugTimeOffset } =
     Duration.addTo time debugTimeOffset
 
 
-initMatch : ServerTime -> Nonempty (Id UserId) -> MatchState
-initMatch startTime userIds =
+initMatch : ServerTime -> Nonempty ( Id UserId, PlayerData ) -> MatchState
+initMatch startTime users =
     { players =
         Random.step
-            (Random.shuffle (List.Nonempty.toList userIds))
+            (List.Nonempty.toList users
+                |> List.filterMap
+                    (\( userId, playerData ) ->
+                        case playerData.mode of
+                            PlayerMode ->
+                                Just userId
+
+                            SpectatorMode ->
+                                Nothing
+                    )
+                |> Random.shuffle
+            )
             (MatchSetup.unwrapServerTime startTime |> Time.posixToMillis |> Random.initialSeed)
             |> Tuple.first
             |> List.indexedMap
@@ -1840,7 +1851,54 @@ canvasView model =
                                         Point2d.toMeters player.position
 
                                     Nothing ->
-                                        { x = 0, y = 0 }
+                                        let
+                                            playerCount =
+                                                Dict.size state.players
+
+                                            maxDistance =
+                                                Quantity.maximumBy .distance vectorAndDistance
+                                                    |> Maybe.map .distance
+                                                    |> Maybe.withDefault Quantity.zero
+                                                    |> Quantity.unwrap
+
+                                            minDistance =
+                                                Quantity.minimumBy .distance vectorAndDistance
+                                                    |> Maybe.map .distance
+                                                    |> Maybe.withDefault Quantity.zero
+                                                    |> Quantity.unwrap
+
+                                            vectorAndDistance =
+                                                Dict.values state.players
+                                                    |> List.map
+                                                        (\player ->
+                                                            { vector = Vector2d.from Point2d.origin player.position
+                                                            , distance =
+                                                                BoundingBox2d.centerPoint finishLine
+                                                                    |> Point2d.distanceFrom player.position
+                                                            }
+                                                        )
+
+                                            vectorAndWeight =
+                                                List.map
+                                                    (\{ vector, distance } ->
+                                                        { vector = vector
+                                                        , weight = 1000 / max 100 (Quantity.unwrap distance)
+                                                        }
+                                                    )
+                                                    vectorAndDistance
+
+                                            totalWeight =
+                                                List.map .weight vectorAndWeight |> List.sum
+                                        in
+                                        List.map
+                                            (\{ vector, weight } ->
+                                                Vector2d.scaleBy weight vector
+                                            )
+                                            vectorAndWeight
+                                            |> Vector2d.sum
+                                            |> Vector2d.scaleBy (1 / totalWeight)
+                                            |> (\v -> Point2d.translateBy v Point2d.origin)
+                                            |> Point2d.toMeters
 
                             viewMatrix =
                                 Mat4.makeScale3
