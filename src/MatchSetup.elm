@@ -37,6 +37,7 @@ import Direction2d exposing (Direction2d)
 import Duration exposing (Duration)
 import Id exposing (Id)
 import Length exposing (Meters)
+import List.Extra as List
 import List.Nonempty exposing (Nonempty(..))
 import MatchName exposing (MatchName)
 import Point2d exposing (Point2d)
@@ -299,7 +300,14 @@ sendTextMessage userId message (MatchSetup match) =
 
 startMatch : ServerTime -> Id UserId -> MatchSetup -> MatchSetup
 startMatch time userId (MatchSetup matchSetup) =
-    if matchSetup.owner == userId then
+    let
+        totalPlayers : Int
+        totalPlayers =
+            allUsers (MatchSetup matchSetup)
+                |> List.Nonempty.toList
+                |> List.count (\( _, player ) -> player.mode == PlayerMode)
+    in
+    if matchSetup.owner == userId && totalPlayers > 0 then
         { matchSetup | match = Just { startTime = time, timeline = Set.empty } }
             |> MatchSetup
 
