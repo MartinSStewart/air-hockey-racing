@@ -139,7 +139,6 @@ type alias MatchPage_ =
     { timelineCache : TimelineCache MatchState
     , userIds : Dict (Id UserId) (Mesh Vertex)
     , wallMesh : Mesh Vertex
-    , zoom : Float
     , touchPosition : Maybe (Point2d Pixels ScreenCoordinate)
     , previousTouchPosition : Maybe (Point2d Pixels ScreenCoordinate)
     }

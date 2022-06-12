@@ -1014,7 +1014,6 @@ updateMatchData getCurrentFrame newNetworkModel oldNetworkModel oldMatchData =
                         )
                     |> Dict.fromList
             , wallMesh = wallMesh (Math.Vector3.vec3 1 0 0) wallSegments
-            , zoom = 1
             , touchPosition = Nothing
             , previousTouchPosition = Nothing
             }
@@ -1904,10 +1903,13 @@ canvasView model =
                                             |> (\v -> Point2d.translateBy v Point2d.origin)
                                             |> Point2d.toMeters
 
+                            zoom =
+                                toFloat (max windowWidth windowHeight) / 2000
+
                             viewMatrix =
                                 Mat4.makeScale3
-                                    (matchData.zoom * 2 / toFloat windowWidth)
-                                    (matchData.zoom * 2 / toFloat windowHeight)
+                                    (zoom * 2 / toFloat windowWidth)
+                                    (zoom * 2 / toFloat windowHeight)
                                     1
                                     |> Mat4.translate3 -x -y 0
 
@@ -1925,7 +1927,7 @@ canvasView model =
                             backgroundFragmentShader
                             squareMesh
                             { view = Math.Vector2.vec2 x y
-                            , viewZoom = matchData.zoom
+                            , viewZoom = zoom
                             , windowSize = Math.Vector2.vec2 (toFloat windowWidth) (toFloat windowHeight)
                             }
                             :: WebGL.entityWith
