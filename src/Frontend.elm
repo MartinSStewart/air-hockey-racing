@@ -311,74 +311,79 @@ updateLoaded msg model =
                 MatchPage matchSetupPage ->
                     case ( matchSetupPage.matchData, MatchSetup.getMatch (getLocalState matchSetupPage) ) of
                         ( MatchData matchData, Just match ) ->
-                            let
-                                previousInput : Maybe (Direction2d WorldCoordinate)
-                                previousInput =
-                                    getInputDirection model.windowSize model.previousKeys matchData.previousTouchPosition
+                            case matchData.timelineCache of
+                                Ok cache ->
+                                    let
+                                        previousInput : Maybe (Direction2d WorldCoordinate)
+                                        previousInput =
+                                            getInputDirection model.windowSize model.previousKeys matchData.previousTouchPosition
 
-                                input : Maybe (Direction2d WorldCoordinate)
-                                input =
-                                    getInputDirection model.windowSize model.currentKeys matchData.touchPosition
+                                        input : Maybe (Direction2d WorldCoordinate)
+                                        input =
+                                            getInputDirection model.windowSize model.currentKeys matchData.touchPosition
 
-                                inputUnchanged : Bool
-                                inputUnchanged =
-                                    previousInput == input
+                                        inputUnchanged : Bool
+                                        inputUnchanged =
+                                            previousInput == input
 
-                                model3 : FrontendLoaded
-                                model3 =
-                                    { model2
-                                        | page =
-                                            { matchSetupPage
-                                                | matchData =
-                                                    { matchData
-                                                        | previousTouchPosition = matchData.touchPosition
-                                                        , timelineCache = newCache
+                                        model3 : FrontendLoaded
+                                        model3 =
+                                            { model2
+                                                | page =
+                                                    { matchSetupPage
+                                                        | matchData =
+                                                            { matchData
+                                                                | previousTouchPosition = matchData.touchPosition
+                                                                , timelineCache = Ok newCache
+                                                            }
+                                                                |> MatchData
                                                     }
-                                                        |> MatchData
+                                                        |> MatchPage
                                             }
-                                                |> MatchPage
-                                    }
 
-                                ( newCache, matchState ) =
-                                    Timeline.getStateAt
-                                        gameUpdate
-                                        (timeToFrameId model2 match)
-                                        matchData.timelineCache
-                                        match.timeline
+                                        ( newCache, matchState ) =
+                                            Timeline.getStateAt
+                                                gameUpdate
+                                                (timeToFrameId model2 match)
+                                                cache
+                                                match.timeline
 
-                                currentFrameId =
-                                    timeToFrameId model3 match
-                            in
-                            (if inputUnchanged then
-                                ( model3, Command.none )
+                                        currentFrameId =
+                                            timeToFrameId model3 match
+                                    in
+                                    (if inputUnchanged then
+                                        ( model3, Command.none )
 
-                             else
-                                matchSetupUpdate (MatchSetup.MatchInputRequest (timeToServerTime model3) input) model3
-                            )
-                                |> (\( model4, cmd ) ->
-                                        case
-                                            ( matchTimeLeft currentFrameId matchState
-                                            , matchTimeLeft (Id.decrement currentFrameId) matchState
-                                            )
-                                        of
-                                            ( Just timeLeft, Just previousTimeLeft ) ->
-                                                if Quantity.lessThanZero timeLeft && not (Quantity.lessThanZero previousTimeLeft) then
-                                                    matchSetupUpdate
-                                                        (MatchSetup.MatchFinished
-                                                            (Dict.map
-                                                                (\_ player -> player.finishTime)
-                                                                matchState.players
-                                                            )
-                                                        )
-                                                        model4
-                                                        |> Tuple.mapSecond (\cmd2 -> Command.batch [ cmd, cmd2, scrollToBottom ])
+                                     else
+                                        matchSetupUpdate (MatchSetup.MatchInputRequest (timeToServerTime model3) input) model3
+                                    )
+                                        |> (\( model4, cmd ) ->
+                                                case
+                                                    ( matchTimeLeft currentFrameId matchState
+                                                    , matchTimeLeft (Id.decrement currentFrameId) matchState
+                                                    )
+                                                of
+                                                    ( Just timeLeft, Just previousTimeLeft ) ->
+                                                        if Quantity.lessThanZero timeLeft && not (Quantity.lessThanZero previousTimeLeft) then
+                                                            matchSetupUpdate
+                                                                (MatchSetup.MatchFinished
+                                                                    (Dict.map
+                                                                        (\_ player -> player.finishTime)
+                                                                        matchState.players
+                                                                    )
+                                                                )
+                                                                model4
+                                                                |> Tuple.mapSecond (\cmd2 -> Command.batch [ cmd, cmd2, scrollToBottom ])
 
-                                                else
-                                                    ( model4, cmd )
+                                                        else
+                                                            ( model4, cmd )
 
-                                            _ ->
-                                                ( model4, cmd )
-                                   )
+                                                    _ ->
+                                                        ( model4, cmd )
+                                           )
+
+                                Err _ ->
+                                    ( model2, Command.none )
 
                         _ ->
                             ( model2, Command.none )
@@ -1015,7 +1020,7 @@ updateMatchData getCurrentFrame userId newMsg newNetworkModel oldNetworkModel ol
 
         initHelper : ServerTime -> MatchData
         initHelper serverTime =
-            { timelineCache = initMatch serverTime newUserIds |> Timeline.init
+            { timelineCache = initMatch serverTime newUserIds |> Timeline.init |> Ok
             , userIds =
                 List.Nonempty.toList newUserIds
                     |> List.filterMap
@@ -1038,30 +1043,20 @@ updateMatchData getCurrentFrame userId newMsg newNetworkModel oldNetworkModel ol
         ( Just newMatch, Just _ ) ->
             case oldMatchData of
                 MatchData matchData ->
-                    let
-                        inputDiff : Set ( Id FrameId, TimelineEvent )
-                        inputDiff =
-                            case newMsg of
-                                MatchSetup.MatchInputRequest serverTime input ->
-                                    Set.singleton
-                                        ( MatchSetup.serverTimeToFrameId serverTime newMatch
-                                        , { userId = userId, input = input }
-                                        )
+                    case ( matchData.timelineCache, newMsg ) of
+                        ( Ok timelineCache, MatchSetup.MatchInputRequest serverTime input ) ->
+                            { matchData
+                                | timelineCache =
+                                    Timeline.addInput
+                                        (MatchSetup.serverTimeToFrameId serverTime newMatch)
+                                        { userId = userId, input = input }
+                                        timelineCache
+                                        newMatch.timeline
+                            }
+                                |> MatchData
 
-                                _ ->
-                                    Set.empty
-                    in
-                    { matchData
-                        | timelineCache =
-                            Set.toList inputDiff
-                                |> List.foldl
-                                    (\( frameId, input ) cache ->
-                                        Timeline.addInput frameId input cache newMatch.timeline
-                                            |> Tuple.first
-                                    )
-                                    matchData.timelineCache
-                    }
-                        |> MatchData
+                        _ ->
+                            MatchData matchData
 
                 MatchSetupData _ ->
                     initHelper newMatch.startTime
@@ -1248,31 +1243,36 @@ matchSetupView model matchSetup =
     in
     case ( MatchSetup.getMatch lobby, matchSetup.matchData, MatchSetup.allUsers_ lobby |> Dict.get model.userId ) of
         ( Just match, MatchData matchData, _ ) ->
-            let
-                ( _, matchState ) =
-                    Timeline.getStateAt
-                        gameUpdate
-                        (timeToFrameId model match)
-                        matchData.timelineCache
-                        match.timeline
-            in
-            Element.el
-                (Element.width Element.fill
-                    :: Element.height Element.fill
-                    :: Element.htmlAttribute (Html.Events.Extra.Touch.onStart PointerDown)
-                    :: Element.htmlAttribute (Html.Events.Extra.Touch.onCancel PointerUp)
-                    :: Element.htmlAttribute (Html.Events.Extra.Touch.onEnd PointerUp)
-                    :: Element.inFront (countdown model match)
-                    :: (case matchData.touchPosition of
-                            Just _ ->
-                                [ Element.htmlAttribute (Html.Events.Extra.Touch.onMove PointerMoved) ]
+            case matchData.timelineCache of
+                Ok cache ->
+                    let
+                        ( _, matchState ) =
+                            Timeline.getStateAt
+                                gameUpdate
+                                (timeToFrameId model match)
+                                cache
+                                match.timeline
+                    in
+                    Element.el
+                        (Element.width Element.fill
+                            :: Element.height Element.fill
+                            :: Element.htmlAttribute (Html.Events.Extra.Touch.onStart PointerDown)
+                            :: Element.htmlAttribute (Html.Events.Extra.Touch.onCancel PointerUp)
+                            :: Element.htmlAttribute (Html.Events.Extra.Touch.onEnd PointerUp)
+                            :: Element.inFront (countdown model match)
+                            :: (case matchData.touchPosition of
+                                    Just _ ->
+                                        [ Element.htmlAttribute (Html.Events.Extra.Touch.onMove PointerMoved) ]
 
-                            Nothing ->
-                                []
-                       )
-                )
-                (matchEndText match matchState model)
-                |> Element.map MatchMsg
+                                    Nothing ->
+                                        []
+                               )
+                        )
+                        (matchEndText match matchState model)
+                        |> Element.map MatchMsg
+
+                Err _ ->
+                    Element.text "An error occurred during the match :("
 
         ( Nothing, MatchSetupData matchSetupData, Just currentPlayerData ) ->
             let
@@ -1864,147 +1864,152 @@ canvasView model =
             MatchPage matchSetup ->
                 case ( MatchSetup.getMatch (getLocalState matchSetup), matchSetup.matchData ) of
                     ( Just match, MatchData matchData ) ->
-                        let
-                            ( _, state ) =
-                                Timeline.getStateAt
-                                    gameUpdate
-                                    (timeToFrameId model match)
-                                    matchData.timelineCache
-                                    match.timeline
+                        case matchData.timelineCache of
+                            Ok cache ->
+                                let
+                                    ( _, state ) =
+                                        Timeline.getStateAt
+                                            gameUpdate
+                                            (timeToFrameId model match)
+                                            cache
+                                            match.timeline
 
-                            { x, y } =
-                                case Dict.get model.userId state.players of
-                                    Just player ->
-                                        Point2d.toMeters player.position
+                                    { x, y } =
+                                        case Dict.get model.userId state.players of
+                                            Just player ->
+                                                Point2d.toMeters player.position
 
-                                    Nothing ->
-                                        let
-                                            vectorAndDistance =
-                                                Dict.values state.players
-                                                    |> List.map
-                                                        (\player ->
-                                                            { vector = Vector2d.from Point2d.origin player.position
-                                                            , distance =
-                                                                BoundingBox2d.centerPoint finishLine
-                                                                    |> Point2d.distanceFrom player.position
-                                                            }
-                                                        )
+                                            Nothing ->
+                                                let
+                                                    vectorAndDistance =
+                                                        Dict.values state.players
+                                                            |> List.map
+                                                                (\player ->
+                                                                    { vector = Vector2d.from Point2d.origin player.position
+                                                                    , distance =
+                                                                        BoundingBox2d.centerPoint finishLine
+                                                                            |> Point2d.distanceFrom player.position
+                                                                    }
+                                                                )
 
-                                            vectorAndWeight =
+                                                    vectorAndWeight =
+                                                        List.map
+                                                            (\{ vector, distance } ->
+                                                                { vector = vector
+                                                                , weight = 1000 / max 100 (Quantity.unwrap distance)
+                                                                }
+                                                            )
+                                                            vectorAndDistance
+
+                                                    totalWeight =
+                                                        List.map .weight vectorAndWeight |> List.sum
+                                                in
                                                 List.map
-                                                    (\{ vector, distance } ->
-                                                        { vector = vector
-                                                        , weight = 1000 / max 100 (Quantity.unwrap distance)
-                                                        }
+                                                    (\{ vector, weight } ->
+                                                        Vector2d.scaleBy weight vector
                                                     )
-                                                    vectorAndDistance
+                                                    vectorAndWeight
+                                                    |> Vector2d.sum
+                                                    |> Vector2d.scaleBy (1 / totalWeight)
+                                                    |> (\v -> Point2d.translateBy v Point2d.origin)
+                                                    |> Point2d.toMeters
 
-                                            totalWeight =
-                                                List.map .weight vectorAndWeight |> List.sum
-                                        in
-                                        List.map
-                                            (\{ vector, weight } ->
-                                                Vector2d.scaleBy weight vector
-                                            )
-                                            vectorAndWeight
-                                            |> Vector2d.sum
-                                            |> Vector2d.scaleBy (1 / totalWeight)
-                                            |> (\v -> Point2d.translateBy v Point2d.origin)
-                                            |> Point2d.toMeters
+                                    zoom =
+                                        toFloat (max windowWidth windowHeight) / 2000
 
-                            zoom =
-                                toFloat (max windowWidth windowHeight) / 2000
+                                    viewMatrix =
+                                        Mat4.makeScale3
+                                            (zoom * 2 / toFloat windowWidth)
+                                            (zoom * 2 / toFloat windowHeight)
+                                            1
+                                            |> Mat4.translate3 -x -y 0
 
-                            viewMatrix =
-                                Mat4.makeScale3
-                                    (zoom * 2 / toFloat windowWidth)
-                                    (zoom * 2 / toFloat windowHeight)
-                                    1
-                                    |> Mat4.translate3 -x -y 0
+                                    playerRadius_ : Float
+                                    playerRadius_ =
+                                        Length.inMeters playerRadius
 
-                            playerRadius_ : Float
-                            playerRadius_ =
-                                Length.inMeters playerRadius
+                                    input : Maybe (Direction2d WorldCoordinate)
+                                    input =
+                                        getInputDirection model.windowSize model.currentKeys matchData.touchPosition
+                                in
+                                WebGL.entityWith
+                                    [ WebGL.Settings.cullFace WebGL.Settings.back ]
+                                    backgroundVertexShader
+                                    backgroundFragmentShader
+                                    squareMesh
+                                    { view = Math.Vector2.vec2 x y
+                                    , viewZoom = zoom
+                                    , windowSize = Math.Vector2.vec2 (toFloat windowWidth) (toFloat windowHeight)
+                                    }
+                                    :: WebGL.entityWith
+                                        [ WebGL.Settings.cullFace WebGL.Settings.back ]
+                                        vertexShader
+                                        fragmentShader
+                                        finishLineMesh
+                                        { view = viewMatrix
+                                        , model =
+                                            Mat4.makeTranslate3
+                                                (BoundingBox2d.minX finishLine |> Length.inMeters)
+                                                (BoundingBox2d.minY finishLine |> Length.inMeters)
+                                                0
+                                        }
+                                    :: WebGL.entityWith
+                                        [ WebGL.Settings.cullFace WebGL.Settings.back ]
+                                        vertexShader
+                                        fragmentShader
+                                        matchData.wallMesh
+                                        { view = viewMatrix
+                                        , model = Mat4.identity
+                                        }
+                                    :: List.filterMap
+                                        (\( userId, player ) ->
+                                            case Dict.get userId matchData.userIds of
+                                                Just mesh ->
+                                                    WebGL.entityWith
+                                                        [ WebGL.Settings.cullFace WebGL.Settings.back ]
+                                                        vertexShader
+                                                        fragmentShader
+                                                        mesh
+                                                        { view = viewMatrix
+                                                        , model =
+                                                            pointToMatrix player.position
+                                                                |> Mat4.scale3 playerRadius_ playerRadius_ playerRadius_
+                                                                |> Mat4.rotate (Angle.inRadians player.rotation) (Math.Vector3.vec3 0 0 1)
+                                                        }
+                                                        |> Just
 
-                            input : Maybe (Direction2d WorldCoordinate)
-                            input =
-                                getInputDirection model.windowSize model.currentKeys matchData.touchPosition
-                        in
-                        WebGL.entityWith
-                            [ WebGL.Settings.cullFace WebGL.Settings.back ]
-                            backgroundVertexShader
-                            backgroundFragmentShader
-                            squareMesh
-                            { view = Math.Vector2.vec2 x y
-                            , viewZoom = zoom
-                            , windowSize = Math.Vector2.vec2 (toFloat windowWidth) (toFloat windowHeight)
-                            }
-                            :: WebGL.entityWith
-                                [ WebGL.Settings.cullFace WebGL.Settings.back ]
-                                vertexShader
-                                fragmentShader
-                                finishLineMesh
-                                { view = viewMatrix
-                                , model =
-                                    Mat4.makeTranslate3
-                                        (BoundingBox2d.minX finishLine |> Length.inMeters)
-                                        (BoundingBox2d.minY finishLine |> Length.inMeters)
-                                        0
-                                }
-                            :: WebGL.entityWith
-                                [ WebGL.Settings.cullFace WebGL.Settings.back ]
-                                vertexShader
-                                fragmentShader
-                                matchData.wallMesh
-                                { view = viewMatrix
-                                , model = Mat4.identity
-                                }
-                            :: List.filterMap
-                                (\( userId, player ) ->
-                                    case Dict.get userId matchData.userIds of
-                                        Just mesh ->
-                                            WebGL.entityWith
-                                                [ WebGL.Settings.cullFace WebGL.Settings.back ]
-                                                vertexShader
-                                                fragmentShader
-                                                mesh
-                                                { view = viewMatrix
-                                                , model =
-                                                    pointToMatrix player.position
-                                                        |> Mat4.scale3 playerRadius_ playerRadius_ playerRadius_
-                                                        |> Mat4.rotate (Angle.inRadians player.rotation) (Math.Vector3.vec3 0 0 1)
-                                                }
-                                                |> Just
+                                                Nothing ->
+                                                    Nothing
+                                        )
+                                        (Dict.toList state.players)
+                                    ++ (case ( Dict.get model.userId state.players, input ) of
+                                            ( Just player, Just direction ) ->
+                                                case player.finishTime of
+                                                    Finished _ ->
+                                                        []
 
-                                        Nothing ->
-                                            Nothing
-                                )
-                                (Dict.toList state.players)
-                            ++ (case ( Dict.get model.userId state.players, input ) of
-                                    ( Just player, Just direction ) ->
-                                        case player.finishTime of
-                                            Finished _ ->
+                                                    DidNotFinish ->
+                                                        [ WebGL.entityWith
+                                                            [ WebGL.Settings.cullFace WebGL.Settings.back ]
+                                                            vertexShader
+                                                            fragmentShader
+                                                            arrow
+                                                            { view = viewMatrix
+                                                            , model =
+                                                                pointToMatrix player.position
+                                                                    |> Mat4.scale3 30 30 30
+                                                                    |> Mat4.rotate
+                                                                        (Direction2d.toAngle direction |> Angle.inRadians |> (+) (pi / 2))
+                                                                        (Math.Vector3.vec3 0 0 1)
+                                                            }
+                                                        ]
+
+                                            _ ->
                                                 []
+                                       )
 
-                                            DidNotFinish ->
-                                                [ WebGL.entityWith
-                                                    [ WebGL.Settings.cullFace WebGL.Settings.back ]
-                                                    vertexShader
-                                                    fragmentShader
-                                                    arrow
-                                                    { view = viewMatrix
-                                                    , model =
-                                                        pointToMatrix player.position
-                                                            |> Mat4.scale3 30 30 30
-                                                            |> Mat4.rotate
-                                                                (Direction2d.toAngle direction |> Angle.inRadians |> (+) (pi / 2))
-                                                                (Math.Vector3.vec3 0 0 1)
-                                                    }
-                                                ]
-
-                                    _ ->
-                                        []
-                               )
+                            Err _ ->
+                                []
 
                     _ ->
                         []

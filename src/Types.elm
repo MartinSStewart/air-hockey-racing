@@ -136,7 +136,7 @@ type alias LobbyData =
 
 
 type alias MatchPage_ =
-    { timelineCache : TimelineCache MatchState
+    { timelineCache : Result Timeline.Error (TimelineCache MatchState)
     , userIds : Dict (Id UserId) (Mesh Vertex)
     , wallMesh : Mesh Vertex
     , touchPosition : Maybe (Point2d Pixels ScreenCoordinate)

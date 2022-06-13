@@ -1,4 +1,4 @@
-module Timeline exposing (FrameId, Timeline, TimelineCache, addInput, getStateAt, init)
+module Timeline exposing (Error(..), FrameId, Timeline, TimelineCache, addInput, getStateAt, init)
 
 import AssocSet as Set exposing (Set)
 import Id exposing (Id)
@@ -26,24 +26,36 @@ init initialState =
     }
 
 
-addInput : Id FrameId -> input -> TimelineCache state -> Timeline input -> ( TimelineCache state, Timeline input )
+type Error
+    = InputTooOld
+
+
+addInput : Id FrameId -> input -> TimelineCache state -> Timeline input -> Result Error (TimelineCache state)
 addInput frame input timelineCache timeline =
+    let
+        newCache : List ( Id FrameId, state )
+        newCache =
+            List.filter
+                (\( cacheFrame, _ ) -> cacheFrame |> isAfter frame |> not)
+                timelineCache.cache
+    in
     if Id.toInt frame < 0 then
-        ( timelineCache, timeline )
+        Err InputTooOld
+
+    else if List.isEmpty newCache && Id.toInt frame > maxCacheSize then
+        Err InputTooOld
 
     else
-        ( { cache =
-                List.filter
-                    (\( cacheFrame, _ ) -> cacheFrame |> isAfter frame |> not)
-                    timelineCache.cache
-          , initialState = timelineCache.initialState
-          }
-        , Set.insert ( frame, input ) timeline
-            |> Set.filter
-                (\( timelineFrameId, _ ) ->
-                    Id.toInt frame - maxCacheSize < Id.toInt timelineFrameId
-                )
+        ({ cache = newCache
+         , initialState = timelineCache.initialState
+         }
+         --, Set.insert ( frame, input ) timeline
+         --    |> Set.filter
+         --        (\( timelineFrameId, _ ) ->
+         --            Id.toInt frame - maxCacheSize < Id.toInt timelineFrameId
+         --        )
         )
+            |> Ok
 
 
 isAfter : Id FrameId -> Id FrameId -> Bool
