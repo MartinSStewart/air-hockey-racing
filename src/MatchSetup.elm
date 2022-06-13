@@ -370,14 +370,20 @@ addInput userId serverTime input (MatchSetup matchSetup) =
                 ( Just playerData, Just match ) ->
                     case playerData.mode of
                         PlayerMode ->
+                            let
+                                newFrameId =
+                                    serverTimeToFrameId serverTime match
+                            in
                             Just
                                 { match
                                     | timeline =
                                         Set.insert
-                                            ( serverTimeToFrameId serverTime match
-                                            , { userId = userId, input = input }
-                                            )
+                                            ( newFrameId, { userId = userId, input = input } )
                                             match.timeline
+                                            |> Set.filter
+                                                (\( frameId_, _ ) ->
+                                                    Id.toInt newFrameId - Timeline.maxCacheSize < Id.toInt frameId_
+                                                )
                                 }
 
                         SpectatorMode ->
