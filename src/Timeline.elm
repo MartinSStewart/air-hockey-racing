@@ -41,7 +41,7 @@ addInput frame input timelineCache timeline =
         , Set.insert ( frame, input ) timeline
             |> Set.filter
                 (\( timelineFrameId, _ ) ->
-                    timelineFrameId |> isAfter frame
+                    Id.toInt frame - maxCacheSize < Id.toInt timelineFrameId
                 )
         )
 
