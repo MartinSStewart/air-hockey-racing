@@ -617,8 +617,6 @@ matchSetupUpdate msg model =
                         | networkModel = newNetworkModel
                         , matchData =
                             updateMatchData
-                                (timeToFrameId model)
-                                model.userId
                                 msg
                                 newNetworkModel
                                 matchSetup.networkModel
@@ -801,8 +799,6 @@ updateLoadedFromBackend msg model =
                                         , networkModel = networkModel
                                         , matchData =
                                             updateMatchData
-                                                (timeToFrameId model)
-                                                model.userId
                                                 MatchSetup.JoinMatchSetup
                                                 networkModel
                                                 networkModel
@@ -916,8 +912,6 @@ updateLoadedFromBackend msg model =
                                     | networkModel = newNetworkModel
                                     , matchData =
                                         updateMatchData
-                                            (timeToFrameId model)
-                                            userId
                                             matchSetupMsg
                                             newNetworkModel
                                             matchSetup.networkModel
@@ -968,8 +962,6 @@ updateLoadedFromBackend msg model =
                                     | networkModel = newNetworkModel
                                     , matchData =
                                         updateMatchData
-                                            (timeToFrameId model)
-                                            userId
                                             matchSetupMsg
                                             newNetworkModel
                                             matchSetup.networkModel
@@ -993,14 +985,12 @@ updateLoadedFromBackend msg model =
 
 
 updateMatchData :
-    (Match -> Id FrameId)
-    -> Id UserId
-    -> MatchSetupMsg
+    MatchSetupMsg
     -> NetworkModel { userId : Id UserId, msg : MatchSetupMsg } MatchSetup
     -> NetworkModel { userId : Id UserId, msg : MatchSetupMsg } MatchSetup
     -> MatchData
     -> MatchData
-updateMatchData getCurrentFrame userId newMsg newNetworkModel oldNetworkModel oldMatchData =
+updateMatchData newMsg newNetworkModel oldNetworkModel oldMatchData =
     let
         newMatchState : MatchSetup
         newMatchState =
@@ -1044,14 +1034,12 @@ updateMatchData getCurrentFrame userId newMsg newNetworkModel oldNetworkModel ol
             case oldMatchData of
                 MatchData matchData ->
                     case ( matchData.timelineCache, newMsg ) of
-                        ( Ok timelineCache, MatchSetup.MatchInputRequest serverTime input ) ->
+                        ( Ok timelineCache, MatchSetup.MatchInputRequest serverTime _ ) ->
                             { matchData
                                 | timelineCache =
                                     Timeline.addInput
                                         (MatchSetup.serverTimeToFrameId serverTime newMatch)
-                                        { userId = userId, input = input }
                                         timelineCache
-                                        newMatch.timeline
                             }
                                 |> MatchData
 
