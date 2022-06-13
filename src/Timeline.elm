@@ -39,6 +39,10 @@ addInput frame input timelineCache timeline =
           , initialState = timelineCache.initialState
           }
         , Set.insert ( frame, input ) timeline
+            |> Set.filter
+                (\( timelineFrameId, _ ) ->
+                    timelineFrameId |> isAfter frame
+                )
         )
 
 
@@ -93,7 +97,11 @@ getStateAt updateFunc frame timelineCache timeline =
             newCache
                 ++ timelineCache.cache
                 |> List.sortBy (Tuple.first >> Id.toInt >> negate)
-                |> List.take 180
+                |> List.take maxCacheSize
       }
     , finalState
     )
+
+
+maxCacheSize =
+    180
