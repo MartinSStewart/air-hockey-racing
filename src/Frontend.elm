@@ -1681,10 +1681,12 @@ matchEndText match matchState model =
                     |> Element.el [ Element.centerX, Element.Font.bold, Element.Font.size 24 ]
                 , case maybeTimeLeft of
                     Just timeLeft ->
-                        "Match will end in "
-                            ++ String.fromInt (round (Duration.inSeconds timeLeft))
-                            |> Element.text
-                            |> Element.el [ Element.centerX, Element.Font.bold, Element.Font.size 24 ]
+                        Element.paragraph
+                            [ Element.Font.center, Element.Font.bold, Element.Font.size 24 ]
+                            [ "Match will end in "
+                                ++ String.fromInt (round (Duration.inSeconds timeLeft))
+                                |> Element.text
+                            ]
 
                     Nothing ->
                         Element.none
@@ -1694,7 +1696,7 @@ matchEndText match matchState model =
             case maybeTimeLeft of
                 Just timeLeft ->
                     Element.paragraph
-                        [ Element.centerX, Element.Font.bold, Element.Font.size 24 ]
+                        [ Element.Font.center, Element.Font.bold, Element.Font.size 24 ]
                         [ "Someone finished! The match will end in "
                             ++ String.fromInt (round (Duration.inSeconds timeLeft))
                             |> Element.text
@@ -2706,7 +2708,8 @@ subscriptions : AudioData -> FrontendModel_ -> Subscription FrontendOnly Fronten
 subscriptions _ model =
     Subscription.batch
         [ Ports.devicePixelRatioResponse (Quantity.Quantity >> Quantity.per Pixels.pixel >> GotDevicePixelRatio)
-        , Effect.Time.every (Duration.milliseconds 100) RandomInput
+
+        --, Effect.Time.every (Duration.milliseconds 100) RandomInput
         , Effect.Browser.Events.onResize
             (\width height -> WindowResized { width = Pixels.pixels width, height = Pixels.pixels height })
         , case model of
