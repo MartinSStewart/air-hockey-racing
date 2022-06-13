@@ -1942,10 +1942,10 @@ canvasView model =
                                             cache
                                             match.timeline
 
-                                    { x, y } =
+                                    ( { x, y }, zoomFactor ) =
                                         case Dict.get model.userId state.players of
                                             Just player ->
-                                                Point2d.toMeters player.position
+                                                ( Point2d.toMeters player.position, 1 )
 
                                             Nothing ->
                                                 let
@@ -1972,7 +1972,7 @@ canvasView model =
                                                     totalWeight =
                                                         List.map .weight vectorAndWeight |> List.sum
                                                 in
-                                                List.map
+                                                ( List.map
                                                     (\{ vector, weight } ->
                                                         Vector2d.scaleBy weight vector
                                                     )
@@ -1981,9 +1981,11 @@ canvasView model =
                                                     |> Vector2d.scaleBy (1 / totalWeight)
                                                     |> (\v -> Point2d.translateBy v Point2d.origin)
                                                     |> Point2d.toMeters
+                                                , 0.8
+                                                )
 
                                     zoom =
-                                        toFloat (max windowWidth windowHeight) / 2000
+                                        zoomFactor * toFloat (max windowWidth windowHeight) / 2000
 
                                     viewMatrix =
                                         Mat4.makeScale3
