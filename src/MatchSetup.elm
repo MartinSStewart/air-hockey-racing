@@ -43,6 +43,7 @@ import List.Nonempty exposing (Nonempty(..))
 import MatchName exposing (MatchName)
 import Point2d exposing (Point2d)
 import Quantity
+import Random
 import TextMessage exposing (TextMessage)
 import Time
 import Timeline exposing (FrameId, Timeline)
@@ -98,7 +99,7 @@ type WorldCoordinate
 
 
 type alias PlayerData =
-    { primaryColor : ColorIndex, secondaryColor : ColorIndex, decal : Decal, mode : PlayerMode }
+    { primaryColor : ColorIndex, secondaryColor : ColorIndex, decal : Maybe Decal, mode : PlayerMode }
 
 
 type alias Match =
@@ -110,7 +111,7 @@ type MatchSetupMsg
     | LeaveMatchSetup
     | SetPrimaryColor ColorIndex
     | SetSecondaryColor ColorIndex
-    | SetDecal Decal
+    | SetDecal (Maybe Decal)
     | SetPlayerMode PlayerMode
     | StartMatch ServerTime
     | MatchInputRequest ServerTime (Maybe (Direction2d WorldCoordinate))
@@ -157,7 +158,7 @@ init : Id UserId -> MatchSetup
 init owner =
     { name = MatchName.empty
     , owner = owner
-    , ownerPlayerData = defaultPlayerData
+    , ownerPlayerData = initPlayerData owner
     , users = Dict.empty
     , match = Nothing
     , messages = []
@@ -166,9 +167,34 @@ init owner =
         |> MatchSetup
 
 
-defaultPlayerData : PlayerData
-defaultPlayerData =
-    { primaryColor = Blue, secondaryColor = Green, decal = Decal.Star, mode = PlayerMode }
+initPlayerData : Id UserId -> PlayerData
+initPlayerData userId =
+    let
+        randomData =
+            Random.map2
+                (\( primary, secondary ) decal ->
+                    { primaryColor = primary
+                    , secondaryColor = secondary
+                    , decal = Just decal
+                    , mode = PlayerMode
+                    }
+                )
+                (List.Nonempty.sample ColorIndex.allColors
+                    |> Random.andThen
+                        (\primaryColor ->
+                            (case ColorIndex.allColors |> List.Nonempty.toList |> List.remove primaryColor of
+                                head :: rest ->
+                                    Random.uniform head rest
+
+                                [] ->
+                                    Random.constant Red
+                            )
+                                |> Random.map (\secondaryColor -> ( primaryColor, secondaryColor ))
+                        )
+                )
+                (List.Nonempty.sample Decal.allDecals)
+    in
+    Random.step randomData (Random.initialSeed (Id.toInt userId)) |> Tuple.first
 
 
 joinUser : Id UserId -> MatchSetup -> MatchSetup
@@ -177,7 +203,7 @@ joinUser userId (MatchSetup lobby) =
         lobby
 
      else
-        { lobby | users = Dict.insert userId defaultPlayerData lobby.users }
+        { lobby | users = Dict.insert userId (initPlayerData userId) lobby.users }
     )
         |> MatchSetup
 

@@ -187,7 +187,7 @@ type MatchSetupMsg_
     | PressedLeaveMatchSetup
     | PressedPrimaryColor ColorIndex
     | PressedSecondaryColor ColorIndex
-    | PressedDecal Decal
+    | PressedDecal (Maybe Decal)
     | TypedMatchName String
     | PressedPlayerMode PlayerMode
     | PressedSaveMatchName MatchName

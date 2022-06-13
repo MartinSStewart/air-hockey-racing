@@ -1,6 +1,7 @@
 module Decal exposing (Decal(..), allDecals, toString, triangles)
 
 import ColorIndex exposing (ColorIndex)
+import List.Nonempty exposing (Nonempty(..))
 import Math.Vector2 exposing (Vec2)
 import Math.Vector3 exposing (Vec3)
 
@@ -12,12 +13,11 @@ type Decal
     | Minus
     | Square
     | HollowSquare
-    | NoDecal
 
 
-allDecals : List Decal
+allDecals : Nonempty Decal
 allDecals =
-    [ NoDecal, Star, Triangle, Plus, Minus, Square, HollowSquare ]
+    Nonempty Star [ Triangle, Plus, Minus, Square, HollowSquare ]
 
 
 toString : Decal -> String
@@ -41,9 +41,6 @@ toString decal =
         HollowSquare ->
             " □ "
 
-        NoDecal ->
-            "None"
-
 
 type alias Vertex =
     { position : Vec2, color : Vec3 }
@@ -56,9 +53,6 @@ triangles colorIndex decal =
             ColorIndex.toVec3 colorIndex
     in
     (case decal of
-        NoDecal ->
-            []
-
         Star ->
             let
                 size =

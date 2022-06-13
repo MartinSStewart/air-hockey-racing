@@ -2,6 +2,7 @@ module ColorIndex exposing (ColorIndex(..), allColors, toElColor, toVec3)
 
 import Color exposing (Color)
 import Element
+import List.Nonempty exposing (Nonempty(..))
 import Math.Vector3 exposing (Vec3)
 
 
@@ -58,9 +59,9 @@ toVec3 colorIndex =
     Math.Vector3.vec3 red green blue
 
 
-allColors : List ColorIndex
+allColors : Nonempty ColorIndex
 allColors =
-    [ Red, Orange, Yellow, Green, Blue, Purple, Pink, Brown ]
+    Nonempty Red [ Orange, Yellow, Green, Blue, Purple, Pink, Brown ]
 
 
 colorToElColor : Color -> Element.Color

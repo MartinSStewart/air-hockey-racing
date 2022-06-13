@@ -1381,23 +1381,32 @@ matchSetupView model matchSetup =
                         , Element.column
                             [ Element.spacing 4, Element.width Element.fill ]
                             [ Element.el [ Element.Font.size 16, Element.Font.bold ] (Element.text "Decal")
-                            , List.map
-                                (\decal ->
-                                    Ui.button
-                                        [ Element.paddingXY 4 4
-                                        , Element.Background.color
-                                            (if decal == currentPlayerData.decal then
-                                                Element.rgb 0.6 0.7 1
+                            , Nothing
+                                :: List.map Just (List.Nonempty.toList Decal.allDecals)
+                                |> List.map
+                                    (\maybeDecal ->
+                                        Ui.button
+                                            [ Element.paddingXY 4 4
+                                            , Element.Background.color
+                                                (if maybeDecal == currentPlayerData.decal then
+                                                    Element.rgb 0.6 0.7 1
 
-                                             else
-                                                Element.rgb 0.8 0.8 0.8
-                                            )
-                                        ]
-                                        { onPress = PressedDecal decal
-                                        , label = Decal.toString decal |> Element.text
-                                        }
-                                )
-                                Decal.allDecals
+                                                 else
+                                                    Element.rgb 0.8 0.8 0.8
+                                                )
+                                            ]
+                                            { onPress = PressedDecal maybeDecal
+                                            , label =
+                                                (case maybeDecal of
+                                                    Just decal ->
+                                                        Decal.toString decal
+
+                                                    Nothing ->
+                                                        "None"
+                                                )
+                                                    |> Element.text
+                                            }
+                                    )
                                 |> Element.row [ Element.spacing 8, Element.width Element.fill ]
                             ]
                         ]
@@ -1702,26 +1711,26 @@ noPointerEvents =
 
 colorSelector : (ColorIndex -> msg) -> ColorIndex -> Element msg
 colorSelector onSelect currentColor =
-    List.map
-        (\colorIndex ->
-            Ui.button
-                [ Element.width (Element.px 36)
-                , Element.height (Element.px 36)
-                , Element.Border.width
-                    (if currentColor == colorIndex then
-                        3
+    List.Nonempty.toList ColorIndex.allColors
+        |> List.map
+            (\colorIndex ->
+                Ui.button
+                    [ Element.width (Element.px 36)
+                    , Element.height (Element.px 36)
+                    , Element.Border.width
+                        (if currentColor == colorIndex then
+                            3
 
-                     else
-                        0
-                    )
-                , Element.Border.color (Element.rgb 1 1 1)
-                , ColorIndex.toElColor colorIndex |> Element.Background.color
-                ]
-                { onPress = onSelect colorIndex
-                , label = Element.none
-                }
-        )
-        ColorIndex.allColors
+                         else
+                            0
+                        )
+                    , Element.Border.color (Element.rgb 1 1 1)
+                    , ColorIndex.toElColor colorIndex |> Element.Background.color
+                    ]
+                    { onPress = onSelect colorIndex
+                    , label = Element.none
+                    }
+            )
         |> Element.wrappedRow []
 
 
@@ -2415,7 +2424,13 @@ playerMesh playerData =
     in
     circleMesh 1 (Math.Vector3.vec3 0 0 0)
         ++ circleMesh 0.95 primaryColor
-        ++ Decal.triangles playerData.secondaryColor playerData.decal
+        ++ (case playerData.decal of
+                Just decal ->
+                    Decal.triangles playerData.secondaryColor decal
+
+                Nothing ->
+                    []
+           )
         |> WebGL.triangles
 
 
