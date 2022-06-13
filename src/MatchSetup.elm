@@ -19,8 +19,10 @@ module MatchSetup exposing
     , init
     , isOwner
     , joinUser
+    , leaveUser
     , matchSetupUpdate
     , maxInputDelay
+    , maxPlayers
     , messagesOldestToNewest
     , name
     , preview
@@ -56,7 +58,7 @@ type MatchSetup
 
 
 type alias LobbyPreview =
-    { name : MatchName, userCount : Int }
+    { name : MatchName, userCount : Int, maxUserCount : Int }
 
 
 type alias MatchSetupData =
@@ -67,6 +69,7 @@ type alias MatchSetupData =
     , match : Maybe Match
     , messages : List { userId : Id UserId, message : TextMessage }
     , previousMatch : Maybe (Dict (Id UserId) Place)
+    , maxPlayers : Int
     }
 
 
@@ -118,6 +121,7 @@ type MatchSetupMsg
     | SetMatchName MatchName
     | SendTextMessage TextMessage
     | MatchFinished (Dict (Id UserId) Place)
+    | SetMaxPlayers Int
 
 
 type ServerTime
@@ -154,6 +158,11 @@ maxInputDelay =
     Duration.second
 
 
+maxPlayers : MatchSetup -> Int
+maxPlayers (MatchSetup matchSetup) =
+    matchSetup.maxPlayers
+
+
 init : Id UserId -> MatchSetup
 init owner =
     { name = MatchName.empty
@@ -163,6 +172,7 @@ init owner =
     , match = Nothing
     , messages = []
     , previousMatch = Nothing
+    , maxPlayers = 16
     }
         |> MatchSetup
 
@@ -194,7 +204,7 @@ initPlayerData userId =
                 )
                 (List.Nonempty.sample Decal.allDecals)
     in
-    Random.step randomData (Random.initialSeed (Id.toInt userId)) |> Tuple.first
+    Random.step randomData (Random.initialSeed (Id.toInt userId + 3)) |> Tuple.first
 
 
 joinUser : Id UserId -> MatchSetup -> MatchSetup
@@ -249,7 +259,7 @@ isOwner userId (MatchSetup lobby) =
 
 preview : MatchSetup -> LobbyPreview
 preview (MatchSetup lobby) =
-    { name = lobby.name, userCount = Dict.size lobby.users + 1 }
+    { name = lobby.name, userCount = Dict.size lobby.users + 1, maxUserCount = lobby.maxPlayers }
 
 
 allUsers : MatchSetup -> Nonempty ( Id UserId, PlayerData )
@@ -267,45 +277,53 @@ messagesOldestToNewest (MatchSetup matchSetup) =
     List.reverse matchSetup.messages
 
 
-matchSetupUpdate : { userId : Id UserId, msg : MatchSetupMsg } -> MatchSetup -> Maybe MatchSetup
+matchSetupUpdate : { userId : Id UserId, msg : MatchSetupMsg } -> MatchSetup -> MatchSetup
 matchSetupUpdate { userId, msg } match =
     case msg of
         JoinMatchSetup ->
-            joinUser userId match |> Just
+            joinUser userId match
 
         LeaveMatchSetup ->
-            leaveUser userId match
+            leaveUser userId match |> Maybe.withDefault match
 
         SetPrimaryColor colorIndex ->
-            updatePlayerData userId (\a -> { a | primaryColor = colorIndex }) match |> Just
+            updatePlayerData userId (\a -> { a | primaryColor = colorIndex }) match
 
         SetSecondaryColor colorIndex ->
-            updatePlayerData userId (\a -> { a | secondaryColor = colorIndex }) match |> Just
+            updatePlayerData userId (\a -> { a | secondaryColor = colorIndex }) match
 
         SetDecal decal ->
-            updatePlayerData userId (\a -> { a | decal = decal }) match |> Just
+            updatePlayerData userId (\a -> { a | decal = decal }) match
 
         SetPlayerMode mode ->
-            updatePlayerData userId (\a -> { a | mode = mode }) match |> Just
+            updatePlayerData userId (\a -> { a | mode = mode }) match
 
         StartMatch time ->
-            startMatch time userId match |> Just
+            startMatch time userId match
 
         MatchInputRequest serverTime input ->
-            addInput userId serverTime input match |> Just
+            addInput userId serverTime input match
 
         SetMatchName matchName ->
             if isOwner userId match then
-                setMatchName matchName match |> Just
+                setMatchName matchName match
 
             else
-                Just match
+                match
 
         SendTextMessage message ->
-            sendTextMessage userId message match |> Just
+            sendTextMessage userId message match
 
         MatchFinished placements ->
-            matchFinished placements match |> Just
+            matchFinished placements match
+
+        SetMaxPlayers maxPlayerCount ->
+            setMaxPlayers maxPlayerCount match
+
+
+setMaxPlayers : Int -> MatchSetup -> MatchSetup
+setMaxPlayers maxPlayerCount (MatchSetup matchSetup) =
+    MatchSetup { matchSetup | maxPlayers = maxPlayerCount }
 
 
 matchFinished : Dict (Id UserId) Place -> MatchSetup -> MatchSetup

@@ -28,7 +28,6 @@ import Element.Background
 import Element.Border
 import Element.Font
 import Element.Input
-import Env
 import Html exposing (Html)
 import Html.Attributes
 import Html.Events
@@ -102,9 +101,7 @@ app =
 
 getLocalState : MatchSetupPage_ -> MatchSetup
 getLocalState matchPage =
-    NetworkModel.localState
-        (\a b -> MatchSetup.matchSetupUpdate a b |> Maybe.withDefault b)
-        matchPage.networkModel
+    NetworkModel.localState MatchSetup.matchSetupUpdate matchPage.networkModel
 
 
 audio : AudioData -> FrontendModel_ -> Audio
@@ -167,7 +164,7 @@ loadedInit loading time sounds ( userId, lobbyData ) =
       , devicePixelRatio = loading.devicePixelRatio
       , time = time
       , debugTimeOffset = loading.debugTimeOffset
-      , page = LobbyPage lobbyData
+      , page = LobbyPage { lobbies = lobbyData.lobbies, joinLobbyError = Nothing }
       , sounds = sounds
       , userId = userId
       , pingStartTime = Nothing
@@ -544,6 +541,49 @@ updateLoaded msg model =
                                 }
                                 |> Tuple.mapSecond (\cmd -> Command.batch [ cmd, scrollToBottom ])
 
+                        TypedMaxPlayers maxPlayersText ->
+                            ( { model
+                                | page =
+                                    { matchPage
+                                        | matchData =
+                                            case matchPage.matchData of
+                                                MatchData _ ->
+                                                    matchPage.matchData
+
+                                                MatchSetupData matchSetupData ->
+                                                    { matchSetupData | maxPlayers = maxPlayersText } |> MatchSetupData
+                                    }
+                                        |> MatchPage
+                              }
+                            , Command.none
+                            )
+
+                        PressedSaveMaxPlayers maxPlayers ->
+                            matchSetupUpdate (MatchSetup.SetMaxPlayers maxPlayers) model
+
+                        PressedResetMaxPlayers ->
+                            ( { model
+                                | page =
+                                    { matchPage
+                                        | matchData =
+                                            case matchPage.matchData of
+                                                MatchData _ ->
+                                                    matchPage.matchData
+
+                                                MatchSetupData matchSetupData ->
+                                                    { matchSetupData
+                                                        | maxPlayers =
+                                                            MatchSetup.preview (getLocalState matchPage)
+                                                                |> .maxUserCount
+                                                                |> String.fromInt
+                                                    }
+                                                        |> MatchSetupData
+                                    }
+                                        |> MatchPage
+                              }
+                            , Command.none
+                            )
+
                 _ ->
                     ( model, Command.none )
 
@@ -747,10 +787,16 @@ updateFromBackend audioData msg model =
             ( model, Command.none, Audio.cmdNone )
 
 
-initMatchSetupData : MatchSetup -> { matchName : String, message : String }
+initMatchSetupData : MatchSetup -> MatchSetupData_
 initMatchSetupData lobby =
-    { matchName = MatchSetup.name lobby |> MatchName.toString
+    let
+        preview : LobbyPreview
+        preview =
+            MatchSetup.preview lobby
+    in
+    { matchName = MatchName.toString preview.name
     , message = ""
+    , maxPlayers = String.fromInt preview.maxUserCount
     }
 
 
@@ -785,7 +831,7 @@ updateLoadedFromBackend msg model =
 
         JoinLobbyResponse lobbyId result ->
             case model.page of
-                LobbyPage _ ->
+                LobbyPage lobbyPage ->
                     case result of
                         Ok lobby ->
                             let
@@ -808,8 +854,10 @@ updateLoadedFromBackend msg model =
                             , scrollToBottom
                             )
 
-                        Err LobbyNotFound ->
-                            ( model, Command.none )
+                        Err error ->
+                            ( { model | page = LobbyPage { lobbyPage | joinLobbyError = Just error } }
+                            , Command.none
+                            )
 
                 _ ->
                     ( model, Command.none )
@@ -903,7 +951,7 @@ updateLoadedFromBackend msg model =
                                     newNetworkModel : NetworkModel { userId : Id UserId, msg : MatchSetupMsg } MatchSetup
                                     newNetworkModel =
                                         NetworkModel.updateFromBackend
-                                            (\a b -> MatchSetup.matchSetupUpdate a b |> Maybe.withDefault b)
+                                            MatchSetup.matchSetupUpdate
                                             Nothing
                                             { userId = userId, msg = matchSetupMsg }
                                             matchSetup.networkModel
@@ -953,7 +1001,7 @@ updateLoadedFromBackend msg model =
                                     newNetworkModel : NetworkModel { userId : Id UserId, msg : MatchSetupMsg } MatchSetup
                                     newNetworkModel =
                                         NetworkModel.updateFromBackend
-                                            (\a b -> MatchSetup.matchSetupUpdate a b |> Maybe.withDefault b)
+                                            MatchSetup.matchSetupUpdate
                                             (Just eventId)
                                             { userId = userId, msg = matchSetupMsg }
                                             matchSetup.networkModel
@@ -975,13 +1023,31 @@ updateLoadedFromBackend msg model =
                     in
                     case ( maybeLobbyData, matchSetupMsg ) of
                         ( Just lobbyData, MatchSetup.LeaveMatchSetup ) ->
-                            ( { model | page = LobbyPage lobbyData }, Command.none )
+                            ( { model
+                                | page = LobbyPage { lobbies = lobbyData.lobbies, joinLobbyError = Nothing }
+                              }
+                            , Command.none
+                            )
 
                         _ ->
                             ( { model | page = updateHelper }, Command.none )
 
                 LobbyPage _ ->
                     ( model, Command.none )
+
+        UpdateLobbyBroadcast lobbyId lobbyPreview ->
+            ( case model.page of
+                LobbyPage lobbyPage ->
+                    { model
+                        | page =
+                            { lobbyPage | lobbies = Dict.update lobbyId (\_ -> Just lobbyPreview) lobbyPage.lobbies }
+                                |> LobbyPage
+                    }
+
+                MatchPage _ ->
+                    model
+            , Command.none
+            )
 
 
 updateMatchData :
@@ -994,15 +1060,11 @@ updateMatchData newMsg newNetworkModel oldNetworkModel oldMatchData =
     let
         newMatchState : MatchSetup
         newMatchState =
-            NetworkModel.localState
-                (\a b -> MatchSetup.matchSetupUpdate a b |> Maybe.withDefault b)
-                newNetworkModel
+            NetworkModel.localState MatchSetup.matchSetupUpdate newNetworkModel
 
         oldMatchState : MatchSetup
         oldMatchState =
-            NetworkModel.localState
-                (\a b -> MatchSetup.matchSetupUpdate a b |> Maybe.withDefault b)
-                oldNetworkModel
+            NetworkModel.localState MatchSetup.matchSetupUpdate oldNetworkModel
 
         newUserIds : Nonempty ( Id UserId, PlayerData )
         newUserIds =
@@ -1188,6 +1250,19 @@ loadedView model =
                     , Element.column
                         [ Element.width Element.fill, Element.height Element.fill, Element.spacing 8 ]
                         [ Element.text "Or join existing match"
+                        , case lobbyData.joinLobbyError of
+                            Nothing ->
+                                Element.none
+
+                            Just LobbyNotFound ->
+                                Element.el
+                                    [ Element.Font.color (Element.rgb 1 0 0) ]
+                                    (Element.text "Lobby not found!")
+
+                            Just LobbyFull ->
+                                Element.el
+                                    [ Element.Font.color (Element.rgb 1 0 0) ]
+                                    (Element.text "Lobby is full!")
                         , if Dict.isEmpty lobbyData.lobbies then
                             Element.paragraph
                                 [ Element.Font.center, Element.centerY ]
@@ -1281,6 +1356,9 @@ matchSetupView model matchSetup =
                         |> List.sortBy Tuple.second
                         |> List.indexedMap (\index ( userId, _ ) -> ( userId, index + 1 ))
                         |> Dict.fromList
+
+                preview =
+                    MatchSetup.preview lobby
             in
             Element.column
                 [ Element.spacing 8
@@ -1304,18 +1382,18 @@ matchSetupView model matchSetup =
                             , placeholder = Element.Input.placeholder [] unnamedMatchText |> Just
                             , label = Element.Input.labelHidden "Match name"
                             }
-                            :: (case
-                                    ( MatchName.fromString matchSetupData.matchName
-                                    , matchSetupData.matchName == matchName
-                                    )
-                                of
-                                    ( Ok matchName_, False ) ->
-                                        [ button (PressedSaveMatchName matchName_) (Element.text "Save")
-                                        , button PressedResetMatchName (Element.text "Reset")
-                                        ]
+                            :: (if matchSetupData.matchName == matchName then
+                                    []
 
-                                    _ ->
-                                        []
+                                else
+                                    button PressedResetMatchName (Element.text "Reset")
+                                        :: (case MatchName.fromString matchSetupData.matchName of
+                                                Ok matchName_ ->
+                                                    [ button (PressedSaveMatchName matchName_) (Element.text "Save") ]
+
+                                                _ ->
+                                                    []
+                                           )
                                )
                         )
 
@@ -1328,6 +1406,33 @@ matchSetupView model matchSetup =
                           else
                             Element.text matchName
                         ]
+                , if MatchSetup.isOwner model.userId lobby then
+                    Element.row
+                        [ Element.spacing 8 ]
+                        (Element.Input.text
+                            [ Element.width (Element.px 50), Element.padding 4, Element.Font.alignRight ]
+                            { onChange = TypedMaxPlayers
+                            , text = matchSetupData.maxPlayers
+                            , placeholder = Nothing
+                            , label = Element.Input.labelLeft [] (Element.text "Max players")
+                            }
+                            :: (if matchSetupData.maxPlayers == String.fromInt preview.maxUserCount then
+                                    []
+
+                                else
+                                    button PressedResetMaxPlayers (Element.text "Reset")
+                                        :: (case String.toInt matchSetupData.maxPlayers of
+                                                Just maxPlayers ->
+                                                    [ button (PressedSaveMaxPlayers maxPlayers) (Element.text "Save") ]
+
+                                                Nothing ->
+                                                    []
+                                           )
+                               )
+                        )
+
+                  else
+                    Element.none
                 , Element.wrappedRow
                     [ Element.spacing 8 ]
                     [ if MatchSetup.isOwner model.userId lobby then
@@ -1438,7 +1543,7 @@ matchSetupView model matchSetup =
             Element.text "Loading..."
 
 
-textChat : { matchName : String, message : String } -> MatchSetup -> Element MatchSetupMsg_
+textChat : MatchSetupData_ -> MatchSetup -> Element MatchSetupMsg_
 textChat matchSetupData lobby =
     Element.column
         [ Element.scrollbarY
@@ -1786,7 +1891,7 @@ lobbyRowView evenRow ( lobbyId, lobby ) =
             Element.text (MatchName.toString lobby.name)
         , Element.row
             [ Element.alignRight, Element.spacing 8 ]
-            [ Element.text <| "Players: " ++ String.fromInt lobby.userCount
+            [ Element.text <| String.fromInt lobby.userCount ++ " / " ++ String.fromInt lobby.maxUserCount
             , button (PressedJoinLobby lobbyId) (Element.text "Join")
             ]
         ]

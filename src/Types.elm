@@ -14,6 +14,7 @@ module Types exposing
     , MatchData(..)
     , MatchMsg(..)
     , MatchPage_
+    , MatchSetupData_
     , MatchSetupMsg_(..)
     , MatchSetupPage_
     , Page(..)
@@ -114,7 +115,7 @@ type alias PingData =
 
 
 type Page
-    = LobbyPage LobbyData
+    = LobbyPage LobbyPage_
     | MatchPage MatchSetupPage_
 
 
@@ -126,13 +127,22 @@ type alias MatchSetupPage_ =
 
 
 type MatchData
-    = MatchSetupData { matchName : String, message : String }
+    = MatchSetupData MatchSetupData_
     | MatchData MatchPage_
 
 
-type alias LobbyData =
+type alias MatchSetupData_ =
+    { matchName : String, message : String, maxPlayers : String }
+
+
+type alias LobbyPage_ =
     { lobbies : Dict (Id LobbyId) LobbyPreview
+    , joinLobbyError : Maybe JoinLobbyError
     }
+
+
+type alias LobbyData =
+    { lobbies : Dict (Id LobbyId) LobbyPreview }
 
 
 type alias MatchPage_ =
@@ -194,6 +204,9 @@ type MatchSetupMsg_
     | PressedResetMatchName
     | TypedTextMessage String
     | SubmittedTextMessage TextMessage
+    | TypedMaxPlayers String
+    | PressedSaveMaxPlayers Int
+    | PressedResetMaxPlayers
 
 
 type MatchMsg
@@ -222,6 +235,7 @@ type BackendMsg
 type ToFrontend
     = CreateLobbyResponse (Id LobbyId) MatchSetup
     | RemoveLobbyBroadcast (Id LobbyId)
+    | UpdateLobbyBroadcast (Id LobbyId) LobbyPreview
     | CreateLobbyBroadcast (Id LobbyId) LobbyPreview
     | ClientInit (Id UserId) LobbyData
     | JoinLobbyResponse (Id LobbyId) (Result JoinLobbyError MatchSetup)
@@ -232,3 +246,4 @@ type ToFrontend
 
 type JoinLobbyError
     = LobbyNotFound
+    | LobbyFull
