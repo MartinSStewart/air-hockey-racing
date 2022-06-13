@@ -21,7 +21,6 @@ module MatchSetup exposing
     , joinUser
     , leaveUser
     , matchSetupUpdate
-    , maxInputDelay
     , maxPlayers
     , messagesOldestToNewest
     , name

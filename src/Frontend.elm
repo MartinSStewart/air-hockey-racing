@@ -59,7 +59,7 @@ import RasterShapes
 import Sounds exposing (Sounds)
 import TextMessage
 import Time
-import Timeline exposing (FrameId, TimelineCache)
+import Timeline exposing (FrameId)
 import Types exposing (..)
 import Ui
 import Url exposing (Url)
@@ -85,7 +85,7 @@ app =
         (Audio.lamderaFrontendWithAudio
             { init = init
             , onUrlRequest = UrlClicked
-            , onUrlChange = UrlChanged
+            , onUrlChange = \_ -> UrlChanged
             , update = update
             , updateFromBackend = updateFromBackend
             , subscriptions = subscriptions
@@ -105,14 +105,14 @@ getLocalState matchPage =
 
 
 audio : AudioData -> FrontendModel_ -> Audio
-audio audioData model =
+audio _ model =
     (case model of
         Loading _ ->
             Audio.silence
 
         Loaded loaded ->
             case loaded.page of
-                MatchPage matchPage ->
+                MatchPage _ ->
                     --case ( MatchSetup.getMatch (getLocalState matchPage), matchPage.matchData ) of
                     --    ( Just match, MatchData matchData ) ->
                     --        let
@@ -228,7 +228,7 @@ init url key =
 
 
 update : AudioData -> FrontendMsg_ -> FrontendModel_ -> ( FrontendModel_, Command FrontendOnly ToBackend FrontendMsg_, AudioCmd FrontendMsg_ )
-update audioData msg model =
+update _ msg model =
     case model of
         Loading loadingModel ->
             case msg of
@@ -282,10 +282,7 @@ updateLoaded msg model =
                     , Effect.Browser.Navigation.load url
                     )
 
-        UrlChanged _ ->
-            ( model, Command.none )
-
-        NoOpFrontendMsg ->
+        UrlChanged ->
             ( model, Command.none )
 
         KeyMsg keyMsg ->
@@ -682,7 +679,7 @@ matchUpdate msg model =
                             model.touchPosition
             }
 
-        PointerUp _ ->
+        PointerUp ->
             { model | touchPosition = Nothing }
 
         PointerMoved event ->
@@ -775,7 +772,7 @@ devicePixelRatioUpdate devicePixelRatio model =
 
 
 updateFromBackend : AudioData -> ToFrontend -> FrontendModel_ -> ( FrontendModel_, Command FrontendOnly ToBackend FrontendMsg_, AudioCmd FrontendMsg_ )
-updateFromBackend audioData msg model =
+updateFromBackend _ msg model =
     case ( model, msg ) of
         ( Loading loading, ClientInit userId initData ) ->
             { loading | initData = Just ( userId, initData ) } |> tryLoadedInit
@@ -1177,24 +1174,9 @@ initMatch startTime users =
     }
 
 
-lostConnection : FrontendLoaded -> Bool
-lostConnection model =
-    False
-
-
 view : AudioData -> FrontendModel_ -> Browser.Document FrontendMsg_
 view _ model =
-    { title =
-        case model of
-            Loading _ ->
-                "Air Hockey Racing"
-
-            Loaded loadedModel ->
-                if lostConnection loadedModel then
-                    "(offline) Air Hockey Racing"
-
-                else
-                    "Air Hockey Racing"
+    { title = "Air Hockey Racing"
     , body =
         [ case model of
             Loading loading ->
@@ -1320,8 +1302,8 @@ matchSetupView model matchSetup =
                         (Element.width Element.fill
                             :: Element.height Element.fill
                             :: Element.htmlAttribute (Html.Events.Extra.Touch.onStart PointerDown)
-                            :: Element.htmlAttribute (Html.Events.Extra.Touch.onCancel PointerUp)
-                            :: Element.htmlAttribute (Html.Events.Extra.Touch.onEnd PointerUp)
+                            :: Element.htmlAttribute (Html.Events.Extra.Touch.onCancel (\_ -> PointerUp))
+                            :: Element.htmlAttribute (Html.Events.Extra.Touch.onEnd (\_ -> PointerUp))
                             :: Element.inFront (countdown model match)
                             :: (case matchData.touchPosition of
                                     Just _ ->
@@ -1829,17 +1811,6 @@ colorSelector onSelect currentColor =
                     }
             )
         |> Element.wrappedRow []
-
-
-timestamp : Time.Posix -> String
-timestamp time =
-    String.fromInt (Time.toHour Time.utc time)
-        ++ ":"
-        ++ String.padLeft 2 '0' (String.fromInt (Time.toMinute Time.utc time))
-        ++ ":"
-        ++ String.padLeft 2 '0' (String.fromInt (Time.toSecond Time.utc time))
-        ++ "."
-        ++ String.padLeft 4 '0' (String.fromInt (Time.toMillis Time.utc time))
 
 
 

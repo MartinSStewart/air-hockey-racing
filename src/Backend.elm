@@ -9,7 +9,7 @@ import Effect.Time
 import Id exposing (Id)
 import Lamdera
 import List.Nonempty
-import MatchSetup exposing (LobbyPreview, MatchSetup, MatchSetupMsg(..), ServerTime(..))
+import MatchSetup exposing (MatchSetup, MatchSetupMsg(..), ServerTime(..))
 import NetworkModel exposing (EventId)
 import Types exposing (..)
 import User exposing (UserId)
@@ -27,7 +27,7 @@ app =
 
 
 subscriptions : BackendModel -> Subscription BackendOnly BackendMsg
-subscriptions model =
+subscriptions _ =
     Subscription.batch
         [ Effect.Lamdera.onConnect ClientConnected
         , Effect.Lamdera.onDisconnect ClientDisconnected

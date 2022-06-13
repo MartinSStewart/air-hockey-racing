@@ -50,8 +50,7 @@ import Point2d exposing (Point2d)
 import Quantity exposing (Quantity, Rate)
 import Sounds exposing (Sounds)
 import TextMessage exposing (TextMessage)
-import Timeline exposing (FrameId, Timeline, TimelineCache)
-import Url exposing (Url)
+import Timeline exposing (TimelineCache)
 import User exposing (UserId)
 
 
@@ -176,8 +175,7 @@ type alias BackendUserData =
 
 type FrontendMsg_
     = UrlClicked Browser.UrlRequest
-    | UrlChanged Url
-    | NoOpFrontendMsg
+    | UrlChanged
     | KeyMsg Keyboard.Msg
     | WindowResized WindowSize
     | GotDevicePixelRatio (Quantity Float (Rate WorldPixel Pixels))
@@ -211,7 +209,7 @@ type MatchSetupMsg_
 
 type MatchMsg
     = PointerDown Html.Events.Extra.Touch.Event
-    | PointerUp Html.Events.Extra.Touch.Event
+    | PointerUp
     | PointerMoved Html.Events.Extra.Touch.Event
 
 
