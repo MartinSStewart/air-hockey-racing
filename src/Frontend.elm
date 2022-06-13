@@ -312,15 +312,6 @@ updateLoaded msg model =
                     case ( matchSetupPage.matchData, MatchSetup.getMatch (getLocalState matchSetupPage) ) of
                         ( MatchData matchData, Just match ) ->
                             let
-                                --newZoom =
-                                --    if keyPressed (Character "Q") model then
-                                --        matchSetupPage.zoom * 2
-                                --
-                                --    else if keyPressed (Character "W") model then
-                                --        matchSetupPage.zoom / 2
-                                --
-                                --    else
-                                --        matchSetupPage.zoom
                                 previousInput : Maybe (Direction2d WorldCoordinate)
                                 previousInput =
                                     getInputDirection model.windowSize model.previousKeys matchData.previousTouchPosition
@@ -1044,7 +1035,7 @@ updateMatchData getCurrentFrame userId newMsg newNetworkModel oldNetworkModel ol
                 |> MatchData
     in
     case ( MatchSetup.getMatch newMatchState, MatchSetup.getMatch oldMatchState ) of
-        ( Just newMatch, Just oldMatch ) ->
+        ( Just newMatch, Just _ ) ->
             case oldMatchData of
                 MatchData matchData ->
                     let
@@ -1059,8 +1050,6 @@ updateMatchData getCurrentFrame userId newMsg newNetworkModel oldNetworkModel ol
 
                                 _ ->
                                     Set.empty
-
-                        --Set.diff newMatch.timeline oldMatch.timeline
                     in
                     { matchData
                         | timelineCache =
@@ -1071,14 +1060,6 @@ updateMatchData getCurrentFrame userId newMsg newNetworkModel oldNetworkModel ol
                                             |> Tuple.first
                                     )
                                     matchData.timelineCache
-                                |> (\cache ->
-                                        Timeline.getStateAt
-                                            gameUpdate
-                                            (getCurrentFrame newMatch)
-                                            cache
-                                            newMatch.timeline
-                                   )
-                                |> Tuple.first
                     }
                         |> MatchData
 
@@ -1889,21 +1870,6 @@ canvasView model =
 
                                     Nothing ->
                                         let
-                                            playerCount =
-                                                Dict.size state.players
-
-                                            maxDistance =
-                                                Quantity.maximumBy .distance vectorAndDistance
-                                                    |> Maybe.map .distance
-                                                    |> Maybe.withDefault Quantity.zero
-                                                    |> Quantity.unwrap
-
-                                            minDistance =
-                                                Quantity.minimumBy .distance vectorAndDistance
-                                                    |> Maybe.map .distance
-                                                    |> Maybe.withDefault Quantity.zero
-                                                    |> Quantity.unwrap
-
                                             vectorAndDistance =
                                                 Dict.values state.players
                                                     |> List.map
