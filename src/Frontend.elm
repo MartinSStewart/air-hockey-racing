@@ -2591,8 +2591,7 @@ subscriptions : AudioData -> FrontendModel_ -> Subscription FrontendOnly Fronten
 subscriptions _ model =
     Subscription.batch
         [ Ports.devicePixelRatioResponse (Quantity.Quantity >> Quantity.per Pixels.pixel >> GotDevicePixelRatio)
-
-        --, Effect.Time.every (Duration.milliseconds 100) RandomInput
+        , Effect.Time.every (Duration.milliseconds 100) RandomInput
         , Effect.Browser.Events.onResize
             (\width height -> WindowResized { width = Pixels.pixels width, height = Pixels.pixels height })
         , case model of
