@@ -1693,10 +1693,12 @@ matchEndText match matchState model =
         Nothing ->
             case maybeTimeLeft of
                 Just timeLeft ->
-                    "Someone finished! The match will end in "
-                        ++ String.fromInt (round (Duration.inSeconds timeLeft))
-                        |> Element.text
-                        |> Element.el [ Element.centerX, Element.Font.bold, Element.Font.size 24 ]
+                    Element.paragraph
+                        [ Element.centerX, Element.Font.bold, Element.Font.size 24 ]
+                        [ "Someone finished! The match will end in "
+                            ++ String.fromInt (round (Duration.inSeconds timeLeft))
+                            |> Element.text
+                        ]
 
                 Nothing ->
                     Element.none
