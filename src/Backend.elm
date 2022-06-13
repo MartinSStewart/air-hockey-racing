@@ -39,6 +39,7 @@ init =
     { userSessions = Dict.empty
     , users = Dict.empty
     , lobbies = Dict.empty
+    , dummyChange = 0
     , counter = 0
     }
 

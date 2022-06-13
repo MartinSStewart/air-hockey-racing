@@ -165,6 +165,7 @@ type alias BackendModel =
     { userSessions : Dict SessionId { clientIds : Dict ClientId (), userId : Id UserId }
     , users : Dict (Id UserId) BackendUserData
     , lobbies : Dict (Id LobbyId) MatchSetup
+    , dummyChange : Float
     , counter : Int
     }
 
