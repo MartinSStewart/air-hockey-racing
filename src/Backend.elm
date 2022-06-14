@@ -211,16 +211,6 @@ matchSetupRequest currentTime lobbyId userId eventId clientId matchSetupMsg mode
                 matchSetup2 =
                     MatchSetup.matchSetupUpdate { userId = userId, msg = matchSetupMsg } matchSetup
 
-                newPreview : Command BackendOnly ToFrontend BackendMsg
-                newPreview =
-                    if MatchSetup.preview matchSetup == MatchSetup.preview matchSetup2 then
-                        Command.none
-
-                    else
-                        MatchSetup.preview matchSetup2
-                            |> UpdateLobbyBroadcast lobbyId
-                            |> Effect.Lamdera.broadcast
-
                 model2 : BackendModel
                 model2 =
                     { model | lobbies = Dict.update lobbyId (\_ -> Just matchSetup2) model.lobbies }
@@ -269,6 +259,9 @@ matchSetupRequest currentTime lobbyId userId eventId clientId matchSetupMsg mode
                         |> Command.batch
             in
             case matchSetupMsg2 of
+                MatchInputRequest _ _ ->
+                    ( model2, matchSetupBroadcast model2 )
+
                 JoinMatchSetup ->
                     if List.Nonempty.length (MatchSetup.allUsers matchSetup) < MatchSetup.maxPlayers matchSetup then
                         ( model2
@@ -278,7 +271,7 @@ matchSetupRequest currentTime lobbyId userId eventId clientId matchSetupMsg mode
                                 |> JoinLobbyResponse lobbyId
                                 |> Effect.Lamdera.sendToFrontend clientId
                             , matchSetupBroadcast model2
-                            , newPreview
+                            , newPreview lobbyId matchSetup matchSetup2
                             ]
                         )
 
@@ -290,7 +283,7 @@ matchSetupRequest currentTime lobbyId userId eventId clientId matchSetupMsg mode
                 LeaveMatchSetup ->
                     case MatchSetup.leaveUser userId matchSetup of
                         Just _ ->
-                            ( model2, Command.batch [ matchSetupBroadcast model2, newPreview ] )
+                            ( model2, Command.batch [ matchSetupBroadcast model2, newPreview lobbyId matchSetup matchSetup2 ] )
 
                         Nothing ->
                             let
@@ -305,12 +298,23 @@ matchSetupRequest currentTime lobbyId userId eventId clientId matchSetupMsg mode
                             )
 
                 _ ->
-                    ( model2, Command.batch [ newPreview, matchSetupBroadcast model2 ] )
+                    ( model2, Command.batch [ newPreview lobbyId matchSetup matchSetup2, matchSetupBroadcast model2 ] )
 
         Nothing ->
             ( model
             , Err LobbyNotFound |> JoinLobbyResponse lobbyId |> Effect.Lamdera.sendToFrontend clientId
             )
+
+
+newPreview : Id LobbyId -> MatchSetup -> MatchSetup -> Command BackendOnly ToFrontend BackendMsg
+newPreview lobbyId oldMatchSetup newMatchSetup =
+    if MatchSetup.preview oldMatchSetup == MatchSetup.preview newMatchSetup then
+        Command.none
+
+    else
+        MatchSetup.preview newMatchSetup
+            |> UpdateLobbyBroadcast lobbyId
+            |> Effect.Lamdera.broadcast
 
 
 getId : BackendModel -> ( Id a, BackendModel )
