@@ -4,9 +4,11 @@ module Ui exposing
     , button
     , displayType
     , ifMobile
+    , simpleButton
     )
 
 import Element exposing (Element)
+import Element.Background
 import Element.Input
 import Pixels exposing (Pixels)
 import Quantity exposing (Quantity)
@@ -19,6 +21,17 @@ type alias WindowSize =
 button : List (Element.Attribute msg) -> { onPress : msg, label : Element msg } -> Element msg
 button attributes { onPress, label } =
     Element.Input.button attributes { onPress = Just onPress, label = label }
+
+
+simpleButton : msg -> Element msg -> Element msg
+simpleButton onPress label =
+    button
+        [ Element.Background.color <| Element.rgb 0.9 0.9 0.85
+        , Element.padding 4
+        ]
+        { onPress = onPress
+        , label = label
+        }
 
 
 type DisplayType

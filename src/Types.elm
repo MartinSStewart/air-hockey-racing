@@ -13,7 +13,6 @@ module Types exposing
     , Page(..)
     , ToBackend(..)
     , ToFrontend(..)
-    , WorldPixel
     )
 
 import AssocList exposing (Dict)
@@ -26,7 +25,7 @@ import Effect.Time as Time
 import Id exposing (Id)
 import Keyboard
 import Match exposing (LobbyPreview, Match, MatchSetupMsg, MatchState, PlayerMode, ServerTime)
-import MatchPage exposing (MatchId, MatchPage_, MatchSetupMsg_)
+import MatchPage exposing (MatchId, Model, Msg, WorldPixel)
 import NetworkModel exposing (EventId, NetworkModel)
 import PingData exposing (PingData)
 import Pixels exposing (Pixels)
@@ -47,10 +46,6 @@ type alias FrontendMsg =
 type FrontendModel_
     = Loading FrontendLoading
     | Loaded FrontendLoaded
-
-
-type WorldPixel
-    = WorldPixel Never
 
 
 type alias FrontendLoading =
@@ -82,7 +77,7 @@ type alias FrontendLoaded =
 
 type Page
     = MainLobbyPage MainLobbyPage_
-    | MatchPage MatchPage_
+    | MatchPage Model
 
 
 type alias MainLobbyPage_ =
@@ -118,7 +113,7 @@ type FrontendMsg_
     | PressedCreateLobby
     | PressedJoinLobby (Id MatchId)
     | SoundLoaded String (Result Audio.LoadError Audio.Source)
-    | MatchSetupMsg MatchSetupMsg_
+    | MatchSetupMsg Msg
     | GotTime Time.Posix
     | RandomInput Time.Posix
 

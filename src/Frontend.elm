@@ -13,20 +13,18 @@ import Effect.Lamdera
 import Effect.Subscription as Subscription exposing (Subscription)
 import Effect.Task as Task
 import Effect.Time
-import Effect.WebGL as WebGL exposing (Mesh, Shader)
 import Element exposing (Element)
 import Element.Background
 import Element.Border
 import Element.Font
 import Html exposing (Html)
-import Html.Attributes
 import Id exposing (Id)
 import Keyboard exposing (Key)
 import Lamdera
 import List.Extra as List
 import Match exposing (LobbyPreview, Match, MatchActive, MatchSetupMsg, MatchState, Place(..), Player, PlayerData, PlayerMode(..), ServerTime(..), TimelineEvent, WorldCoordinate)
 import MatchName
-import MatchPage exposing (MatchId, MatchLocalOnly(..), ScreenCoordinate)
+import MatchPage exposing (MatchId, MatchLocalOnly(..), ScreenCoordinate, WorldPixel)
 import NetworkModel exposing (NetworkModel)
 import Pixels exposing (Pixels)
 import Ports
@@ -571,10 +569,10 @@ loadedView model =
             Ui.displayType model.windowSize
     in
     Element.layout
-        [ canvasView model |> Element.behindContent, Element.clip ]
+        [ Element.clip ]
         (case model.page of
             MatchPage matchSetup ->
-                MatchPage.matchSetupView model matchSetup |> Element.map MatchSetupMsg
+                MatchPage.view model matchSetup |> Element.map MatchSetupMsg
 
             MainLobbyPage lobbyData ->
                 Element.column
@@ -584,7 +582,7 @@ loadedView model =
                     , Element.padding (Ui.ifMobile displayType 8 16)
                     ]
                     [ Element.el [ Element.Font.bold ] (Element.text "Air Hockey Racing")
-                    , MatchPage.button PressedCreateLobby (Element.text "Create new match")
+                    , Ui.simpleButton PressedCreateLobby (Element.text "Create new match")
                     , Element.column
                         [ Element.width Element.fill, Element.height Element.fill, Element.spacing 8 ]
                         [ Element.text "Or join existing match"
@@ -667,68 +665,9 @@ lobbyRowView evenRow ( lobbyId, lobby ) =
         , Element.row
             [ Element.alignRight, Element.spacing 8 ]
             [ Element.text <| String.fromInt lobby.userCount ++ " / " ++ String.fromInt lobby.maxUserCount
-            , MatchPage.button (PressedJoinLobby lobbyId) (Element.text "Join")
+            , Ui.simpleButton (PressedJoinLobby lobbyId) (Element.text "Join")
             ]
         ]
-
-
-findPixelPerfectSize : FrontendLoaded -> { canvasSize : ( Quantity Int Pixels, Quantity Int Pixels ), actualCanvasSize : ( Int, Int ) }
-findPixelPerfectSize frontendModel =
-    let
-        (Quantity pixelRatio) =
-            frontendModel.devicePixelRatio
-
-        findValue : Quantity Int Pixels -> ( Int, Int )
-        findValue value =
-            List.range 0 9
-                |> List.map ((+) (Pixels.inPixels value))
-                |> List.find
-                    (\v ->
-                        let
-                            a =
-                                toFloat v * pixelRatio
-                        in
-                        a == toFloat (round a) && modBy 2 (round a) == 0
-                    )
-                |> Maybe.map (\v -> ( v, toFloat v * pixelRatio |> round ))
-                |> Maybe.withDefault ( Pixels.inPixels value, toFloat (Pixels.inPixels value) * pixelRatio |> round )
-
-        ( w, actualW ) =
-            findValue frontendModel.windowSize.width
-
-        ( h, actualH ) =
-            findValue frontendModel.windowSize.height
-    in
-    { canvasSize = ( Pixels.pixels w, Pixels.pixels h ), actualCanvasSize = ( actualW, actualH ) }
-
-
-canvasView : FrontendLoaded -> Element msg
-canvasView model =
-    let
-        ( canvasWidth, canvasHeight ) =
-            actualCanvasSize
-
-        ( cssWindowWidth, cssWindowHeight ) =
-            canvasSize
-
-        { canvasSize, actualCanvasSize } =
-            findPixelPerfectSize model
-    in
-    WebGL.toHtmlWith
-        [ WebGL.alpha False ]
-        [ Html.Attributes.width canvasWidth
-        , Html.Attributes.height canvasHeight
-        , Html.Attributes.style "width" (String.fromInt (Pixels.inPixels cssWindowWidth) ++ "px")
-        , Html.Attributes.style "height" (String.fromInt (Pixels.inPixels cssWindowHeight) ++ "px")
-        ]
-        (case model.page of
-            MatchPage matchSetup ->
-                MatchPage.canvasView canvasWidth canvasHeight model matchSetup
-
-            MainLobbyPage _ ->
-                []
-        )
-        |> Element.html
 
 
 subscriptions : AudioData -> FrontendModel_ -> Subscription FrontendOnly FrontendMsg_
