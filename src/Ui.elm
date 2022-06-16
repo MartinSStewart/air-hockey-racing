@@ -1,5 +1,6 @@
 module Ui exposing
     ( DisplayType(..)
+    , WindowSize
     , button
     , displayType
     , ifMobile
@@ -7,9 +8,12 @@ module Ui exposing
 
 import Element exposing (Element)
 import Element.Input
-import Pixels
-import Quantity
-import Types exposing (WindowSize)
+import Pixels exposing (Pixels)
+import Quantity exposing (Quantity)
+
+
+type alias WindowSize =
+    { width : Quantity Int Pixels, height : Quantity Int Pixels }
 
 
 button : List (Element.Attribute msg) -> { onPress : msg, label : Element msg } -> Element msg

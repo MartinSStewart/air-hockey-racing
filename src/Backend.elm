@@ -9,7 +9,7 @@ import Effect.Time
 import Id exposing (Id)
 import Lamdera
 import List.Nonempty
-import Match exposing (MatchSetup, MatchSetupMsg(..), ServerTime(..))
+import Match exposing (Match, MatchSetupMsg(..), ServerTime(..))
 import NetworkModel exposing (EventId)
 import Types exposing (..)
 import User exposing (UserId)
@@ -118,7 +118,7 @@ getLobbyData : BackendModel -> { lobbies : Dict (Id MatchId) Match.LobbyPreview 
 getLobbyData model =
     { lobbies =
         Dict.filter
-            (\_ lobby -> Match.getMatch lobby == Nothing)
+            (\_ lobby -> Match.matchActive lobby == Nothing)
             model.lobbies
             |> Dict.map (\_ lobby -> Match.preview lobby)
     }
@@ -207,7 +207,7 @@ matchSetupRequest currentTime lobbyId userId eventId clientId matchSetupMsg mode
     case Dict.get lobbyId model.lobbies of
         Just matchSetup ->
             let
-                matchSetup2 : MatchSetup
+                matchSetup2 : Match
                 matchSetup2 =
                     Match.matchSetupUpdate { userId = userId, msg = matchSetupMsg } matchSetup
 
@@ -306,7 +306,7 @@ matchSetupRequest currentTime lobbyId userId eventId clientId matchSetupMsg mode
             )
 
 
-newPreview : Id MatchId -> MatchSetup -> MatchSetup -> Command BackendOnly ToFrontend BackendMsg
+newPreview : Id MatchId -> Match -> Match -> Command BackendOnly ToFrontend BackendMsg
 newPreview lobbyId oldMatchSetup newMatchSetup =
     if Match.preview oldMatchSetup == Match.preview newMatchSetup then
         Command.none

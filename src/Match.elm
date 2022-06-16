@@ -1,7 +1,7 @@
 module Match exposing
     ( LobbyPreview
     , Match
-    , MatchSetup
+    , MatchActive
     , MatchSetupMsg(..)
     , MatchState
     , Place(..)
@@ -15,11 +15,11 @@ module Match exposing
     , allUsers_
     , clampTime
     , frameDuration
-    , getMatch
     , init
     , isOwner
     , joinUser
     , leaveUser
+    , matchActive
     , matchSetupUpdate
     , maxPlayers
     , messagesOldestToNewest
@@ -52,20 +52,20 @@ import User exposing (UserId)
 import Vector2d exposing (Vector2d)
 
 
-type MatchSetup
-    = MatchSetup MatchSetupData
+type Match
+    = Match Match_
 
 
 type alias LobbyPreview =
     { name : MatchName, userCount : Int, maxUserCount : Int }
 
 
-type alias MatchSetupData =
+type alias Match_ =
     { name : MatchName
     , owner : Id UserId
     , ownerPlayerData : PlayerData
     , users : Dict (Id UserId) PlayerData
-    , match : Maybe Match
+    , matchActive : Maybe MatchActive
     , messages : List { userId : Id UserId, message : TextMessage }
     , previousMatch : Maybe (Dict (Id UserId) Place)
     , maxPlayers : Int
@@ -104,7 +104,7 @@ type alias PlayerData =
     { primaryColor : ColorIndex, secondaryColor : ColorIndex, decal : Maybe Decal, mode : PlayerMode }
 
 
-type alias Match =
+type alias MatchActive =
     { startTime : ServerTime, timeline : Timeline TimelineEvent }
 
 
@@ -127,8 +127,8 @@ type ServerTime
     = ServerTime Time.Posix
 
 
-previousMatchFinishTimes : MatchSetup -> Maybe (Dict (Id UserId) Place)
-previousMatchFinishTimes (MatchSetup matchSetup) =
+previousMatchFinishTimes : Match -> Maybe (Dict (Id UserId) Place)
+previousMatchFinishTimes (Match matchSetup) =
     matchSetup.previousMatch
 
 
@@ -157,23 +157,23 @@ maxInputDelay =
     Duration.second
 
 
-maxPlayers : MatchSetup -> Int
-maxPlayers (MatchSetup matchSetup) =
+maxPlayers : Match -> Int
+maxPlayers (Match matchSetup) =
     matchSetup.maxPlayers
 
 
-init : Id UserId -> MatchSetup
+init : Id UserId -> Match
 init owner =
     { name = MatchName.empty
     , owner = owner
     , ownerPlayerData = initPlayerData owner
     , users = Dict.empty
-    , match = Nothing
+    , matchActive = Nothing
     , messages = []
     , previousMatch = Nothing
     , maxPlayers = 16
     }
-        |> MatchSetup
+        |> Match
 
 
 initPlayerData : Id UserId -> PlayerData
@@ -206,19 +206,19 @@ initPlayerData userId =
     Random.step randomData (Random.initialSeed (Id.toInt userId + 3)) |> Tuple.first
 
 
-joinUser : Id UserId -> MatchSetup -> MatchSetup
-joinUser userId (MatchSetup lobby) =
+joinUser : Id UserId -> Match -> Match
+joinUser userId (Match lobby) =
     (if userId == lobby.owner then
         lobby
 
      else
         { lobby | users = Dict.insert userId (initPlayerData userId) lobby.users }
     )
-        |> MatchSetup
+        |> Match
 
 
-leaveUser : Id UserId -> MatchSetup -> Maybe MatchSetup
-leaveUser userId (MatchSetup lobby) =
+leaveUser : Id UserId -> Match -> Maybe Match
+leaveUser userId (Match lobby) =
     if userId == lobby.owner then
         let
             users =
@@ -231,52 +231,52 @@ leaveUser userId (MatchSetup lobby) =
                     , ownerPlayerData = newOwnerPlayerData
                     , users = List.drop 1 users |> Dict.fromList
                 }
-                    |> MatchSetup
+                    |> Match
                     |> Just
 
             [] ->
                 Nothing
 
     else
-        { lobby | users = Dict.remove userId lobby.users } |> MatchSetup |> Just
+        { lobby | users = Dict.remove userId lobby.users } |> Match |> Just
 
 
-getMatch : MatchSetup -> Maybe { startTime : ServerTime, timeline : Timeline TimelineEvent }
-getMatch (MatchSetup matchSetup) =
-    matchSetup.match
+matchActive : Match -> Maybe { startTime : ServerTime, timeline : Timeline TimelineEvent }
+matchActive (Match matchSetup) =
+    matchSetup.matchActive
 
 
-name : MatchSetup -> MatchName
-name (MatchSetup matchSetup) =
+name : Match -> MatchName
+name (Match matchSetup) =
     matchSetup.name
 
 
-isOwner : Id UserId -> MatchSetup -> Bool
-isOwner userId (MatchSetup lobby) =
+isOwner : Id UserId -> Match -> Bool
+isOwner userId (Match lobby) =
     lobby.owner == userId
 
 
-preview : MatchSetup -> LobbyPreview
-preview (MatchSetup lobby) =
+preview : Match -> LobbyPreview
+preview (Match lobby) =
     { name = lobby.name, userCount = Dict.size lobby.users + 1, maxUserCount = lobby.maxPlayers }
 
 
-allUsers : MatchSetup -> Nonempty ( Id UserId, PlayerData )
-allUsers (MatchSetup lobby) =
+allUsers : Match -> Nonempty ( Id UserId, PlayerData )
+allUsers (Match lobby) =
     Nonempty ( lobby.owner, lobby.ownerPlayerData ) (Dict.toList lobby.users)
 
 
-allUsers_ : MatchSetup -> Dict (Id UserId) PlayerData
-allUsers_ (MatchSetup lobby) =
+allUsers_ : Match -> Dict (Id UserId) PlayerData
+allUsers_ (Match lobby) =
     Dict.insert lobby.owner lobby.ownerPlayerData lobby.users
 
 
-messagesOldestToNewest : MatchSetup -> List { userId : Id UserId, message : TextMessage }
-messagesOldestToNewest (MatchSetup matchSetup) =
+messagesOldestToNewest : Match -> List { userId : Id UserId, message : TextMessage }
+messagesOldestToNewest (Match matchSetup) =
     List.reverse matchSetup.messages
 
 
-matchSetupUpdate : { userId : Id UserId, msg : MatchSetupMsg } -> MatchSetup -> MatchSetup
+matchSetupUpdate : { userId : Id UserId, msg : MatchSetupMsg } -> Match -> Match
 matchSetupUpdate { userId, msg } match =
     case msg of
         JoinMatchSetup ->
@@ -320,48 +320,48 @@ matchSetupUpdate { userId, msg } match =
             setMaxPlayers maxPlayerCount match
 
 
-setMaxPlayers : Int -> MatchSetup -> MatchSetup
-setMaxPlayers maxPlayerCount (MatchSetup matchSetup) =
-    MatchSetup { matchSetup | maxPlayers = maxPlayerCount }
+setMaxPlayers : Int -> Match -> Match
+setMaxPlayers maxPlayerCount (Match matchSetup) =
+    Match { matchSetup | maxPlayers = maxPlayerCount }
 
 
-matchFinished : Dict (Id UserId) Place -> MatchSetup -> MatchSetup
-matchFinished placements (MatchSetup matchSetup) =
-    (case matchSetup.match of
+matchFinished : Dict (Id UserId) Place -> Match -> Match
+matchFinished placements (Match matchSetup) =
+    (case matchSetup.matchActive of
         Just _ ->
-            { matchSetup | match = Nothing, previousMatch = Just placements }
+            { matchSetup | matchActive = Nothing, previousMatch = Just placements }
 
         Nothing ->
             matchSetup
     )
-        |> MatchSetup
+        |> Match
 
 
-sendTextMessage : Id UserId -> TextMessage -> MatchSetup -> MatchSetup
-sendTextMessage userId message (MatchSetup match) =
-    { match | messages = { userId = userId, message = message } :: match.messages } |> MatchSetup
+sendTextMessage : Id UserId -> TextMessage -> Match -> Match
+sendTextMessage userId message (Match match) =
+    { match | messages = { userId = userId, message = message } :: match.messages } |> Match
 
 
-startMatch : ServerTime -> Id UserId -> MatchSetup -> MatchSetup
-startMatch time userId (MatchSetup matchSetup) =
+startMatch : ServerTime -> Id UserId -> Match -> Match
+startMatch time userId (Match matchSetup) =
     let
         totalPlayers : Int
         totalPlayers =
-            allUsers (MatchSetup matchSetup)
+            allUsers (Match matchSetup)
                 |> List.Nonempty.toList
                 |> List.count (\( _, player ) -> player.mode == PlayerMode)
     in
     if matchSetup.owner == userId && totalPlayers > 0 then
-        { matchSetup | match = Just { startTime = time, timeline = Set.empty } }
-            |> MatchSetup
+        { matchSetup | matchActive = Just { startTime = time, timeline = Set.empty } }
+            |> Match
 
     else
-        MatchSetup matchSetup
+        Match matchSetup
 
 
-setMatchName : MatchName -> MatchSetup -> MatchSetup
-setMatchName matchName (MatchSetup matchSetup) =
-    { matchSetup | name = matchName } |> MatchSetup
+setMatchName : MatchName -> Match -> Match
+setMatchName matchName (Match matchSetup) =
+    { matchSetup | name = matchName } |> Match
 
 
 frameDuration : Duration
@@ -369,7 +369,7 @@ frameDuration =
     Duration.seconds (1 / 60)
 
 
-serverTimeToFrameId : ServerTime -> Match -> Id FrameId
+serverTimeToFrameId : ServerTime -> MatchActive -> Id FrameId
 serverTimeToFrameId time match =
     time
         |> unwrapServerTime
@@ -379,11 +379,11 @@ serverTimeToFrameId time match =
         |> Id.fromInt
 
 
-addInput : Id UserId -> ServerTime -> Maybe (Direction2d WorldCoordinate) -> MatchSetup -> MatchSetup
-addInput userId serverTime input (MatchSetup matchSetup) =
+addInput : Id UserId -> ServerTime -> Maybe (Direction2d WorldCoordinate) -> Match -> Match
+addInput userId serverTime input (Match matchSetup) =
     { matchSetup
-        | match =
-            case ( allUsers_ (MatchSetup matchSetup) |> Dict.get userId, matchSetup.match ) of
+        | matchActive =
+            case ( allUsers_ (Match matchSetup) |> Dict.get userId, matchSetup.matchActive ) of
                 ( Just playerData, Just match ) ->
                     case playerData.mode of
                         PlayerMode ->
@@ -404,20 +404,20 @@ addInput userId serverTime input (MatchSetup matchSetup) =
                                 }
 
                         SpectatorMode ->
-                            matchSetup.match
+                            matchSetup.matchActive
 
                 _ ->
-                    matchSetup.match
+                    matchSetup.matchActive
     }
-        |> MatchSetup
+        |> Match
 
 
-updatePlayerData : Id UserId -> (PlayerData -> PlayerData) -> MatchSetup -> MatchSetup
-updatePlayerData userId updateFunc (MatchSetup matchSetup) =
+updatePlayerData : Id UserId -> (PlayerData -> PlayerData) -> Match -> Match
+updatePlayerData userId updateFunc (Match matchSetup) =
     (if userId == matchSetup.owner then
         { matchSetup | ownerPlayerData = updateFunc matchSetup.ownerPlayerData }
 
      else
         { matchSetup | users = Dict.update userId (Maybe.map updateFunc) matchSetup.users }
     )
-        |> MatchSetup
+        |> Match

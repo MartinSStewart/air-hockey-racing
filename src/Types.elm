@@ -10,47 +10,30 @@ module Types exposing
     , FrontendMsg_(..)
     , JoinLobbyError(..)
     , MainLobbyInitData
-    , MatchId
-    , MatchLobbyLocalOnly_
-    , MatchLocalOnly(..)
-    , MatchMsg(..)
-    , MatchPage_
-    , MatchSetupLocalOnly_
-    , MatchSetupMsg_(..)
     , Page(..)
     , PingData
-    , ScreenCoordinate
     , ToBackend(..)
     , ToFrontend(..)
-    , Vertex
-    , WindowSize
     , WorldPixel
     )
 
 import AssocList exposing (Dict)
 import Audio
 import Browser
-import ColorIndex exposing (ColorIndex)
-import Decal exposing (Decal)
 import Duration exposing (Duration)
 import Effect.Browser.Navigation
 import Effect.Lamdera exposing (ClientId, SessionId)
 import Effect.Time as Time
-import Effect.WebGL exposing (Mesh)
-import Html.Events.Extra.Touch
 import Id exposing (Id)
 import Keyboard
-import Match exposing (LobbyPreview, MatchSetup, MatchSetupMsg, MatchState, PlayerMode, ServerTime)
-import MatchName exposing (MatchName)
-import Math.Vector2 exposing (Vec2)
-import Math.Vector3 exposing (Vec3)
+import Match exposing (LobbyPreview, Match, MatchSetupMsg, MatchState, PlayerMode, ServerTime)
+import MatchPage exposing (MatchId, MatchPage_, MatchSetupMsg_)
 import NetworkModel exposing (EventId, NetworkModel)
+import PingData exposing (PingData)
 import Pixels exposing (Pixels)
-import Point2d exposing (Point2d)
 import Quantity exposing (Quantity, Rate)
 import Sounds exposing (Sounds)
-import TextMessage exposing (TextMessage)
-import Timeline exposing (TimelineCache)
+import Ui exposing (WindowSize)
 import User exposing (UserId)
 
 
@@ -82,10 +65,6 @@ type alias FrontendLoading =
     }
 
 
-type alias WindowSize =
-    { width : Quantity Int Pixels, height : Quantity Int Pixels }
-
-
 type alias FrontendLoaded =
     { key : Effect.Browser.Navigation.Key
     , windowSize : WindowSize
@@ -102,36 +81,9 @@ type alias FrontendLoaded =
     }
 
 
-type alias PingData =
-    { roundTripTime : Duration
-    , serverTime : Time.Posix
-    , sendTime : Time.Posix
-    , receiveTime : Time.Posix
-    , lowEstimate : Duration
-    , highEstimate : Duration
-    , pingCount : Int
-    }
-
-
 type Page
     = MainLobbyPage MainLobbyPage_
     | MatchPage MatchPage_
-
-
-type alias MatchPage_ =
-    { lobbyId : Id MatchId
-    , networkModel : NetworkModel { userId : Id UserId, msg : MatchSetupMsg } MatchSetup
-    , matchData : MatchLocalOnly
-    }
-
-
-type MatchLocalOnly
-    = MatchSetupLocalOnly MatchSetupLocalOnly_
-    | MatchLobbyLocalOnly MatchLobbyLocalOnly_
-
-
-type alias MatchSetupLocalOnly_ =
-    { matchName : String, message : String, maxPlayers : String }
 
 
 type alias MainLobbyPage_ =
@@ -144,27 +96,10 @@ type alias MainLobbyInitData =
     { lobbies : Dict (Id MatchId) LobbyPreview }
 
 
-type alias MatchLobbyLocalOnly_ =
-    { timelineCache : Result Timeline.Error (TimelineCache MatchState)
-    , userIds : Dict (Id UserId) (Mesh Vertex)
-    , wallMesh : Mesh Vertex
-    , touchPosition : Maybe (Point2d Pixels ScreenCoordinate)
-    , previousTouchPosition : Maybe (Point2d Pixels ScreenCoordinate)
-    }
-
-
-type alias Vertex =
-    { position : Vec2, color : Vec3 }
-
-
-type ScreenCoordinate
-    = ScreenCoordinate Never
-
-
 type alias BackendModel =
     { userSessions : Dict SessionId { clientIds : Dict ClientId (), userId : Id UserId }
     , users : Dict (Id UserId) BackendUserData
-    , lobbies : Dict (Id MatchId) MatchSetup
+    , lobbies : Dict (Id MatchId) Match
     , dummyChange : Float
     , counter : Int
     }
@@ -184,38 +119,9 @@ type FrontendMsg_
     | PressedCreateLobby
     | PressedJoinLobby (Id MatchId)
     | SoundLoaded String (Result Audio.LoadError Audio.Source)
-    | MatchMsg MatchMsg
     | MatchSetupMsg MatchSetupMsg_
     | GotTime Time.Posix
-    | ScrolledToBottom
     | RandomInput Time.Posix
-
-
-type MatchSetupMsg_
-    = PressedStartMatchSetup
-    | PressedLeaveMatchSetup
-    | PressedPrimaryColor ColorIndex
-    | PressedSecondaryColor ColorIndex
-    | PressedDecal (Maybe Decal)
-    | TypedMatchName String
-    | PressedPlayerMode PlayerMode
-    | PressedSaveMatchName MatchName
-    | PressedResetMatchName
-    | TypedTextMessage String
-    | SubmittedTextMessage TextMessage
-    | TypedMaxPlayers String
-    | PressedSaveMaxPlayers Int
-    | PressedResetMaxPlayers
-
-
-type MatchMsg
-    = PointerDown Html.Events.Extra.Touch.Event
-    | PointerUp
-    | PointerMoved Html.Events.Extra.Touch.Event
-
-
-type MatchId
-    = LobbyId Never
 
 
 type ToBackend
@@ -232,12 +138,12 @@ type BackendMsg
 
 
 type ToFrontend
-    = CreateLobbyResponse (Id MatchId) MatchSetup
+    = CreateLobbyResponse (Id MatchId) Match
     | RemoveLobbyBroadcast (Id MatchId)
     | UpdateLobbyBroadcast (Id MatchId) LobbyPreview
     | CreateLobbyBroadcast (Id MatchId) LobbyPreview
     | ClientInit (Id UserId) MainLobbyInitData
-    | JoinLobbyResponse (Id MatchId) (Result JoinLobbyError MatchSetup)
+    | JoinLobbyResponse (Id MatchId) (Result JoinLobbyError Match)
     | PingResponse ServerTime
     | MatchSetupBroadcast (Id MatchId) (Id UserId) MatchSetupMsg
     | MatchSetupResponse (Id MatchId) (Id UserId) MatchSetupMsg (Maybe MainLobbyInitData) (Id EventId)
