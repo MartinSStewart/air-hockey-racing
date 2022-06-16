@@ -112,37 +112,42 @@ audio _ model =
 
         Loaded loaded ->
             case loaded.page of
-                MatchPage _ ->
-                    --case ( MatchSetup.getMatch (getLocalState matchPage), matchPage.matchData ) of
-                    --    ( Just match, MatchData matchData ) ->
-                    --        let
-                    --            ( _, state ) =
-                    --                Timeline.getStateAt
-                    --                    gameUpdate
-                    --                    (timeToFrameId loaded match)
-                    --                    matchData.timelineCache
-                    --                    match.timeline
-                    --        in
-                    --        Dict.values state.players
-                    --            |> List.filterMap .lastCollision
-                    --            |> Set.fromList
-                    --            |> Set.toList
-                    --            |> List.map
-                    --                (\frameId ->
-                    --                    let
-                    --                        collisionTime : Time.Posix
-                    --                        collisionTime =
-                    --                            Quantity.multiplyBy (Id.toInt frameId |> toFloat) MatchSetup.frameDuration
-                    --                                |> Duration.addTo (MatchSetup.unwrapServerTime match.startTime)
-                    --                                |> (\a -> Duration.subtractFrom a (pingOffset loaded))
-                    --                                |> (\a -> Duration.subtractFrom a loaded.debugTimeOffset)
-                    --                    in
-                    --                    Audio.audio loaded.sounds.collision collisionTime
-                    --                )
-                    --            |> Audio.group
-                    --
-                    --    _ ->
-                    Audio.silence
+                MatchPage matchPage ->
+                    case ( MatchSetup.getMatch (getLocalState matchPage), matchPage.matchData ) of
+                        ( Just match, MatchData matchData ) ->
+                            case matchData.timelineCache of
+                                Ok cache ->
+                                    let
+                                        ( _, state ) =
+                                            Timeline.getStateAt
+                                                gameUpdate
+                                                (timeToFrameId loaded match)
+                                                cache
+                                                match.timeline
+                                    in
+                                    Dict.values state.players
+                                        |> List.filterMap .lastCollision
+                                        |> Set.fromList
+                                        |> Set.toList
+                                        |> List.map
+                                            (\frameId ->
+                                                let
+                                                    collisionTime : Time.Posix
+                                                    collisionTime =
+                                                        Quantity.multiplyBy (Id.toInt frameId |> toFloat) MatchSetup.frameDuration
+                                                            |> Duration.addTo (MatchSetup.unwrapServerTime match.startTime)
+                                                            |> (\a -> Duration.subtractFrom a (pingOffset loaded))
+                                                            |> (\a -> Duration.subtractFrom a loaded.debugTimeOffset)
+                                                in
+                                                Audio.audio loaded.sounds.collision collisionTime
+                                            )
+                                        |> Audio.group
+
+                                Err _ ->
+                                    Audio.silence
+
+                        _ ->
+                            Audio.silence
 
                 LobbyPage _ ->
                     Audio.silence
