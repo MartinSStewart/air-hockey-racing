@@ -9,7 +9,7 @@ import Effect.Time
 import Id exposing (Id)
 import Lamdera
 import List.Nonempty
-import MatchSetup exposing (MatchSetup, MatchSetupMsg(..), ServerTime(..))
+import Match exposing (MatchSetup, MatchSetupMsg(..), ServerTime(..))
 import NetworkModel exposing (EventId)
 import Types exposing (..)
 import User exposing (UserId)
@@ -73,12 +73,12 @@ update msg model =
             case getUserFromSessionId sessionId model of
                 Just ( userId, _ ) ->
                     let
-                        matchIds : List (Id LobbyId)
+                        matchIds : List (Id MatchId)
                         matchIds =
                             Dict.toList model.lobbies
                                 |> List.filterMap
                                     (\( lobbyId, match ) ->
-                                        if MatchSetup.allUsers_ match |> Dict.member userId then
+                                        if Match.allUsers_ match |> Dict.member userId then
                                             Just lobbyId
 
                                         else
@@ -114,13 +114,13 @@ update msg model =
             updateFromFrontendWithTime sessionId clientId toBackend model time
 
 
-getLobbyData : BackendModel -> { lobbies : Dict (Id LobbyId) MatchSetup.LobbyPreview }
+getLobbyData : BackendModel -> { lobbies : Dict (Id MatchId) Match.LobbyPreview }
 getLobbyData model =
     { lobbies =
         Dict.filter
-            (\_ lobby -> MatchSetup.getMatch lobby == Nothing)
+            (\_ lobby -> Match.getMatch lobby == Nothing)
             model.lobbies
-            |> Dict.map (\_ lobby -> MatchSetup.preview lobby)
+            |> Dict.map (\_ lobby -> Match.preview lobby)
     }
 
 
@@ -166,10 +166,10 @@ updateFromFrontendWithTime sessionId clientId msg model time =
                             getId model
 
                         lobby =
-                            MatchSetup.init userId
+                            Match.init userId
 
                         lobbyPreview =
-                            MatchSetup.preview lobby
+                            Match.preview lobby
                     in
                     ( { model2 | lobbies = Dict.insert lobbyId lobby model2.lobbies }
                     , Command.batch
@@ -196,7 +196,7 @@ updateFromFrontendWithTime sessionId clientId msg model time =
 
 matchSetupRequest :
     ServerTime
-    -> Id LobbyId
+    -> Id MatchId
     -> Id UserId
     -> Id EventId
     -> ClientId
@@ -209,7 +209,7 @@ matchSetupRequest currentTime lobbyId userId eventId clientId matchSetupMsg mode
             let
                 matchSetup2 : MatchSetup
                 matchSetup2 =
-                    MatchSetup.matchSetupUpdate { userId = userId, msg = matchSetupMsg } matchSetup
+                    Match.matchSetupUpdate { userId = userId, msg = matchSetupMsg } matchSetup
 
                 model2 : BackendModel
                 model2 =
@@ -219,14 +219,14 @@ matchSetupRequest currentTime lobbyId userId eventId clientId matchSetupMsg mode
                 matchSetupMsg2 =
                     case matchSetupMsg of
                         MatchInputRequest time input ->
-                            MatchInputRequest (MatchSetup.clampTime currentTime time) input
+                            MatchInputRequest (Match.clampTime currentTime time) input
 
                         _ ->
                             matchSetupMsg
 
                 matchSetupBroadcast : BackendModel -> Command BackendOnly ToFrontend BackendMsg
                 matchSetupBroadcast model_ =
-                    MatchSetup.allUsers matchSetup
+                    Match.allUsers matchSetup
                         |> List.Nonempty.toList
                         |> List.concatMap
                             (\( lobbyUserId, _ ) ->
@@ -263,10 +263,10 @@ matchSetupRequest currentTime lobbyId userId eventId clientId matchSetupMsg mode
                     ( model2, matchSetupBroadcast model2 )
 
                 JoinMatchSetup ->
-                    if List.Nonempty.length (MatchSetup.allUsers matchSetup) < MatchSetup.maxPlayers matchSetup then
+                    if List.Nonempty.length (Match.allUsers matchSetup) < Match.maxPlayers matchSetup then
                         ( model2
                         , Command.batch
-                            [ MatchSetup.joinUser userId matchSetup
+                            [ Match.joinUser userId matchSetup
                                 |> Ok
                                 |> JoinLobbyResponse lobbyId
                                 |> Effect.Lamdera.sendToFrontend clientId
@@ -281,7 +281,7 @@ matchSetupRequest currentTime lobbyId userId eventId clientId matchSetupMsg mode
                         )
 
                 LeaveMatchSetup ->
-                    case MatchSetup.leaveUser userId matchSetup of
+                    case Match.leaveUser userId matchSetup of
                         Just _ ->
                             ( model2, Command.batch [ matchSetupBroadcast model2, newPreview lobbyId matchSetup matchSetup2 ] )
 
@@ -306,13 +306,13 @@ matchSetupRequest currentTime lobbyId userId eventId clientId matchSetupMsg mode
             )
 
 
-newPreview : Id LobbyId -> MatchSetup -> MatchSetup -> Command BackendOnly ToFrontend BackendMsg
+newPreview : Id MatchId -> MatchSetup -> MatchSetup -> Command BackendOnly ToFrontend BackendMsg
 newPreview lobbyId oldMatchSetup newMatchSetup =
-    if MatchSetup.preview oldMatchSetup == MatchSetup.preview newMatchSetup then
+    if Match.preview oldMatchSetup == Match.preview newMatchSetup then
         Command.none
 
     else
-        MatchSetup.preview newMatchSetup
+        Match.preview newMatchSetup
             |> UpdateLobbyBroadcast lobbyId
             |> Effect.Lamdera.broadcast
 

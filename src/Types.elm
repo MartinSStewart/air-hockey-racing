@@ -9,14 +9,14 @@ module Types exposing
     , FrontendMsg
     , FrontendMsg_(..)
     , JoinLobbyError(..)
-    , LobbyData
-    , LobbyId
-    , MatchData(..)
+    , MainLobbyInitData
+    , MatchId
+    , MatchLobbyLocalOnly_
+    , MatchLocalOnly(..)
     , MatchMsg(..)
     , MatchPage_
-    , MatchSetupData_
+    , MatchSetupLocalOnly_
     , MatchSetupMsg_(..)
-    , MatchSetupPage_
     , Page(..)
     , PingData
     , ScreenCoordinate
@@ -40,8 +40,8 @@ import Effect.WebGL exposing (Mesh)
 import Html.Events.Extra.Touch
 import Id exposing (Id)
 import Keyboard
+import Match exposing (LobbyPreview, MatchSetup, MatchSetupMsg, MatchState, PlayerMode, ServerTime)
 import MatchName exposing (MatchName)
-import MatchSetup exposing (LobbyPreview, MatchSetup, MatchSetupMsg, MatchState, PlayerMode, ServerTime)
 import Math.Vector2 exposing (Vec2)
 import Math.Vector3 exposing (Vec3)
 import NetworkModel exposing (EventId, NetworkModel)
@@ -77,7 +77,7 @@ type alias FrontendLoading =
     , devicePixelRatio : Quantity Float (Rate WorldPixel Pixels)
     , time : Maybe Time.Posix
     , debugTimeOffset : Duration
-    , initData : Maybe ( Id UserId, LobbyData )
+    , initData : Maybe ( Id UserId, MainLobbyInitData )
     , sounds : Dict String (Result Audio.LoadError Audio.Source)
     }
 
@@ -114,37 +114,37 @@ type alias PingData =
 
 
 type Page
-    = LobbyPage LobbyPage_
-    | MatchPage MatchSetupPage_
+    = MainLobbyPage MainLobbyPage_
+    | MatchPage MatchPage_
 
 
-type alias MatchSetupPage_ =
-    { lobbyId : Id LobbyId
+type alias MatchPage_ =
+    { lobbyId : Id MatchId
     , networkModel : NetworkModel { userId : Id UserId, msg : MatchSetupMsg } MatchSetup
-    , matchData : MatchData
+    , matchData : MatchLocalOnly
     }
 
 
-type MatchData
-    = MatchSetupData MatchSetupData_
-    | MatchData MatchPage_
+type MatchLocalOnly
+    = MatchSetupLocalOnly MatchSetupLocalOnly_
+    | MatchLobbyLocalOnly MatchLobbyLocalOnly_
 
 
-type alias MatchSetupData_ =
+type alias MatchSetupLocalOnly_ =
     { matchName : String, message : String, maxPlayers : String }
 
 
-type alias LobbyPage_ =
-    { lobbies : Dict (Id LobbyId) LobbyPreview
+type alias MainLobbyPage_ =
+    { lobbies : Dict (Id MatchId) LobbyPreview
     , joinLobbyError : Maybe JoinLobbyError
     }
 
 
-type alias LobbyData =
-    { lobbies : Dict (Id LobbyId) LobbyPreview }
+type alias MainLobbyInitData =
+    { lobbies : Dict (Id MatchId) LobbyPreview }
 
 
-type alias MatchPage_ =
+type alias MatchLobbyLocalOnly_ =
     { timelineCache : Result Timeline.Error (TimelineCache MatchState)
     , userIds : Dict (Id UserId) (Mesh Vertex)
     , wallMesh : Mesh Vertex
@@ -164,7 +164,7 @@ type ScreenCoordinate
 type alias BackendModel =
     { userSessions : Dict SessionId { clientIds : Dict ClientId (), userId : Id UserId }
     , users : Dict (Id UserId) BackendUserData
-    , lobbies : Dict (Id LobbyId) MatchSetup
+    , lobbies : Dict (Id MatchId) MatchSetup
     , dummyChange : Float
     , counter : Int
     }
@@ -182,7 +182,7 @@ type FrontendMsg_
     | GotDevicePixelRatio (Quantity Float (Rate WorldPixel Pixels))
     | AnimationFrame Time.Posix
     | PressedCreateLobby
-    | PressedJoinLobby (Id LobbyId)
+    | PressedJoinLobby (Id MatchId)
     | SoundLoaded String (Result Audio.LoadError Audio.Source)
     | MatchMsg MatchMsg
     | MatchSetupMsg MatchSetupMsg_
@@ -214,13 +214,13 @@ type MatchMsg
     | PointerMoved Html.Events.Extra.Touch.Event
 
 
-type LobbyId
+type MatchId
     = LobbyId Never
 
 
 type ToBackend
     = CreateMatchRequest
-    | MatchSetupRequest (Id LobbyId) (Id EventId) MatchSetupMsg
+    | MatchSetupRequest (Id MatchId) (Id EventId) MatchSetupMsg
     | PingRequest
 
 
@@ -232,15 +232,15 @@ type BackendMsg
 
 
 type ToFrontend
-    = CreateLobbyResponse (Id LobbyId) MatchSetup
-    | RemoveLobbyBroadcast (Id LobbyId)
-    | UpdateLobbyBroadcast (Id LobbyId) LobbyPreview
-    | CreateLobbyBroadcast (Id LobbyId) LobbyPreview
-    | ClientInit (Id UserId) LobbyData
-    | JoinLobbyResponse (Id LobbyId) (Result JoinLobbyError MatchSetup)
+    = CreateLobbyResponse (Id MatchId) MatchSetup
+    | RemoveLobbyBroadcast (Id MatchId)
+    | UpdateLobbyBroadcast (Id MatchId) LobbyPreview
+    | CreateLobbyBroadcast (Id MatchId) LobbyPreview
+    | ClientInit (Id UserId) MainLobbyInitData
+    | JoinLobbyResponse (Id MatchId) (Result JoinLobbyError MatchSetup)
     | PingResponse ServerTime
-    | MatchSetupBroadcast (Id LobbyId) (Id UserId) MatchSetupMsg
-    | MatchSetupResponse (Id LobbyId) (Id UserId) MatchSetupMsg (Maybe LobbyData) (Id EventId)
+    | MatchSetupBroadcast (Id MatchId) (Id UserId) MatchSetupMsg
+    | MatchSetupResponse (Id MatchId) (Id UserId) MatchSetupMsg (Maybe MainLobbyInitData) (Id EventId)
 
 
 type JoinLobbyError

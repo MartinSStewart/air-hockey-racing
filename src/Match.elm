@@ -1,4 +1,4 @@
-module MatchSetup exposing
+module Match exposing
     ( LobbyPreview
     , Match
     , MatchSetup

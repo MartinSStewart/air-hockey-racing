@@ -41,8 +41,8 @@ import Length exposing (Length, Meters)
 import LineSegment2d exposing (LineSegment2d)
 import List.Extra as List
 import List.Nonempty exposing (Nonempty)
+import Match exposing (LobbyPreview, Match, MatchSetup, MatchSetupMsg, MatchState, Place(..), Player, PlayerData, PlayerMode(..), ServerTime(..), TimelineEvent, WorldCoordinate)
 import MatchName
-import MatchSetup exposing (LobbyPreview, Match, MatchSetup, MatchSetupMsg, MatchState, Place(..), Player, PlayerData, PlayerMode(..), ServerTime(..), TimelineEvent, WorldCoordinate)
 import Math.Matrix4 as Mat4 exposing (Mat4)
 import Math.Vector2 exposing (Vec2)
 import Math.Vector3 exposing (Vec3)
@@ -99,9 +99,9 @@ app =
         )
 
 
-getLocalState : MatchSetupPage_ -> MatchSetup
+getLocalState : MatchPage_ -> MatchSetup
 getLocalState matchPage =
-    NetworkModel.localState MatchSetup.matchSetupUpdate matchPage.networkModel
+    NetworkModel.localState Match.matchSetupUpdate matchPage.networkModel
 
 
 audio : AudioData -> FrontendModel_ -> Audio
@@ -113,8 +113,8 @@ audio _ model =
         Loaded loaded ->
             case loaded.page of
                 MatchPage matchPage ->
-                    case ( MatchSetup.getMatch (getLocalState matchPage), matchPage.matchData ) of
-                        ( Just match, MatchData matchData ) ->
+                    case ( Match.getMatch (getLocalState matchPage), matchPage.matchData ) of
+                        ( Just match, MatchLobbyLocalOnly matchData ) ->
                             case matchData.timelineCache of
                                 Ok cache ->
                                     let
@@ -134,8 +134,8 @@ audio _ model =
                                                 let
                                                     collisionTime : Time.Posix
                                                     collisionTime =
-                                                        Quantity.multiplyBy (Id.toInt frameId |> toFloat) MatchSetup.frameDuration
-                                                            |> Duration.addTo (MatchSetup.unwrapServerTime match.startTime)
+                                                        Quantity.multiplyBy (Id.toInt frameId |> toFloat) Match.frameDuration
+                                                            |> Duration.addTo (Match.unwrapServerTime match.startTime)
                                                             |> (\a -> Duration.subtractFrom a (pingOffset loaded))
                                                             |> (\a -> Duration.subtractFrom a loaded.debugTimeOffset)
                                                 in
@@ -149,7 +149,7 @@ audio _ model =
                         _ ->
                             Audio.silence
 
-                LobbyPage _ ->
+                MainLobbyPage _ ->
                     Audio.silence
     )
         |> Audio.offsetBy (Duration.milliseconds 30)
@@ -159,7 +159,7 @@ loadedInit :
     FrontendLoading
     -> Time.Posix
     -> Sounds
-    -> ( Id UserId, LobbyData )
+    -> ( Id UserId, MainLobbyInitData )
     -> ( FrontendModel_, Command FrontendOnly ToBackend FrontendMsg_, AudioCmd FrontendMsg_ )
 loadedInit loading time sounds ( userId, lobbyData ) =
     ( { key = loading.key
@@ -169,7 +169,7 @@ loadedInit loading time sounds ( userId, lobbyData ) =
       , devicePixelRatio = loading.devicePixelRatio
       , time = time
       , debugTimeOffset = loading.debugTimeOffset
-      , page = LobbyPage { lobbies = lobbyData.lobbies, joinLobbyError = Nothing }
+      , page = MainLobbyPage { lobbies = lobbyData.lobbies, joinLobbyError = Nothing }
       , sounds = sounds
       , userId = userId
       , pingStartTime = Nothing
@@ -308,8 +308,8 @@ updateLoaded msg model =
             in
             case model2.page of
                 MatchPage matchSetupPage ->
-                    case ( matchSetupPage.matchData, MatchSetup.getMatch (getLocalState matchSetupPage) ) of
-                        ( MatchData matchData, Just match ) ->
+                    case ( matchSetupPage.matchData, Match.getMatch (getLocalState matchSetupPage) ) of
+                        ( MatchLobbyLocalOnly matchData, Just match ) ->
                             case matchData.timelineCache of
                                 Ok cache ->
                                     let
@@ -335,7 +335,7 @@ updateLoaded msg model =
                                                                 | previousTouchPosition = matchData.touchPosition
                                                                 , timelineCache = Ok newCache
                                                             }
-                                                                |> MatchData
+                                                                |> MatchLobbyLocalOnly
                                                     }
                                                         |> MatchPage
                                             }
@@ -354,7 +354,7 @@ updateLoaded msg model =
                                         ( model3, Command.none )
 
                                      else
-                                        matchSetupUpdate (MatchSetup.MatchInputRequest (timeToServerTime model3) input) model3
+                                        matchSetupUpdate (Match.MatchInputRequest (timeToServerTime model3) input) model3
                                     )
                                         |> (\( model4, cmd ) ->
                                                 case
@@ -365,7 +365,7 @@ updateLoaded msg model =
                                                     ( Just timeLeft, Just previousTimeLeft ) ->
                                                         if Quantity.lessThanZero timeLeft && not (Quantity.lessThanZero previousTimeLeft) then
                                                             matchSetupUpdate
-                                                                (MatchSetup.MatchFinished
+                                                                (Match.MatchFinished
                                                                     (Dict.map
                                                                         (\_ player -> player.finishTime)
                                                                         matchState.players
@@ -404,7 +404,7 @@ updateLoaded msg model =
                 --    MatchInputRequest match.matchId (timeToFrameId model match) input
                 --        |> Effect.Lamdera.sendToBackend
                 --)
-                LobbyPage _ ->
+                MainLobbyPage _ ->
                     ( model2, Command.none )
 
         PressedCreateLobby ->
@@ -412,7 +412,7 @@ updateLoaded msg model =
 
         PressedJoinLobby lobbyId ->
             ( model
-            , MatchSetupRequest lobbyId (Id.fromInt -1) MatchSetup.JoinMatchSetup |> Effect.Lamdera.sendToBackend
+            , MatchSetupRequest lobbyId (Id.fromInt -1) Match.JoinMatchSetup |> Effect.Lamdera.sendToBackend
             )
 
         SoundLoaded _ _ ->
@@ -430,10 +430,10 @@ updateLoaded msg model =
                             { matchPage
                                 | matchData =
                                     case matchPage.matchData of
-                                        MatchData matchData ->
-                                            matchUpdate matchMsg matchData |> MatchData
+                                        MatchLobbyLocalOnly matchData ->
+                                            matchUpdate matchMsg matchData |> MatchLobbyLocalOnly
 
-                                        MatchSetupData _ ->
+                                        MatchSetupLocalOnly _ ->
                                             matchPage.matchData
                             }
                                 |> MatchPage
@@ -449,22 +449,22 @@ updateLoaded msg model =
                 MatchPage matchPage ->
                     case matchSetupMsg_ of
                         PressedStartMatchSetup ->
-                            matchSetupUpdate (MatchSetup.StartMatch (timeToServerTime model)) model
+                            matchSetupUpdate (Match.StartMatch (timeToServerTime model)) model
 
                         PressedLeaveMatchSetup ->
-                            matchSetupUpdate MatchSetup.LeaveMatchSetup model
+                            matchSetupUpdate Match.LeaveMatchSetup model
 
                         PressedPrimaryColor colorIndex ->
-                            matchSetupUpdate (MatchSetup.SetPrimaryColor colorIndex) model
+                            matchSetupUpdate (Match.SetPrimaryColor colorIndex) model
 
                         PressedSecondaryColor colorIndex ->
-                            matchSetupUpdate (MatchSetup.SetSecondaryColor colorIndex) model
+                            matchSetupUpdate (Match.SetSecondaryColor colorIndex) model
 
                         PressedDecal decal ->
-                            matchSetupUpdate (MatchSetup.SetDecal decal) model
+                            matchSetupUpdate (Match.SetDecal decal) model
 
                         PressedPlayerMode mode ->
-                            matchSetupUpdate (MatchSetup.SetPlayerMode mode) model
+                            matchSetupUpdate (Match.SetPlayerMode mode) model
 
                         TypedMatchName matchName ->
                             ( { model
@@ -472,11 +472,11 @@ updateLoaded msg model =
                                     { matchPage
                                         | matchData =
                                             case matchPage.matchData of
-                                                MatchData _ ->
+                                                MatchLobbyLocalOnly _ ->
                                                     matchPage.matchData
 
-                                                MatchSetupData matchSetupData ->
-                                                    { matchSetupData | matchName = matchName } |> MatchSetupData
+                                                MatchSetupLocalOnly matchSetupData ->
+                                                    { matchSetupData | matchName = matchName } |> MatchSetupLocalOnly
                                     }
                                         |> MatchPage
                               }
@@ -484,7 +484,7 @@ updateLoaded msg model =
                             )
 
                         PressedSaveMatchName matchName ->
-                            matchSetupUpdate (MatchSetup.SetMatchName matchName) model
+                            matchSetupUpdate (Match.SetMatchName matchName) model
 
                         PressedResetMatchName ->
                             ( { model
@@ -492,16 +492,16 @@ updateLoaded msg model =
                                     { matchPage
                                         | matchData =
                                             case matchPage.matchData of
-                                                MatchData _ ->
+                                                MatchLobbyLocalOnly _ ->
                                                     matchPage.matchData
 
-                                                MatchSetupData matchSetupData ->
+                                                MatchSetupLocalOnly matchSetupData ->
                                                     { matchSetupData
                                                         | matchName =
-                                                            MatchSetup.name (getLocalState matchPage)
+                                                            Match.name (getLocalState matchPage)
                                                                 |> MatchName.toString
                                                     }
-                                                        |> MatchSetupData
+                                                        |> MatchSetupLocalOnly
                                     }
                                         |> MatchPage
                               }
@@ -514,11 +514,11 @@ updateLoaded msg model =
                                     { matchPage
                                         | matchData =
                                             case matchPage.matchData of
-                                                MatchData _ ->
+                                                MatchLobbyLocalOnly _ ->
                                                     matchPage.matchData
 
-                                                MatchSetupData matchSetupData ->
-                                                    { matchSetupData | message = text } |> MatchSetupData
+                                                MatchSetupLocalOnly matchSetupData ->
+                                                    { matchSetupData | message = text } |> MatchSetupLocalOnly
                                     }
                                         |> MatchPage
                               }
@@ -527,17 +527,17 @@ updateLoaded msg model =
 
                         SubmittedTextMessage message ->
                             matchSetupUpdate
-                                (MatchSetup.SendTextMessage message)
+                                (Match.SendTextMessage message)
                                 { model
                                     | page =
                                         { matchPage
                                             | matchData =
                                                 case matchPage.matchData of
-                                                    MatchData _ ->
+                                                    MatchLobbyLocalOnly _ ->
                                                         matchPage.matchData
 
-                                                    MatchSetupData matchSetupData ->
-                                                        { matchSetupData | message = "" } |> MatchSetupData
+                                                    MatchSetupLocalOnly matchSetupData ->
+                                                        { matchSetupData | message = "" } |> MatchSetupLocalOnly
                                         }
                                             |> MatchPage
                                 }
@@ -549,11 +549,11 @@ updateLoaded msg model =
                                     { matchPage
                                         | matchData =
                                             case matchPage.matchData of
-                                                MatchData _ ->
+                                                MatchLobbyLocalOnly _ ->
                                                     matchPage.matchData
 
-                                                MatchSetupData matchSetupData ->
-                                                    { matchSetupData | maxPlayers = maxPlayersText } |> MatchSetupData
+                                                MatchSetupLocalOnly matchSetupData ->
+                                                    { matchSetupData | maxPlayers = maxPlayersText } |> MatchSetupLocalOnly
                                     }
                                         |> MatchPage
                               }
@@ -561,7 +561,7 @@ updateLoaded msg model =
                             )
 
                         PressedSaveMaxPlayers maxPlayers ->
-                            matchSetupUpdate (MatchSetup.SetMaxPlayers maxPlayers) model
+                            matchSetupUpdate (Match.SetMaxPlayers maxPlayers) model
 
                         PressedResetMaxPlayers ->
                             ( { model
@@ -569,17 +569,17 @@ updateLoaded msg model =
                                     { matchPage
                                         | matchData =
                                             case matchPage.matchData of
-                                                MatchData _ ->
+                                                MatchLobbyLocalOnly _ ->
                                                     matchPage.matchData
 
-                                                MatchSetupData matchSetupData ->
+                                                MatchSetupLocalOnly matchSetupData ->
                                                     { matchSetupData
                                                         | maxPlayers =
-                                                            MatchSetup.preview (getLocalState matchPage)
+                                                            Match.preview (getLocalState matchPage)
                                                                 |> .maxUserCount
                                                                 |> String.fromInt
                                                     }
-                                                        |> MatchSetupData
+                                                        |> MatchSetupLocalOnly
                                     }
                                         |> MatchPage
                               }
@@ -605,7 +605,7 @@ matchTimeLeft currentFrameId matchState =
                             Finished finishTime ->
                                 Quantity.multiplyBy
                                     (Id.toInt currentFrameId - Id.toInt finishTime |> toFloat)
-                                    MatchSetup.frameDuration
+                                    Match.frameDuration
                                     |> Just
 
                             DidNotFinish ->
@@ -645,7 +645,7 @@ textMessageContainerId =
 matchSetupUpdate : MatchSetupMsg -> FrontendLoaded -> ( FrontendLoaded, Command FrontendOnly ToBackend FrontendMsg_ )
 matchSetupUpdate msg model =
     case model.page of
-        LobbyPage _ ->
+        MainLobbyPage _ ->
             ( model, Command.none )
 
         MatchPage matchSetup ->
@@ -670,7 +670,7 @@ matchSetupUpdate msg model =
             )
 
 
-matchUpdate : MatchMsg -> MatchPage_ -> MatchPage_
+matchUpdate : MatchMsg -> MatchLobbyLocalOnly_ -> MatchLobbyLocalOnly_
 matchUpdate msg model =
     case msg of
         PointerDown event ->
@@ -737,9 +737,9 @@ getInputDirection windowSize keys maybeTouchPosition =
 timeToFrameId : FrontendLoaded -> Match -> Id FrameId
 timeToFrameId model match =
     timeToServerTime model
-        |> MatchSetup.unwrapServerTime
-        |> Duration.from (MatchSetup.unwrapServerTime match.startTime)
-        |> (\a -> Quantity.ratio a MatchSetup.frameDuration)
+        |> Match.unwrapServerTime
+        |> Duration.from (Match.unwrapServerTime match.startTime)
+        |> (\a -> Quantity.ratio a Match.frameDuration)
         |> round
         |> Id.fromInt
 
@@ -789,12 +789,12 @@ updateFromBackend _ msg model =
             ( model, Command.none, Audio.cmdNone )
 
 
-initMatchSetupData : MatchSetup -> MatchSetupData_
+initMatchSetupData : MatchSetup -> MatchSetupLocalOnly_
 initMatchSetupData lobby =
     let
         preview : LobbyPreview
         preview =
-            MatchSetup.preview lobby
+            Match.preview lobby
     in
     { matchName = MatchName.toString preview.name
     , message = ""
@@ -816,13 +816,13 @@ updateLoadedFromBackend msg model =
 
         CreateLobbyResponse lobbyId lobby ->
             ( case model.page of
-                LobbyPage _ ->
+                MainLobbyPage _ ->
                     { model
                         | page =
                             MatchPage
                                 { lobbyId = lobbyId
                                 , networkModel = NetworkModel.init lobby
-                                , matchData = initMatchSetupData lobby |> MatchSetupData
+                                , matchData = initMatchSetupData lobby |> MatchSetupLocalOnly
                                 }
                     }
 
@@ -833,7 +833,7 @@ updateLoadedFromBackend msg model =
 
         JoinLobbyResponse lobbyId result ->
             case model.page of
-                LobbyPage lobbyPage ->
+                MainLobbyPage lobbyPage ->
                     case result of
                         Ok lobby ->
                             let
@@ -847,17 +847,17 @@ updateLoadedFromBackend msg model =
                                         , networkModel = networkModel
                                         , matchData =
                                             updateMatchData
-                                                MatchSetup.JoinMatchSetup
+                                                Match.JoinMatchSetup
                                                 networkModel
                                                 networkModel
-                                                (initMatchSetupData lobby |> MatchSetupData)
+                                                (initMatchSetupData lobby |> MatchSetupLocalOnly)
                                         }
                               }
                             , scrollToBottom
                             )
 
                         Err error ->
-                            ( { model | page = LobbyPage { lobbyPage | joinLobbyError = Just error } }
+                            ( { model | page = MainLobbyPage { lobbyPage | joinLobbyError = Just error } }
                             , Command.none
                             )
 
@@ -866,10 +866,10 @@ updateLoadedFromBackend msg model =
 
         CreateLobbyBroadcast lobbyId lobbyPreview ->
             ( case model.page of
-                LobbyPage lobbyData ->
+                MainLobbyPage lobbyData ->
                     { model
                         | page =
-                            LobbyPage
+                            MainLobbyPage
                                 { lobbyData | lobbies = Dict.insert lobbyId lobbyPreview lobbyData.lobbies }
                     }
 
@@ -891,10 +891,10 @@ updateLoadedFromBackend msg model =
 
                         {- The time stored in the model is potentially out of date by an animation frame. We want to make sure our high estimate overestimates rather than underestimates the true time so we add an extra animation frame here. -}
                         localTimeHighEstimate =
-                            Duration.addTo (actualTime model) MatchSetup.frameDuration
+                            Duration.addTo (actualTime model) Match.frameDuration
 
                         serverTime2 =
-                            MatchSetup.unwrapServerTime serverTime
+                            Match.unwrapServerTime serverTime
 
                         ( newLowEstimate, newHighEstimate, pingCount ) =
                             case model.pingData of
@@ -953,7 +953,7 @@ updateLoadedFromBackend msg model =
                                     newNetworkModel : NetworkModel { userId : Id UserId, msg : MatchSetupMsg } MatchSetup
                                     newNetworkModel =
                                         NetworkModel.updateFromBackend
-                                            MatchSetup.matchSetupUpdate
+                                            Match.matchSetupUpdate
                                             Nothing
                                             { userId = userId, msg = matchSetupMsg }
                                             matchSetup.networkModel
@@ -974,19 +974,19 @@ updateLoadedFromBackend msg model =
                                 |> MatchPage
                     in
                     case matchSetupMsg of
-                        MatchSetup.SendTextMessage _ ->
+                        Match.SendTextMessage _ ->
                             ( { model | page = updateHelper }, scrollToBottom )
 
                         _ ->
                             ( { model | page = updateHelper }, Command.none )
 
-                LobbyPage _ ->
+                MainLobbyPage _ ->
                     ( model, Command.none )
 
         RemoveLobbyBroadcast lobbyId ->
             ( case model.page of
-                LobbyPage lobbyData ->
-                    { model | page = LobbyPage { lobbyData | lobbies = Dict.remove lobbyId lobbyData.lobbies } }
+                MainLobbyPage lobbyData ->
+                    { model | page = MainLobbyPage { lobbyData | lobbies = Dict.remove lobbyId lobbyData.lobbies } }
 
                 MatchPage _ ->
                     model
@@ -1003,7 +1003,7 @@ updateLoadedFromBackend msg model =
                                     newNetworkModel : NetworkModel { userId : Id UserId, msg : MatchSetupMsg } MatchSetup
                                     newNetworkModel =
                                         NetworkModel.updateFromBackend
-                                            MatchSetup.matchSetupUpdate
+                                            Match.matchSetupUpdate
                                             (Just eventId)
                                             { userId = userId, msg = matchSetupMsg }
                                             matchSetup.networkModel
@@ -1024,9 +1024,9 @@ updateLoadedFromBackend msg model =
                                 |> MatchPage
                     in
                     case ( maybeLobbyData, matchSetupMsg ) of
-                        ( Just lobbyData, MatchSetup.LeaveMatchSetup ) ->
+                        ( Just lobbyData, Match.LeaveMatchSetup ) ->
                             ( { model
-                                | page = LobbyPage { lobbies = lobbyData.lobbies, joinLobbyError = Nothing }
+                                | page = MainLobbyPage { lobbies = lobbyData.lobbies, joinLobbyError = Nothing }
                               }
                             , Command.none
                             )
@@ -1034,16 +1034,16 @@ updateLoadedFromBackend msg model =
                         _ ->
                             ( { model | page = updateHelper }, Command.none )
 
-                LobbyPage _ ->
+                MainLobbyPage _ ->
                     ( model, Command.none )
 
         UpdateLobbyBroadcast lobbyId lobbyPreview ->
             ( case model.page of
-                LobbyPage lobbyPage ->
+                MainLobbyPage lobbyPage ->
                     { model
                         | page =
                             { lobbyPage | lobbies = Dict.update lobbyId (\_ -> Just lobbyPreview) lobbyPage.lobbies }
-                                |> LobbyPage
+                                |> MainLobbyPage
                     }
 
                 MatchPage _ ->
@@ -1056,23 +1056,23 @@ updateMatchData :
     MatchSetupMsg
     -> NetworkModel { userId : Id UserId, msg : MatchSetupMsg } MatchSetup
     -> NetworkModel { userId : Id UserId, msg : MatchSetupMsg } MatchSetup
-    -> MatchData
-    -> MatchData
+    -> MatchLocalOnly
+    -> MatchLocalOnly
 updateMatchData newMsg newNetworkModel oldNetworkModel oldMatchData =
     let
         newMatchState : MatchSetup
         newMatchState =
-            NetworkModel.localState MatchSetup.matchSetupUpdate newNetworkModel
+            NetworkModel.localState Match.matchSetupUpdate newNetworkModel
 
         oldMatchState : MatchSetup
         oldMatchState =
-            NetworkModel.localState MatchSetup.matchSetupUpdate oldNetworkModel
+            NetworkModel.localState Match.matchSetupUpdate oldNetworkModel
 
         newUserIds : Nonempty ( Id UserId, PlayerData )
         newUserIds =
-            MatchSetup.allUsers newMatchState
+            Match.allUsers newMatchState
 
-        initHelper : ServerTime -> MatchData
+        initHelper : ServerTime -> MatchLocalOnly
         initHelper serverTime =
             { timelineCache = initMatch serverTime newUserIds |> Timeline.init |> Ok
             , userIds =
@@ -1091,33 +1091,33 @@ updateMatchData newMsg newNetworkModel oldNetworkModel oldMatchData =
             , touchPosition = Nothing
             , previousTouchPosition = Nothing
             }
-                |> MatchData
+                |> MatchLobbyLocalOnly
     in
-    case ( MatchSetup.getMatch newMatchState, MatchSetup.getMatch oldMatchState ) of
+    case ( Match.getMatch newMatchState, Match.getMatch oldMatchState ) of
         ( Just newMatch, Just _ ) ->
             case oldMatchData of
-                MatchData matchData ->
+                MatchLobbyLocalOnly matchData ->
                     case ( matchData.timelineCache, newMsg ) of
-                        ( Ok timelineCache, MatchSetup.MatchInputRequest serverTime _ ) ->
+                        ( Ok timelineCache, Match.MatchInputRequest serverTime _ ) ->
                             { matchData
                                 | timelineCache =
                                     Timeline.addInput
-                                        (MatchSetup.serverTimeToFrameId serverTime newMatch)
+                                        (Match.serverTimeToFrameId serverTime newMatch)
                                         timelineCache
                             }
-                                |> MatchData
+                                |> MatchLobbyLocalOnly
 
                         _ ->
-                            MatchData matchData
+                            MatchLobbyLocalOnly matchData
 
-                MatchSetupData _ ->
+                MatchSetupLocalOnly _ ->
                     initHelper newMatch.startTime
 
         ( Just newMatch, Nothing ) ->
             initHelper newMatch.startTime
 
         ( Nothing, Just _ ) ->
-            initMatchSetupData newMatchState |> MatchSetupData
+            initMatchSetupData newMatchState |> MatchSetupLocalOnly
 
         _ ->
             oldMatchData
@@ -1144,7 +1144,7 @@ initMatch startTime users =
                     )
                 |> Random.shuffle
             )
-            (MatchSetup.unwrapServerTime startTime |> Time.posixToMillis |> Random.initialSeed)
+            (Match.unwrapServerTime startTime |> Time.posixToMillis |> Random.initialSeed)
             |> Tuple.first
             |> List.indexedMap
                 (\index userId ->
@@ -1225,7 +1225,7 @@ loadedView model =
             MatchPage matchSetup ->
                 matchSetupView model matchSetup
 
-            LobbyPage lobbyData ->
+            MainLobbyPage lobbyData ->
                 Element.column
                     [ Element.width Element.fill
                     , Element.height Element.fill
@@ -1273,7 +1273,7 @@ loadedView model =
         )
 
 
-matchSetupView : FrontendLoaded -> MatchSetupPage_ -> Element FrontendMsg_
+matchSetupView : FrontendLoaded -> MatchPage_ -> Element FrontendMsg_
 matchSetupView model matchSetup =
     let
         displayType =
@@ -1285,14 +1285,14 @@ matchSetupView model matchSetup =
 
         matchName : String
         matchName =
-            MatchName.toString (MatchSetup.name lobby)
+            MatchName.toString (Match.name lobby)
 
         users : List ( Id UserId, PlayerData )
         users =
-            MatchSetup.allUsers lobby |> List.Nonempty.toList
+            Match.allUsers lobby |> List.Nonempty.toList
     in
-    case ( MatchSetup.getMatch lobby, matchSetup.matchData, MatchSetup.allUsers_ lobby |> Dict.get model.userId ) of
-        ( Just match, MatchData matchData, _ ) ->
+    case ( Match.getMatch lobby, matchSetup.matchData, Match.allUsers_ lobby |> Dict.get model.userId ) of
+        ( Just match, MatchLobbyLocalOnly matchData, _ ) ->
             case matchData.timelineCache of
                 Ok cache ->
                     let
@@ -1324,11 +1324,11 @@ matchSetupView model matchSetup =
                 Err _ ->
                     Element.text "An error occurred during the match :("
 
-        ( Nothing, MatchSetupData matchSetupData, Just currentPlayerData ) ->
+        ( Nothing, MatchSetupLocalOnly matchSetupData, Just currentPlayerData ) ->
             let
                 places : Dict (Id UserId) Int
                 places =
-                    MatchSetup.previousMatchFinishTimes lobby
+                    Match.previousMatchFinishTimes lobby
                         |> Maybe.withDefault Dict.empty
                         |> Dict.toList
                         |> List.filterMap
@@ -1345,7 +1345,7 @@ matchSetupView model matchSetup =
                         |> Dict.fromList
 
                 preview =
-                    MatchSetup.preview lobby
+                    Match.preview lobby
             in
             Element.column
                 [ Element.spacing 8
@@ -1359,7 +1359,7 @@ matchSetupView model matchSetup =
 
                     Nothing ->
                         Element.none
-                , if MatchSetup.isOwner model.userId lobby then
+                , if Match.isOwner model.userId lobby then
                     Element.row
                         [ Element.spacing 8, Element.width Element.fill ]
                         (Element.Input.text
@@ -1393,7 +1393,7 @@ matchSetupView model matchSetup =
                           else
                             Element.text matchName
                         ]
-                , if MatchSetup.isOwner model.userId lobby then
+                , if Match.isOwner model.userId lobby then
                     Element.row
                         [ Element.spacing 8 ]
                         (Element.Input.text
@@ -1422,7 +1422,7 @@ matchSetupView model matchSetup =
                     Element.none
                 , Element.wrappedRow
                     [ Element.spacing 8 ]
-                    [ if MatchSetup.isOwner model.userId lobby then
+                    [ if Match.isOwner model.userId lobby then
                         button PressedStartMatchSetup (Element.text "Start match")
 
                       else
@@ -1530,7 +1530,7 @@ matchSetupView model matchSetup =
             Element.text "Loading..."
 
 
-textChat : MatchSetupData_ -> MatchSetup -> Element MatchSetupMsg_
+textChat : MatchSetupLocalOnly_ -> MatchSetup -> Element MatchSetupMsg_
 textChat matchSetupData lobby =
     Element.column
         [ Element.scrollbarY
@@ -1538,7 +1538,7 @@ textChat matchSetupData lobby =
         , Element.height Element.fill
         , Element.padding 4
         ]
-        [ MatchSetup.messagesOldestToNewest lobby
+        [ Match.messagesOldestToNewest lobby
             |> List.map
                 (\{ userId, message } ->
                     let
@@ -1548,7 +1548,7 @@ textChat matchSetupData lobby =
                     in
                     Element.row
                         [ Element.Font.size 16 ]
-                        [ (if MatchSetup.isOwner userId lobby then
+                        [ (if Match.isOwner userId lobby then
                             userName ++ " (host)" ++ " "
 
                            else
@@ -1662,7 +1662,7 @@ matchEndText match matchState model =
                 , Element.moveDown 24
                 ]
                 [ Element.el [ Element.centerX ] (placementText finish.place)
-                , Quantity.multiplyBy (Id.toInt finish.finishTime |> toFloat) MatchSetup.frameDuration
+                , Quantity.multiplyBy (Id.toInt finish.finishTime |> toFloat) Match.frameDuration
                     |> timestamp_
                     |> Element.text
                     |> Element.el [ Element.centerX, Element.Font.bold, Element.Font.size 24 ]
@@ -1727,7 +1727,7 @@ countdown model match =
     let
         elapsed : Duration
         elapsed =
-            Quantity.multiplyBy (timeToFrameId model match |> Id.toInt |> toFloat) MatchSetup.frameDuration
+            Quantity.multiplyBy (timeToFrameId model match |> Id.toInt |> toFloat) Match.frameDuration
 
         countdownValue =
             Duration.inSeconds elapsed |> floor |> (-) 3
@@ -1851,7 +1851,7 @@ button onPress label =
         }
 
 
-lobbyRowView : Bool -> ( Id LobbyId, LobbyPreview ) -> Element FrontendMsg_
+lobbyRowView : Bool -> ( Id MatchId, LobbyPreview ) -> Element FrontendMsg_
 lobbyRowView evenRow ( lobbyId, lobby ) =
     Element.row
         [ Element.width Element.fill
@@ -1935,8 +1935,8 @@ canvasView model =
         ]
         (case model.page of
             MatchPage matchSetup ->
-                case ( MatchSetup.getMatch (getLocalState matchSetup), matchSetup.matchData ) of
-                    ( Just match, MatchData matchData ) ->
+                case ( Match.getMatch (getLocalState matchSetup), matchSetup.matchData ) of
+                    ( Just match, MatchLobbyLocalOnly matchData ) ->
                         case matchData.timelineCache of
                             Ok cache ->
                                 let
@@ -2089,7 +2089,7 @@ canvasView model =
                     _ ->
                         []
 
-            LobbyPage _ ->
+            MainLobbyPage _ ->
                 []
         )
         |> Element.html
@@ -2299,7 +2299,7 @@ updateVelocities frameId players =
                         player.finishTime
 
         elapsed =
-            Quantity.multiplyBy (Id.toInt frameId |> toFloat) MatchSetup.frameDuration
+            Quantity.multiplyBy (Id.toInt frameId |> toFloat) Match.frameDuration
     in
     Dict.map
         (\_ a ->
