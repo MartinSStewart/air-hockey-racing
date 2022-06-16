@@ -11,7 +11,6 @@ module Types exposing
     , JoinLobbyError(..)
     , MainLobbyInitData
     , Page(..)
-    , PingData
     , ToBackend(..)
     , ToFrontend(..)
     , WorldPixel

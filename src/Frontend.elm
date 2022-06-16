@@ -107,7 +107,7 @@ loadedInit loading time sounds ( userId, lobbyData ) =
       , pingStartTime = Nothing
       , pingData = Nothing
       }
-        |> (\a -> { a | pingStartTime = actualTime a |> Just })
+        |> (\a -> { a | pingStartTime = MatchPage.actualTime a |> Just })
         |> Loaded
     , Effect.Lamdera.sendToBackend PingRequest
     , Audio.cmdNone
@@ -240,7 +240,10 @@ updateLoaded msg model =
             in
             case model2.page of
                 MatchPage matchSetupPage ->
-                    MatchPage.animationFrame matchSetupPage
+                    MatchPage.animationFrame MatchSetupRequest { model | time = time_ } matchSetupPage
+                        |> Tuple.mapBoth
+                            (\a -> { model2 | page = MatchPage a })
+                            (\cmd -> Command.map identity MatchSetupMsg cmd)
 
                 MainLobbyPage _ ->
                     ( model2, Command.none )
@@ -265,9 +268,11 @@ updateLoaded msg model =
                 MatchPage matchPage ->
                     let
                         ( newMatchPage, cmd ) =
-                            MatchPage.update model matchSetupMsg_ matchPage
+                            MatchPage.update MatchSetupRequest model matchSetupMsg_ matchPage
                     in
-                    ( { model | page = MatchPage newMatchPage }, Command.map identity cmd )
+                    ( { model | page = MatchPage newMatchPage }
+                    , Command.map identity MatchSetupMsg cmd
+                    )
 
                 _ ->
                     ( model, Command.none )
@@ -309,46 +314,25 @@ updateLoadedFromBackend msg model =
             ( model, Command.none )
 
         CreateLobbyResponse lobbyId lobby ->
-            ( case model.page of
+            case model.page of
                 MainLobbyPage _ ->
-                    { model
-                        | page =
-                            MatchPage
-                                { lobbyId = lobbyId
-                                , networkModel = NetworkModel.init lobby
-                                , matchData = initMatchSetupData lobby |> MatchSetupLocal
-                                }
-                    }
+                    MatchPage.init lobbyId lobby
+                        |> Tuple.mapBoth
+                            (\a -> { model | page = MatchPage a })
+                            (\cmd -> Command.map identity MatchSetupMsg cmd)
 
                 _ ->
-                    model
-            , Command.none
-            )
+                    ( model, Command.none )
 
         JoinLobbyResponse lobbyId result ->
             case model.page of
                 MainLobbyPage lobbyPage ->
                     case result of
                         Ok lobby ->
-                            let
-                                networkModel =
-                                    NetworkModel.init lobby
-                            in
-                            ( { model
-                                | page =
-                                    MatchPage
-                                        { lobbyId = lobbyId
-                                        , networkModel = networkModel
-                                        , matchData =
-                                            updateMatchData
-                                                Match.JoinMatchSetup
-                                                networkModel
-                                                networkModel
-                                                (initMatchSetupData lobby |> MatchSetupLocal)
-                                        }
-                              }
-                            , scrollToBottom
-                            )
+                            MatchPage.init lobbyId lobby
+                                |> Tuple.mapBoth
+                                    (\a -> { model | page = MatchPage a })
+                                    (\cmd -> Command.map identity MatchSetupMsg cmd)
 
                         Err error ->
                             ( { model | page = MainLobbyPage { lobbyPage | joinLobbyError = Just error } }
@@ -455,7 +439,7 @@ updateLoadedFromBackend msg model =
                                 { matchSetup
                                     | networkModel = newNetworkModel
                                     , matchData =
-                                        updateMatchData
+                                        MatchPage.updateMatchData
                                             matchSetupMsg
                                             newNetworkModel
                                             matchSetup.networkModel
@@ -469,7 +453,7 @@ updateLoadedFromBackend msg model =
                     in
                     case matchSetupMsg of
                         Match.SendTextMessage _ ->
-                            ( { model | page = updateHelper }, scrollToBottom )
+                            ( { model | page = updateHelper }, Command.map identity MatchSetupMsg MatchPage.scrollToBottom )
 
                         _ ->
                             ( { model | page = updateHelper }, Command.none )
@@ -505,7 +489,7 @@ updateLoadedFromBackend msg model =
                                 { matchSetup
                                     | networkModel = newNetworkModel
                                     , matchData =
-                                        updateMatchData
+                                        MatchPage.updateMatchData
                                             matchSetupMsg
                                             newNetworkModel
                                             matchSetup.networkModel
@@ -590,7 +574,7 @@ loadedView model =
         [ canvasView model |> Element.behindContent, Element.clip ]
         (case model.page of
             MatchPage matchSetup ->
-                MatchPage.matchSetupView model matchSetup
+                MatchPage.matchSetupView model matchSetup |> Element.map MatchSetupMsg
 
             MainLobbyPage lobbyData ->
                 Element.column
@@ -600,7 +584,7 @@ loadedView model =
                     , Element.padding (Ui.ifMobile displayType 8 16)
                     ]
                     [ Element.el [ Element.Font.bold ] (Element.text "Air Hockey Racing")
-                    , button PressedCreateLobby (Element.text "Create new match")
+                    , MatchPage.button PressedCreateLobby (Element.text "Create new match")
                     , Element.column
                         [ Element.width Element.fill, Element.height Element.fill, Element.spacing 8 ]
                         [ Element.text "Or join existing match"
@@ -683,7 +667,7 @@ lobbyRowView evenRow ( lobbyId, lobby ) =
         , Element.row
             [ Element.alignRight, Element.spacing 8 ]
             [ Element.text <| String.fromInt lobby.userCount ++ " / " ++ String.fromInt lobby.maxUserCount
-            , button (PressedJoinLobby lobbyId) (Element.text "Join")
+            , MatchPage.button (PressedJoinLobby lobbyId) (Element.text "Join")
             ]
         ]
 
@@ -721,7 +705,7 @@ findPixelPerfectSize frontendModel =
 canvasView : FrontendLoaded -> Element msg
 canvasView model =
     let
-        ( windowWidth, windowHeight ) =
+        ( canvasWidth, canvasHeight ) =
             actualCanvasSize
 
         ( cssWindowWidth, cssWindowHeight ) =
@@ -732,14 +716,14 @@ canvasView model =
     in
     WebGL.toHtmlWith
         [ WebGL.alpha False ]
-        [ Html.Attributes.width windowWidth
-        , Html.Attributes.height windowHeight
+        [ Html.Attributes.width canvasWidth
+        , Html.Attributes.height canvasHeight
         , Html.Attributes.style "width" (String.fromInt (Pixels.inPixels cssWindowWidth) ++ "px")
         , Html.Attributes.style "height" (String.fromInt (Pixels.inPixels cssWindowHeight) ++ "px")
         ]
         (case model.page of
             MatchPage matchSetup ->
-                MatchPage.canvasView model matchSetup
+                MatchPage.canvasView canvasWidth canvasHeight model matchSetup
 
             MainLobbyPage _ ->
                 []

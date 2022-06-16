@@ -10,6 +10,7 @@ import Id exposing (Id)
 import Lamdera
 import List.Nonempty
 import Match exposing (Match, MatchSetupMsg(..), ServerTime(..))
+import MatchPage exposing (MatchId)
 import NetworkModel exposing (EventId)
 import Types exposing (..)
 import User exposing (UserId)

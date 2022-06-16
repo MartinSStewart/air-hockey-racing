@@ -8,10 +8,15 @@ module MatchPage exposing
     , actualTime
     , animationFrame
     , audio
+    , button
     , canvasView
+    , init
+    , initMatchSetupData
     , matchSetupView
+    , scrollToBottom
     , unnamedMatchText
     , update
+    , updateMatchData
     )
 
 import Angle exposing (Angle)
@@ -48,13 +53,13 @@ import Length exposing (Length, Meters)
 import LineSegment2d exposing (LineSegment2d)
 import List.Extra as List
 import List.Nonempty exposing (Nonempty)
-import Match exposing (LobbyPreview, Match, MatchActive, MatchSetupMsg, MatchState, Place(..), Player, PlayerData, PlayerMode(..), ServerTime, TimelineEvent, WorldCoordinate)
+import Match exposing (LobbyPreview, Match, MatchActive, MatchSetupMsg, MatchState, Place(..), Player, PlayerData, PlayerMode(..), ServerTime(..), TimelineEvent, WorldCoordinate)
 import MatchName exposing (MatchName)
 import Math.Matrix4 as Mat4 exposing (Mat4)
 import Math.Vector2 exposing (Vec2)
 import Math.Vector3 exposing (Vec3)
 import Math.Vector4 exposing (Vec4)
-import NetworkModel exposing (NetworkModel)
+import NetworkModel exposing (EventId, NetworkModel)
 import PingData exposing (PingData)
 import Pixels exposing (Pixels)
 import Point2d exposing (Point2d)
@@ -109,6 +114,32 @@ type alias MatchPage_ =
     }
 
 
+init : Id MatchId -> Match -> ( MatchPage_, Command FrontendOnly toMsg MatchSetupMsg_ )
+init lobbyId lobby =
+    let
+        networkModel =
+            NetworkModel.init lobby
+    in
+    ( { lobbyId = lobbyId
+      , networkModel = networkModel
+      , matchData =
+            updateMatchData
+                Match.JoinMatchSetup
+                networkModel
+                networkModel
+                (initMatchSetupData lobby |> MatchSetupLocal)
+      }
+    , scrollToBottom
+    )
+
+
+
+--{ lobbyId = lobbyId
+--, networkModel = NetworkModel.init lobby
+--, matchData = initMatchSetupData lobby |> MatchSetupLocal
+--}
+
+
 type alias MatchSetupLocal_ =
     { matchName : String, message : String, maxPlayers : String }
 
@@ -130,26 +161,37 @@ type alias MatchActiveLocal_ =
     }
 
 
-update : { a | pingData : Maybe PingData, time : Time.Posix, debugTimeOffset : Duration } -> MatchSetupMsg_ -> MatchPage_ -> ( MatchPage_, Command FrontendOnly toMsg MatchSetupMsg_ )
-update model msg matchPage =
+update :
+    (Id MatchId -> Id EventId -> MatchSetupMsg -> toBackend)
+    ->
+        { a
+            | pingData : Maybe PingData
+            , time : Time.Posix
+            , debugTimeOffset : Duration
+            , userId : Id UserId
+        }
+    -> MatchSetupMsg_
+    -> MatchPage_
+    -> ( MatchPage_, Command FrontendOnly toBackend MatchSetupMsg_ )
+update matchSetupRequest model msg matchPage =
     case msg of
         PressedStartMatchSetup ->
-            matchSetupUpdate model.userId (Match.StartMatch (timeToServerTime model)) matchPage
+            matchSetupUpdate matchSetupRequest model.userId (Match.StartMatch (timeToServerTime model)) matchPage
 
         PressedLeaveMatchSetup ->
-            matchSetupUpdate model.userId Match.LeaveMatchSetup matchPage
+            matchSetupUpdate matchSetupRequest model.userId Match.LeaveMatchSetup matchPage
 
         PressedPrimaryColor colorIndex ->
-            matchSetupUpdate model.userId (Match.SetPrimaryColor colorIndex) matchPage
+            matchSetupUpdate matchSetupRequest model.userId (Match.SetPrimaryColor colorIndex) matchPage
 
         PressedSecondaryColor colorIndex ->
-            matchSetupUpdate model.userId (Match.SetSecondaryColor colorIndex) matchPage
+            matchSetupUpdate matchSetupRequest model.userId (Match.SetSecondaryColor colorIndex) matchPage
 
         PressedDecal decal ->
-            matchSetupUpdate model.userId (Match.SetDecal decal) matchPage
+            matchSetupUpdate matchSetupRequest model.userId (Match.SetDecal decal) matchPage
 
         PressedPlayerMode mode ->
-            matchSetupUpdate model.userId (Match.SetPlayerMode mode) matchPage
+            matchSetupUpdate matchSetupRequest model.userId (Match.SetPlayerMode mode) matchPage
 
         TypedMatchName matchName ->
             ( { matchPage
@@ -165,7 +207,7 @@ update model msg matchPage =
             )
 
         PressedSaveMatchName matchName ->
-            matchSetupUpdate model.userId (Match.SetMatchName matchName) matchPage
+            matchSetupUpdate matchSetupRequest model.userId (Match.SetMatchName matchName) matchPage
 
         PressedResetMatchName ->
             ( { matchPage
@@ -200,6 +242,7 @@ update model msg matchPage =
 
         SubmittedTextMessage message ->
             matchSetupUpdate
+                matchSetupRequest
                 model.userId
                 (Match.SendTextMessage message)
                 { matchPage
@@ -227,7 +270,7 @@ update model msg matchPage =
             )
 
         PressedSaveMaxPlayers maxPlayers ->
-            matchSetupUpdate model.userId (Match.SetMaxPlayers maxPlayers) matchPage
+            matchSetupUpdate matchSetupRequest model.userId (Match.SetMaxPlayers maxPlayers) matchPage
 
         PressedResetMaxPlayers ->
             ( { matchPage
@@ -309,11 +352,12 @@ update model msg matchPage =
 
 
 matchSetupUpdate :
-    Id UserId
+    (Id MatchId -> Id EventId -> MatchSetupMsg -> toBackend)
+    -> Id UserId
     -> MatchSetupMsg
     -> MatchPage_
     -> ( MatchPage_, Command FrontendOnly toBackend msg )
-matchSetupUpdate userId msg matchSetup =
+matchSetupUpdate matchSetupRequest userId msg matchSetup =
     let
         { eventId, newNetworkModel } =
             NetworkModel.updateFromUser { userId = userId, msg = msg } matchSetup.networkModel
@@ -327,7 +371,7 @@ matchSetupUpdate userId msg matchSetup =
                 matchSetup.networkModel
                 matchSetup.matchData
       }
-    , MatchSetupRequest matchSetup.lobbyId eventId msg |> Effect.Lamdera.sendToBackend
+    , matchSetupRequest matchSetup.lobbyId eventId msg |> Effect.Lamdera.sendToBackend
     )
 
 
@@ -693,7 +737,21 @@ placementText place =
             ]
 
 
-canvasView model matchSetup =
+canvasView :
+    Int
+    -> Int
+    ->
+        { a
+            | pingData : Maybe PingData
+            , time : Time.Posix
+            , debugTimeOffset : Duration
+            , userId : Id UserId
+            , windowSize : WindowSize
+            , currentKeys : List Key
+        }
+    -> MatchPage_
+    -> List WebGL.Entity
+canvasView canvasWidth canvasHeight model matchSetup =
     case ( Match.matchActive (getLocalState matchSetup), matchSetup.matchData ) of
         ( Just match, MatchActiveLocal matchData ) ->
             case matchData.timelineCache of
@@ -749,12 +807,12 @@ canvasView model matchSetup =
                                     )
 
                         zoom =
-                            zoomFactor * toFloat (max windowWidth windowHeight) / 2000
+                            zoomFactor * toFloat (max canvasWidth canvasHeight) / 2000
 
                         viewMatrix =
                             Mat4.makeScale3
-                                (zoom * 2 / toFloat windowWidth)
-                                (zoom * 2 / toFloat windowHeight)
+                                (zoom * 2 / toFloat canvasWidth)
+                                (zoom * 2 / toFloat canvasHeight)
                                 1
                                 |> Mat4.translate3 -x -y 0
 
@@ -773,7 +831,7 @@ canvasView model matchSetup =
                         squareMesh
                         { view = Math.Vector2.vec2 x y
                         , viewZoom = zoom
-                        , windowSize = Math.Vector2.vec2 (toFloat windowWidth) (toFloat windowHeight)
+                        , windowSize = Math.Vector2.vec2 (toFloat canvasWidth) (toFloat canvasHeight)
                         }
                         :: WebGL.entityWith
                             [ WebGL.Settings.cullFace WebGL.Settings.back ]
@@ -1716,6 +1774,7 @@ initMatchSetupData lobby =
     }
 
 
+scrollToBottom : Command FrontendOnly toMsg MatchSetupMsg_
 scrollToBottom =
     Effect.Browser.Dom.setViewportOf textMessageContainerId 0 99999
         |> Task.attempt (\_ -> ScrolledToBottom)
@@ -1852,7 +1911,21 @@ getInputDirection windowSize keys maybeTouchPosition =
         directionToOffset input
 
 
-animationFrame model matchSetupPage =
+animationFrame :
+    (Id MatchId -> Id EventId -> MatchSetupMsg -> toBackend)
+    ->
+        { a
+            | windowSize : WindowSize
+            , previousKeys : List Key
+            , currentKeys : List Key
+            , pingData : Maybe PingData
+            , time : Time.Posix
+            , debugTimeOffset : Duration
+            , userId : Id UserId
+        }
+    -> MatchPage_
+    -> ( MatchPage_, Command FrontendOnly toBackend MatchSetupMsg_ )
+animationFrame matchSetupRequest model matchSetupPage =
     case ( matchSetupPage.matchData, Match.matchActive (getLocalState matchSetupPage) ) of
         ( MatchActiveLocal matchData, Just match ) ->
             case matchData.timelineCache of
@@ -1895,7 +1968,7 @@ animationFrame model matchSetupPage =
                         ( model3, Command.none )
 
                      else
-                        matchSetupUpdate (Match.MatchInputRequest (timeToServerTime model) input) model3
+                        matchSetupUpdate matchSetupRequest model.userId (Match.MatchInputRequest (timeToServerTime model) input) model3
                     )
                         |> (\( matchSetupPage2, cmd ) ->
                                 case
@@ -1906,6 +1979,8 @@ animationFrame model matchSetupPage =
                                     ( Just timeLeft, Just previousTimeLeft ) ->
                                         if Quantity.lessThanZero timeLeft && not (Quantity.lessThanZero previousTimeLeft) then
                                             matchSetupUpdate
+                                                matchSetupRequest
+                                                model.userId
                                                 (Match.MatchFinished
                                                     (Dict.map
                                                         (\_ player -> player.finishTime)
