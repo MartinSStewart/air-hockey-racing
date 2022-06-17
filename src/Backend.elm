@@ -185,7 +185,7 @@ updateFromFrontendWithTime sessionId clientId msg model time =
                         ]
                     )
 
-                MatchSetupRequest lobbyId eventId matchSetupMsg ->
+                MatchPageToBackend (MatchPage.MatchSetupRequest lobbyId eventId matchSetupMsg) ->
                     matchSetupRequest time lobbyId userId eventId clientId matchSetupMsg model
 
                 PingRequest ->
@@ -234,27 +234,24 @@ matchSetupRequest currentTime lobbyId userId eventId clientId matchSetupMsg mode
                                 getSessionIdsFromUserId lobbyUserId model_
                                     |> List.map
                                         (\lobbyUserSessionId ->
-                                            if lobbyUserId == userId then
-                                                MatchSetupResponse
-                                                    lobbyId
-                                                    userId
-                                                    matchSetupMsg2
-                                                    (case ( lobbyUserId == userId, matchSetupMsg2 ) of
-                                                        ( True, LeaveMatchSetup ) ->
-                                                            getLobbyData model_ |> Just
+                                            (if lobbyUserId == userId then
+                                                case matchSetupMsg2 of
+                                                    LeaveMatchSetup ->
+                                                        getLobbyData model_ |> RejoinMainLobby
 
-                                                        _ ->
-                                                            Nothing
-                                                    )
-                                                    eventId
-                                                    |> Effect.Lamdera.sendToFrontends lobbyUserSessionId
+                                                    _ ->
+                                                        MatchPage.MatchSetupResponse
+                                                            lobbyId
+                                                            userId
+                                                            matchSetupMsg2
+                                                            eventId
+                                                            |> MatchPageToFrontend
 
-                                            else
-                                                MatchSetupBroadcast
-                                                    lobbyId
-                                                    userId
-                                                    matchSetupMsg2
-                                                    |> Effect.Lamdera.sendToFrontends lobbyUserSessionId
+                                             else
+                                                MatchPage.MatchSetupBroadcast lobbyId userId matchSetupMsg2
+                                                    |> MatchPageToFrontend
+                                            )
+                                                |> Effect.Lamdera.sendToFrontends lobbyUserSessionId
                                         )
                             )
                         |> Command.batch

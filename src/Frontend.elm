@@ -25,7 +25,6 @@ import List.Extra as List
 import Match exposing (LobbyPreview, Match, MatchActive, MatchSetupMsg, MatchState, Place(..), Player, PlayerData, PlayerMode(..), ServerTime(..), TimelineEvent, WorldCoordinate)
 import MatchName
 import MatchPage exposing (MatchId, MatchLocalOnly(..), ScreenCoordinate, WorldPixel)
-import NetworkModel exposing (NetworkModel)
 import Pixels exposing (Pixels)
 import Ports
 import Quantity exposing (Quantity(..), Rate)
@@ -238,10 +237,10 @@ updateLoaded msg model =
             in
             case model2.page of
                 MatchPage matchSetupPage ->
-                    MatchPage.animationFrame MatchSetupRequest { model | time = time_ } matchSetupPage
+                    MatchPage.animationFrame { model | time = time_ } matchSetupPage
                         |> Tuple.mapBoth
                             (\a -> { model2 | page = MatchPage a })
-                            (\cmd -> Command.map identity MatchSetupMsg cmd)
+                            (\cmd -> Command.map MatchPageToBackend MatchPageMsg cmd)
 
                 MainLobbyPage _ ->
                     ( model2, Command.none )
@@ -251,7 +250,9 @@ updateLoaded msg model =
 
         PressedJoinLobby lobbyId ->
             ( model
-            , MatchSetupRequest lobbyId (Id.fromInt -1) Match.JoinMatchSetup |> Effect.Lamdera.sendToBackend
+            , MatchPage.MatchSetupRequest lobbyId (Id.fromInt -1) Match.JoinMatchSetup
+                |> MatchPageToBackend
+                |> Effect.Lamdera.sendToBackend
             )
 
         SoundLoaded _ _ ->
@@ -261,15 +262,15 @@ updateLoaded msg model =
         GotTime _ ->
             ( model, Command.none )
 
-        MatchSetupMsg matchSetupMsg_ ->
+        MatchPageMsg matchSetupMsg_ ->
             case model.page of
                 MatchPage matchPage ->
                     let
                         ( newMatchPage, cmd ) =
-                            MatchPage.update MatchSetupRequest model matchSetupMsg_ matchPage
+                            MatchPage.update model matchSetupMsg_ matchPage
                     in
                     ( { model | page = MatchPage newMatchPage }
-                    , Command.map identity MatchSetupMsg cmd
+                    , Command.map MatchPageToBackend MatchPageMsg cmd
                     )
 
                 _ ->
@@ -317,7 +318,7 @@ updateLoadedFromBackend msg model =
                     MatchPage.init lobbyId lobby
                         |> Tuple.mapBoth
                             (\a -> { model | page = MatchPage a })
-                            (\cmd -> Command.map identity MatchSetupMsg cmd)
+                            (\cmd -> Command.map identity MatchPageMsg cmd)
 
                 _ ->
                     ( model, Command.none )
@@ -330,7 +331,7 @@ updateLoadedFromBackend msg model =
                             MatchPage.init lobbyId lobby
                                 |> Tuple.mapBoth
                                     (\a -> { model | page = MatchPage a })
-                                    (\cmd -> Command.map identity MatchSetupMsg cmd)
+                                    (\cmd -> Command.map identity MatchPageMsg cmd)
 
                         Err error ->
                             ( { model | page = MainLobbyPage { lobbyPage | joinLobbyError = Just error } }
@@ -419,46 +420,6 @@ updateLoadedFromBackend msg model =
                 Nothing ->
                     ( model, Command.none )
 
-        MatchSetupBroadcast lobbyId userId matchSetupMsg ->
-            case model.page of
-                MatchPage matchSetup ->
-                    let
-                        updateHelper =
-                            (if lobbyId == matchSetup.lobbyId then
-                                let
-                                    newNetworkModel : NetworkModel { userId : Id UserId, msg : MatchSetupMsg } Match
-                                    newNetworkModel =
-                                        NetworkModel.updateFromBackend
-                                            Match.matchSetupUpdate
-                                            Nothing
-                                            { userId = userId, msg = matchSetupMsg }
-                                            matchSetup.networkModel
-                                in
-                                { matchSetup
-                                    | networkModel = newNetworkModel
-                                    , matchData =
-                                        MatchPage.updateMatchData
-                                            matchSetupMsg
-                                            newNetworkModel
-                                            matchSetup.networkModel
-                                            matchSetup.matchData
-                                }
-
-                             else
-                                matchSetup
-                            )
-                                |> MatchPage
-                    in
-                    case matchSetupMsg of
-                        Match.SendTextMessage _ ->
-                            ( { model | page = updateHelper }, Command.map identity MatchSetupMsg MatchPage.scrollToBottom )
-
-                        _ ->
-                            ( { model | page = updateHelper }, Command.none )
-
-                MainLobbyPage _ ->
-                    ( model, Command.none )
-
         RemoveLobbyBroadcast lobbyId ->
             ( case model.page of
                 MainLobbyPage lobbyData ->
@@ -468,50 +429,6 @@ updateLoadedFromBackend msg model =
                     model
             , Command.none
             )
-
-        MatchSetupResponse lobbyId userId matchSetupMsg maybeLobbyData eventId ->
-            case model.page of
-                MatchPage matchSetup ->
-                    let
-                        updateHelper =
-                            (if lobbyId == matchSetup.lobbyId then
-                                let
-                                    newNetworkModel : NetworkModel { userId : Id UserId, msg : MatchSetupMsg } Match
-                                    newNetworkModel =
-                                        NetworkModel.updateFromBackend
-                                            Match.matchSetupUpdate
-                                            (Just eventId)
-                                            { userId = userId, msg = matchSetupMsg }
-                                            matchSetup.networkModel
-                                in
-                                { matchSetup
-                                    | networkModel = newNetworkModel
-                                    , matchData =
-                                        MatchPage.updateMatchData
-                                            matchSetupMsg
-                                            newNetworkModel
-                                            matchSetup.networkModel
-                                            matchSetup.matchData
-                                }
-
-                             else
-                                matchSetup
-                            )
-                                |> MatchPage
-                    in
-                    case ( maybeLobbyData, matchSetupMsg ) of
-                        ( Just lobbyData, Match.LeaveMatchSetup ) ->
-                            ( { model
-                                | page = MainLobbyPage { lobbies = lobbyData.lobbies, joinLobbyError = Nothing }
-                              }
-                            , Command.none
-                            )
-
-                        _ ->
-                            ( { model | page = updateHelper }, Command.none )
-
-                MainLobbyPage _ ->
-                    ( model, Command.none )
 
         UpdateLobbyBroadcast lobbyId lobbyPreview ->
             ( case model.page of
@@ -524,6 +441,22 @@ updateLoadedFromBackend msg model =
 
                 MatchPage _ ->
                     model
+            , Command.none
+            )
+
+        MatchPageToFrontend toFrontend ->
+            case model.page of
+                MainLobbyPage _ ->
+                    ( model, Command.none )
+
+                MatchPage matchPage ->
+                    MatchPage.updateFromBackend toFrontend matchPage
+                        |> Tuple.mapBoth
+                            (\a -> { model | page = MatchPage a })
+                            (Command.map MatchPageToBackend MatchPageMsg)
+
+        RejoinMainLobby mainLobbyInitData ->
+            ( { model | page = MainLobbyPage { lobbies = mainLobbyInitData.lobbies, joinLobbyError = Nothing } }
             , Command.none
             )
 
@@ -572,7 +505,7 @@ loadedView model =
         [ Element.clip ]
         (case model.page of
             MatchPage matchSetup ->
-                MatchPage.view model matchSetup |> Element.map MatchSetupMsg
+                MatchPage.view model matchSetup |> Element.map MatchPageMsg
 
             MainLobbyPage lobbyData ->
                 Element.column

@@ -25,8 +25,7 @@ import Effect.Time as Time
 import Id exposing (Id)
 import Keyboard
 import Match exposing (LobbyPreview, Match, MatchSetupMsg, MatchState, PlayerMode, ServerTime)
-import MatchPage exposing (MatchId, Model, Msg, WorldPixel)
-import NetworkModel exposing (EventId, NetworkModel)
+import MatchPage exposing (MatchId, WorldPixel)
 import PingData exposing (PingData)
 import Pixels exposing (Pixels)
 import Quantity exposing (Quantity, Rate)
@@ -77,7 +76,7 @@ type alias FrontendLoaded =
 
 type Page
     = MainLobbyPage MainLobbyPage_
-    | MatchPage Model
+    | MatchPage MatchPage.Model
 
 
 type alias MainLobbyPage_ =
@@ -113,15 +112,15 @@ type FrontendMsg_
     | PressedCreateLobby
     | PressedJoinLobby (Id MatchId)
     | SoundLoaded String (Result Audio.LoadError Audio.Source)
-    | MatchSetupMsg Msg
+    | MatchPageMsg MatchPage.Msg
     | GotTime Time.Posix
     | RandomInput Time.Posix
 
 
 type ToBackend
     = CreateMatchRequest
-    | MatchSetupRequest (Id MatchId) (Id EventId) MatchSetupMsg
     | PingRequest
+    | MatchPageToBackend MatchPage.ToBackend
 
 
 type BackendMsg
@@ -139,8 +138,8 @@ type ToFrontend
     | ClientInit (Id UserId) MainLobbyInitData
     | JoinLobbyResponse (Id MatchId) (Result JoinLobbyError Match)
     | PingResponse ServerTime
-    | MatchSetupBroadcast (Id MatchId) (Id UserId) MatchSetupMsg
-    | MatchSetupResponse (Id MatchId) (Id UserId) MatchSetupMsg (Maybe MainLobbyInitData) (Id EventId)
+    | MatchPageToFrontend MatchPage.ToFrontend
+    | RejoinMainLobby MainLobbyInitData
 
 
 type JoinLobbyError

@@ -4,6 +4,8 @@ module MatchPage exposing
     , Model
     , Msg
     , ScreenCoordinate
+    , ToBackend(..)
+    , ToFrontend(..)
     , Vertex
     , WorldPixel
     , actualTime
@@ -14,7 +16,7 @@ module MatchPage exposing
     , scrollToBottom
     , unnamedMatchText
     , update
-    , updateMatchData
+    , updateFromBackend
     , view
     )
 
@@ -153,31 +155,35 @@ type alias MatchActiveLocal_ =
     }
 
 
-update :
-    (Id MatchId -> Id EventId -> MatchSetupMsg -> toBackend)
-    -> Config a
-    -> Msg
-    -> Model
-    -> ( Model, Command FrontendOnly toBackend Msg )
-update matchSetupRequest config msg model =
+type ToBackend
+    = MatchSetupRequest (Id MatchId) (Id EventId) MatchSetupMsg
+
+
+type ToFrontend
+    = MatchSetupBroadcast (Id MatchId) (Id UserId) MatchSetupMsg
+    | MatchSetupResponse (Id MatchId) (Id UserId) MatchSetupMsg (Id EventId)
+
+
+update : Config a -> Msg -> Model -> ( Model, Command FrontendOnly ToBackend Msg )
+update config msg model =
     case msg of
         PressedStartMatchSetup ->
-            matchSetupUpdate matchSetupRequest config.userId (Match.StartMatch (timeToServerTime config)) model
+            matchSetupUpdate config.userId (Match.StartMatch (timeToServerTime config)) model
 
         PressedLeaveMatchSetup ->
-            matchSetupUpdate matchSetupRequest config.userId Match.LeaveMatchSetup model
+            matchSetupUpdate config.userId Match.LeaveMatchSetup model
 
         PressedPrimaryColor colorIndex ->
-            matchSetupUpdate matchSetupRequest config.userId (Match.SetPrimaryColor colorIndex) model
+            matchSetupUpdate config.userId (Match.SetPrimaryColor colorIndex) model
 
         PressedSecondaryColor colorIndex ->
-            matchSetupUpdate matchSetupRequest config.userId (Match.SetSecondaryColor colorIndex) model
+            matchSetupUpdate config.userId (Match.SetSecondaryColor colorIndex) model
 
         PressedDecal decal ->
-            matchSetupUpdate matchSetupRequest config.userId (Match.SetDecal decal) model
+            matchSetupUpdate config.userId (Match.SetDecal decal) model
 
         PressedPlayerMode mode ->
-            matchSetupUpdate matchSetupRequest config.userId (Match.SetPlayerMode mode) model
+            matchSetupUpdate config.userId (Match.SetPlayerMode mode) model
 
         TypedMatchName matchName ->
             ( { model
@@ -193,7 +199,7 @@ update matchSetupRequest config msg model =
             )
 
         PressedSaveMatchName matchName ->
-            matchSetupUpdate matchSetupRequest config.userId (Match.SetMatchName matchName) model
+            matchSetupUpdate config.userId (Match.SetMatchName matchName) model
 
         PressedResetMatchName ->
             ( { model
@@ -228,7 +234,6 @@ update matchSetupRequest config msg model =
 
         SubmittedTextMessage message ->
             matchSetupUpdate
-                matchSetupRequest
                 config.userId
                 (Match.SendTextMessage message)
                 { model
@@ -256,7 +261,7 @@ update matchSetupRequest config msg model =
             )
 
         PressedSaveMaxPlayers maxPlayers ->
-            matchSetupUpdate matchSetupRequest config.userId (Match.SetMaxPlayers maxPlayers) model
+            matchSetupUpdate config.userId (Match.SetMaxPlayers maxPlayers) model
 
         PressedResetMaxPlayers ->
             ( { model
@@ -337,13 +342,8 @@ update matchSetupRequest config msg model =
             ( model, Command.none )
 
 
-matchSetupUpdate :
-    (Id MatchId -> Id EventId -> MatchSetupMsg -> toBackend)
-    -> Id UserId
-    -> MatchSetupMsg
-    -> Model
-    -> ( Model, Command FrontendOnly toBackend msg )
-matchSetupUpdate matchSetupRequest userId msg matchSetup =
+matchSetupUpdate : Id UserId -> MatchSetupMsg -> Model -> ( Model, Command FrontendOnly ToBackend msg )
+matchSetupUpdate userId msg matchSetup =
     let
         { eventId, newNetworkModel } =
             NetworkModel.updateFromUser { userId = userId, msg = msg } matchSetup.networkModel
@@ -357,8 +357,71 @@ matchSetupUpdate matchSetupRequest userId msg matchSetup =
                 matchSetup.networkModel
                 matchSetup.matchData
       }
-    , matchSetupRequest matchSetup.lobbyId eventId msg |> Effect.Lamdera.sendToBackend
+    , MatchSetupRequest matchSetup.lobbyId eventId msg |> Effect.Lamdera.sendToBackend
     )
+
+
+updateFromBackend : ToFrontend -> Model -> ( Model, Command FrontendOnly toMsg Msg )
+updateFromBackend msg matchSetup =
+    case msg of
+        MatchSetupBroadcast lobbyId userId matchSetupMsg ->
+            let
+                updateHelper =
+                    if lobbyId == matchSetup.lobbyId then
+                        let
+                            newNetworkModel : NetworkModel { userId : Id UserId, msg : MatchSetupMsg } Match
+                            newNetworkModel =
+                                NetworkModel.updateFromBackend
+                                    Match.matchSetupUpdate
+                                    Nothing
+                                    { userId = userId, msg = matchSetupMsg }
+                                    matchSetup.networkModel
+                        in
+                        { matchSetup
+                            | networkModel = newNetworkModel
+                            , matchData =
+                                updateMatchData
+                                    matchSetupMsg
+                                    newNetworkModel
+                                    matchSetup.networkModel
+                                    matchSetup.matchData
+                        }
+
+                    else
+                        matchSetup
+            in
+            case matchSetupMsg of
+                Match.SendTextMessage _ ->
+                    ( updateHelper, scrollToBottom )
+
+                _ ->
+                    ( updateHelper, Command.none )
+
+        MatchSetupResponse lobbyId userId matchSetupMsg eventId ->
+            ( if lobbyId == matchSetup.lobbyId then
+                let
+                    newNetworkModel : NetworkModel { userId : Id UserId, msg : MatchSetupMsg } Match
+                    newNetworkModel =
+                        NetworkModel.updateFromBackend
+                            Match.matchSetupUpdate
+                            (Just eventId)
+                            { userId = userId, msg = matchSetupMsg }
+                            matchSetup.networkModel
+                in
+                { matchSetup
+                    | networkModel = newNetworkModel
+                    , matchData =
+                        updateMatchData
+                            matchSetupMsg
+                            newNetworkModel
+                            matchSetup.networkModel
+                            matchSetup.matchData
+                }
+
+              else
+                matchSetup
+            , Command.none
+            )
 
 
 type alias Config a =
@@ -1940,12 +2003,8 @@ getInputDirection windowSize keys maybeTouchPosition =
         directionToOffset input
 
 
-animationFrame :
-    (Id MatchId -> Id EventId -> MatchSetupMsg -> toBackend)
-    -> Config a
-    -> Model
-    -> ( Model, Command FrontendOnly toBackend Msg )
-animationFrame matchSetupRequest model matchSetupPage =
+animationFrame : Config a -> Model -> ( Model, Command FrontendOnly ToBackend Msg )
+animationFrame model matchSetupPage =
     case ( matchSetupPage.matchData, Match.matchActive (getLocalState matchSetupPage) ) of
         ( MatchActiveLocal matchData, Just match ) ->
             case matchData.timelineCache of
@@ -1988,7 +2047,7 @@ animationFrame matchSetupRequest model matchSetupPage =
                         ( model3, Command.none )
 
                      else
-                        matchSetupUpdate matchSetupRequest model.userId (Match.MatchInputRequest (timeToServerTime model) input) model3
+                        matchSetupUpdate model.userId (Match.MatchInputRequest (timeToServerTime model) input) model3
                     )
                         |> (\( matchSetupPage2, cmd ) ->
                                 case
@@ -1999,7 +2058,6 @@ animationFrame matchSetupRequest model matchSetupPage =
                                     ( Just timeLeft, Just previousTimeLeft ) ->
                                         if Quantity.lessThanZero timeLeft && not (Quantity.lessThanZero previousTimeLeft) then
                                             matchSetupUpdate
-                                                matchSetupRequest
                                                 model.userId
                                                 (Match.MatchFinished
                                                     (Dict.map
