@@ -100,7 +100,7 @@ type Msg
 
 
 type MatchId
-    = LobbyId Never
+    = MatchId Never
 
 
 type MatchLocalOnly

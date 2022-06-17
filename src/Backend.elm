@@ -191,6 +191,19 @@ updateFromFrontendWithTime sessionId clientId msg model time =
                 PingRequest ->
                     ( model, PingResponse time |> Effect.Lamdera.sendToFrontend clientId )
 
+                LoadMatchActiveRequest matchId ->
+                    case Dict.get matchId model.lobbies of
+                        Just match ->
+                            ( model
+                            , 
+                            )
+
+                        Nothing ->
+                            ( model
+                            , LoadMatchActiveResponse matchId (Err LobbyNotFound)
+                                |> Effect.Lamdera.sendToFrontend clientId
+                            )
+
         Nothing ->
             ( model, Command.none )
 

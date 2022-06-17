@@ -30,6 +30,7 @@ import PingData exposing (PingData)
 import Pixels exposing (Pixels)
 import Quantity exposing (Quantity, Rate)
 import Sounds exposing (Sounds)
+import Timeline exposing (TimelineCache)
 import Ui exposing (WindowSize)
 import User exposing (UserId)
 
@@ -121,6 +122,7 @@ type ToBackend
     = CreateMatchRequest
     | PingRequest
     | MatchPageToBackend MatchPage.ToBackend
+    | LoadMatchActiveRequest (Id MatchId)
 
 
 type BackendMsg
@@ -140,6 +142,7 @@ type ToFrontend
     | PingResponse ServerTime
     | MatchPageToFrontend MatchPage.ToFrontend
     | RejoinMainLobby MainLobbyInitData
+    | LoadMatchActiveResponse (Id MatchId) (Result JoinLobbyError { match : Match, timelineCache : TimelineCache MatchState })
 
 
 type JoinLobbyError
