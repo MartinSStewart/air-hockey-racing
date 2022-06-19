@@ -4,7 +4,9 @@
         "src",
         "packages/MartinSStewart/elm-audio/4.0.0/src",
         "packages/ohanhi/keyboard/2.0.1/src",
-        "packages/ianmackenzie/elm-geometry/3.9.1/src"
+        "packages/ianmackenzie/elm-geometry/3.9.1/src",
+        "packages/ianmackenzie/elm-geometry-linear-algebra-interop/2.0.2/src",
+        "packages/ianmackenzie/elm-3d-camera/3.1.0/src"
     ],
     "elm-version": "0.19.1",
     "dependencies": {
