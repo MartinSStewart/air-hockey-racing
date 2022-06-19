@@ -1,6 +1,7 @@
 module Collision exposing (circleCircle, circleLine, circlePoint)
 
 import Axis2d exposing (Axis2d)
+import CubicSpline2d exposing (CubicSpline2d)
 import Length exposing (Meters)
 import LineSegment2d exposing (LineSegment2d)
 import Point2d exposing (Point2d)
@@ -239,3 +240,186 @@ circleCircle radius p1 v1 p2 v2 =
 
     else
         Nothing
+
+
+{-| <https://stackoverflow.com/a/14514491>
+-}
+find_inflection_points : Float -> Float -> Float -> Float -> Float -> Float -> Float -> Float -> List Float
+find_inflection_points p1x p1y p2x p2y p3x p3y p4x p4y =
+    let
+        ax =
+            -p1x + 3 * p2x - 3 * p3x + p4x
+
+        bx =
+            3 * p1x - 6 * p2x + 3 * p3x
+
+        cx =
+            -3 * p1x + 3 * p2x
+
+        ay =
+            -p1y + 3 * p2y - 3 * p3y + p4y
+
+        by =
+            3 * p1y - 6 * p2y + 3 * p3y
+
+        cy =
+            -3 * p1y + 3 * p2y
+
+        a =
+            3 * (ay * bx - ax * by)
+
+        b =
+            3 * (ay * cx - ax * cy)
+
+        c =
+            by * cx - bx * cy
+
+        r2 =
+            b * b - 4 * a * c
+    in
+    if r2 >= 0 && a /= 0 then
+        let
+            r =
+                sqrt r2
+
+            firstIfp =
+                (-b + r) / (2 * a)
+
+            secondIfp =
+                (-b - r) / (2 * a)
+        in
+        if (firstIfp > 0 && firstIfp < 1) && (secondIfp > 0 && secondIfp < 1) then
+            let
+                data =
+                    if firstIfp > secondIfp then
+                        { firstIfp = secondIfp, secondIfp = firstIfp }
+
+                    else
+                        { firstIfp = firstIfp, secondIfp = secondIfp }
+            in
+            if data.secondIfp - data.firstIfp > 0.00001 then
+                [ data.firstIfp, data.secondIfp ]
+
+            else
+                [ data.firstIfp ]
+
+        else if firstIfp > 0 && firstIfp < 1 then
+            [ firstIfp ]
+
+        else if secondIfp > 0 && secondIfp < 1 then
+            [ secondIfp ]
+
+        else
+            []
+
+    else
+        []
+
+
+get_t_values_of_critical_points :
+    Point2d unit coordinate
+    -> Point2d unit coordinate
+    -> Point2d unit coordinate
+    -> Point2d unit coordinate
+    -> List Float
+get_t_values_of_critical_points point1 point2 point3 point4 =
+    let
+        p1 =
+            Point2d.unwrap point1
+
+        c1 =
+            Point2d.unwrap point2
+
+        c2 =
+            Point2d.unwrap point3
+
+        p2 =
+            Point2d.unwrap point4
+
+        a0 =
+            (c2.x - 2 * c1.x + p1.x) - (p2.x - 2 * c2.x + c1.x)
+
+        b0 =
+            2 * (c1.x - p1.x) - 2 * (c2.x - c1.x)
+
+        c0 =
+            p1.x - c1.x
+
+        t1_0 =
+            (-b0 + sqrt (b0 * b0 - 4 * a0 * c0)) / 2 / a0
+
+        t2_0 =
+            (-b0 - sqrt (b0 * b0 - 4 * a0 * c0)) / 2 / a0
+
+        tvalues =
+            (if t1_0 >= 0 && t1_0 <= 1 then
+                [ t1_0 ]
+
+             else
+                []
+            )
+                ++ (if t2_0 >= 0 && t2_0 <= 1 && t1_0 /= t2_0 then
+                        [ t2_0 ]
+
+                    else
+                        []
+                   )
+                ++ (if t1 >= 0 && t1 <= 1 && t1 /= t1_0 && t1 /= t2_0 then
+                        [ t1 ]
+
+                    else
+                        []
+                   )
+                ++ (if t2 >= 0 && t2 <= 1 && t2 /= t1_0 && t2 /= t2_0 && t2 /= t1 then
+                        [ t2 ]
+
+                    else
+                        []
+                   )
+
+        a =
+            (c2.y - 2 * c1.y + p1.y) - (p2.y - 2 * c2.y + c1.y)
+
+        b =
+            2 * (c1.y - p1.y) - 2 * (c2.y - c1.y)
+
+        c =
+            p1.y - c1.y
+
+        t1 =
+            (-b + sqrt (b * b - 4 * a * c)) / 2 / a
+
+        t2 =
+            (-b - sqrt (b * b - 4 * a * c)) / 2 / a
+
+        inflectionpoints =
+            find_inflection_points p1.x p1.y c1.x c1.y c2.x c2.y p2.x p2.y
+    in
+    tvalues ++ inflectionpoints |> List.sort
+
+
+abc : CubicSpline2d unit coordinate -> List (CubicSpline2d.CubicSpline2d unit coordinate)
+abc cubicSpline =
+    let
+        criticalPoints : List Float
+        criticalPoints =
+            get_t_values_of_critical_points
+                (CubicSpline2d.firstControlPoint cubicSpline)
+                (CubicSpline2d.secondControlPoint cubicSpline)
+                (CubicSpline2d.thirdControlPoint cubicSpline)
+                (CubicSpline2d.fourthControlPoint cubicSpline)
+    in
+    List.foldl
+        (\criticalPoint state ->
+            let
+                ( s0, s1 ) =
+                    CubicSpline2d.splitAt criticalPoint state.remainingSpline
+            in
+            { remainingSpline = s1
+            , splineSegments = s0 :: state.splineSegments
+            , scaleFactor = state.scaleFactor / (1 - criticalPoint)
+            }
+        )
+        { remainingSpline = cubicSpline, splineSegments = [], scaleFactor = 1 }
+        criticalPoints
+        |> .splineSegments

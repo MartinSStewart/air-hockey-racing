@@ -2,8 +2,8 @@ module Match exposing
     ( LobbyPreview
     , Match
     , MatchActive
-    , MatchSetupMsg(..)
     , MatchState
+    , Msg(..)
     , Place(..)
     , Player
     , PlayerData
@@ -108,7 +108,7 @@ type alias MatchActive =
     { startTime : ServerTime, timeline : Timeline TimelineEvent }
 
 
-type MatchSetupMsg
+type Msg
     = JoinMatchSetup
     | LeaveMatchSetup
     | SetPrimaryColor ColorIndex
@@ -276,7 +276,7 @@ messagesOldestToNewest (Match matchSetup) =
     List.reverse matchSetup.messages
 
 
-matchSetupUpdate : { userId : Id UserId, msg : MatchSetupMsg } -> Match -> Match
+matchSetupUpdate : { userId : Id UserId, msg : Msg } -> Match -> Match
 matchSetupUpdate { userId, msg } match =
     case msg of
         JoinMatchSetup ->

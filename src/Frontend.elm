@@ -5,6 +5,7 @@ import Audio exposing (Audio, AudioCmd, AudioData)
 import Browser
 import Browser.Navigation
 import Duration exposing (Duration)
+import EditorPage
 import Effect.Browser.Dom exposing (HtmlId)
 import Effect.Browser.Events
 import Effect.Browser.Navigation
@@ -22,7 +23,7 @@ import Id exposing (Id)
 import Keyboard exposing (Key)
 import Lamdera
 import List.Extra as List
-import Match exposing (LobbyPreview, Match, MatchActive, MatchSetupMsg, MatchState, Place(..), Player, PlayerData, PlayerMode(..), ServerTime(..), TimelineEvent, WorldCoordinate)
+import Match exposing (LobbyPreview, Match, MatchActive, MatchState, Place(..), Player, PlayerData, PlayerMode(..), ServerTime(..), TimelineEvent, WorldCoordinate)
 import MatchName
 import MatchPage exposing (MatchId, MatchLocalOnly(..), ScreenCoordinate, WorldPixel)
 import Pixels exposing (Pixels)
@@ -79,6 +80,9 @@ audio _ model =
                     MatchPage.audio loaded matchPage
 
                 MainLobbyPage _ ->
+                    Audio.silence
+
+                EditorPage _ ->
                     Audio.silence
     )
         |> Audio.offsetBy (Duration.milliseconds 30)
@@ -245,6 +249,12 @@ updateLoaded msg model =
                 MainLobbyPage _ ->
                     ( model2, Command.none )
 
+                EditorPage editorPage ->
+                    EditorPage.animationFrame { model | time = time_ } editorPage
+                        |> Tuple.mapBoth
+                            (\a -> { model2 | page = EditorPage a })
+                            (\cmd -> Command.map EditorPageToBackend EditorPageMsg cmd)
+
         PressedCreateLobby ->
             ( model, Effect.Lamdera.sendToBackend CreateMatchRequest )
 
@@ -271,6 +281,20 @@ updateLoaded msg model =
                     in
                     ( { model | page = MatchPage newMatchPage }
                     , Command.map MatchPageToBackend MatchPageMsg cmd
+                    )
+
+                _ ->
+                    ( model, Command.none )
+
+        EditorPageMsg editorPageMsg ->
+            case model.page of
+                EditorPage editorPage ->
+                    let
+                        ( newEditorPage, cmd ) =
+                            EditorPage.update editorPageMsg editorPage
+                    in
+                    ( { model | page = EditorPage newEditorPage }
+                    , Command.map EditorPageToBackend EditorPageMsg cmd
                     )
 
                 _ ->
@@ -427,6 +451,9 @@ updateLoadedFromBackend msg model =
 
                 MatchPage _ ->
                     model
+
+                EditorPage _ ->
+                    model
             , Command.none
             )
 
@@ -441,24 +468,38 @@ updateLoadedFromBackend msg model =
 
                 MatchPage _ ->
                     model
+
+                EditorPage _ ->
+                    model
             , Command.none
             )
 
         MatchPageToFrontend toFrontend ->
             case model.page of
-                MainLobbyPage _ ->
-                    ( model, Command.none )
-
                 MatchPage matchPage ->
                     MatchPage.updateFromBackend toFrontend matchPage
                         |> Tuple.mapBoth
                             (\a -> { model | page = MatchPage a })
                             (Command.map MatchPageToBackend MatchPageMsg)
 
+                _ ->
+                    ( model, Command.none )
+
         RejoinMainLobby mainLobbyInitData ->
             ( { model | page = MainLobbyPage { lobbies = mainLobbyInitData.lobbies, joinLobbyError = Nothing } }
             , Command.none
             )
+
+        EditorPageToFrontend toFrontend ->
+            case model.page of
+                EditorPage editorPage ->
+                    EditorPage.updateFromBackend toFrontend editorPage
+                        |> Tuple.mapBoth
+                            (\a -> { model | page = EditorPage a })
+                            (Command.map EditorPageToBackend EditorPageMsg)
+
+                _ ->
+                    ( model, Command.none )
 
 
 view : AudioData -> FrontendModel_ -> Browser.Document FrontendMsg_
@@ -552,6 +593,9 @@ loadedView model =
                                     ]
                         ]
                     ]
+
+            EditorPage editorPageModel ->
+                EditorPage.view editorPageModel
         )
 
 

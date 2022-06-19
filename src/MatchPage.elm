@@ -54,7 +54,7 @@ import Length exposing (Length, Meters)
 import LineSegment2d exposing (LineSegment2d)
 import List.Extra as List
 import List.Nonempty exposing (Nonempty)
-import Match exposing (LobbyPreview, Match, MatchActive, MatchSetupMsg, MatchState, Place(..), Player, PlayerData, PlayerMode(..), ServerTime(..), TimelineEvent, WorldCoordinate)
+import Match exposing (LobbyPreview, Match, MatchActive, MatchState, Place(..), Player, PlayerData, PlayerMode(..), ServerTime(..), TimelineEvent, WorldCoordinate)
 import MatchName exposing (MatchName)
 import Math.Matrix4 as Mat4 exposing (Mat4)
 import Math.Vector2 exposing (Vec2)
@@ -110,7 +110,7 @@ type MatchLocalOnly
 
 type alias Model =
     { lobbyId : Id MatchId
-    , networkModel : NetworkModel { userId : Id UserId, msg : MatchSetupMsg } Match
+    , networkModel : NetworkModel { userId : Id UserId, msg : Match.Msg } Match
     , matchData : MatchLocalOnly
     }
 
@@ -156,12 +156,12 @@ type alias MatchActiveLocal_ =
 
 
 type ToBackend
-    = MatchSetupRequest (Id MatchId) (Id EventId) MatchSetupMsg
+    = MatchSetupRequest (Id MatchId) (Id EventId) Match.Msg
 
 
 type ToFrontend
-    = MatchSetupBroadcast (Id MatchId) (Id UserId) MatchSetupMsg
-    | MatchSetupResponse (Id MatchId) (Id UserId) MatchSetupMsg (Id EventId)
+    = MatchSetupBroadcast (Id MatchId) (Id UserId) Match.Msg
+    | MatchSetupResponse (Id MatchId) (Id UserId) Match.Msg (Id EventId)
 
 
 update : Config a -> Msg -> Model -> ( Model, Command FrontendOnly ToBackend Msg )
@@ -342,7 +342,7 @@ update config msg model =
             ( model, Command.none )
 
 
-matchSetupUpdate : Id UserId -> MatchSetupMsg -> Model -> ( Model, Command FrontendOnly ToBackend msg )
+matchSetupUpdate : Id UserId -> Match.Msg -> Model -> ( Model, Command FrontendOnly ToBackend msg )
 matchSetupUpdate userId msg matchSetup =
     let
         { eventId, newNetworkModel } =
@@ -369,7 +369,7 @@ updateFromBackend msg matchSetup =
                 updateHelper =
                     if lobbyId == matchSetup.lobbyId then
                         let
-                            newNetworkModel : NetworkModel { userId : Id UserId, msg : MatchSetupMsg } Match
+                            newNetworkModel : NetworkModel { userId : Id UserId, msg : Match.Msg } Match
                             newNetworkModel =
                                 NetworkModel.updateFromBackend
                                     Match.matchSetupUpdate
@@ -400,7 +400,7 @@ updateFromBackend msg matchSetup =
         MatchSetupResponse lobbyId userId matchSetupMsg eventId ->
             ( if lobbyId == matchSetup.lobbyId then
                 let
-                    newNetworkModel : NetworkModel { userId : Id UserId, msg : MatchSetupMsg } Match
+                    newNetworkModel : NetworkModel { userId : Id UserId, msg : Match.Msg } Match
                     newNetworkModel =
                         NetworkModel.updateFromBackend
                             Match.matchSetupUpdate
@@ -1583,9 +1583,9 @@ backgroundFragmentShader =
 
 
 updateMatchData :
-    MatchSetupMsg
-    -> NetworkModel { userId : Id UserId, msg : MatchSetupMsg } Match
-    -> NetworkModel { userId : Id UserId, msg : MatchSetupMsg } Match
+    Match.Msg
+    -> NetworkModel { userId : Id UserId, msg : Match.Msg } Match
+    -> NetworkModel { userId : Id UserId, msg : Match.Msg } Match
     -> MatchLocalOnly
     -> MatchLocalOnly
 updateMatchData newMsg newNetworkModel oldNetworkModel oldMatchData =

@@ -19,12 +19,13 @@ import AssocList exposing (Dict)
 import Audio
 import Browser
 import Duration exposing (Duration)
+import EditorPage
 import Effect.Browser.Navigation
 import Effect.Lamdera exposing (ClientId, SessionId)
 import Effect.Time as Time
 import Id exposing (Id)
 import Keyboard
-import Match exposing (LobbyPreview, Match, MatchSetupMsg, MatchState, PlayerMode, ServerTime)
+import Match exposing (LobbyPreview, Match, MatchState, PlayerMode, ServerTime)
 import MatchPage exposing (MatchId, WorldPixel)
 import PingData exposing (PingData)
 import Pixels exposing (Pixels)
@@ -77,6 +78,7 @@ type alias FrontendLoaded =
 type Page
     = MainLobbyPage MainLobbyPage_
     | MatchPage MatchPage.Model
+    | EditorPage EditorPage.Model
 
 
 type alias MainLobbyPage_ =
@@ -115,12 +117,14 @@ type FrontendMsg_
     | MatchPageMsg MatchPage.Msg
     | GotTime Time.Posix
     | RandomInput Time.Posix
+    | EditorPageMsg EditorPage.Msg
 
 
 type ToBackend
     = CreateMatchRequest
     | PingRequest
     | MatchPageToBackend MatchPage.ToBackend
+    | EditorPageToBackend EditorPage.ToBackend
 
 
 type BackendMsg
@@ -140,6 +144,7 @@ type ToFrontend
     | PingResponse ServerTime
     | MatchPageToFrontend MatchPage.ToFrontend
     | RejoinMainLobby MainLobbyInitData
+    | EditorPageToFrontend EditorPage.ToFrontend
 
 
 type JoinLobbyError

@@ -9,7 +9,7 @@ import Effect.Time
 import Id exposing (Id)
 import Lamdera
 import List.Nonempty
-import Match exposing (Match, MatchSetupMsg(..), ServerTime(..))
+import Match exposing (Match, Msg(..), ServerTime(..))
 import MatchPage exposing (MatchId)
 import NetworkModel exposing (EventId)
 import Types exposing (..)
@@ -191,6 +191,9 @@ updateFromFrontendWithTime sessionId clientId msg model time =
                 PingRequest ->
                     ( model, PingResponse time |> Effect.Lamdera.sendToFrontend clientId )
 
+                EditorPageToBackend toBackend ->
+                    ( model, Command.none )
+
         Nothing ->
             ( model, Command.none )
 
@@ -201,7 +204,7 @@ matchSetupRequest :
     -> Id UserId
     -> Id EventId
     -> ClientId
-    -> MatchSetupMsg
+    -> Msg
     -> BackendModel
     -> ( BackendModel, Command BackendOnly ToFrontend BackendMsg )
 matchSetupRequest currentTime lobbyId userId eventId clientId matchSetupMsg model =
@@ -216,7 +219,7 @@ matchSetupRequest currentTime lobbyId userId eventId clientId matchSetupMsg mode
                 model2 =
                     { model | lobbies = Dict.update lobbyId (\_ -> Just matchSetup2) model.lobbies }
 
-                matchSetupMsg2 : MatchSetupMsg
+                matchSetupMsg2 : Msg
                 matchSetupMsg2 =
                     case matchSetupMsg of
                         MatchInputRequest time input ->
