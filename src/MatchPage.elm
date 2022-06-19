@@ -134,6 +134,20 @@ init lobbyId lobby =
     )
 
 
+rejoinActiveMatch matchId match timelineCache oldMatchData =
+    { lobbyId = matchId
+    , networkModel = NetworkModel.init match
+    , matchData =
+        MatchActiveLocal
+            { timelineCache = Ok timelineCache
+            , userIds = Dict (Id UserId) (Mesh Vertex)
+            , wallMesh = Mesh Vertex
+            , touchPosition = Maybe (Point2d Pixels ScreenCoordinate)
+            , previousTouchPosition = Maybe (Point2d Pixels ScreenCoordinate)
+            }
+    }
+
+
 type alias MatchSetupLocal_ =
     { matchName : String, message : String, maxPlayers : String }
 

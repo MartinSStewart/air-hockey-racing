@@ -25,6 +25,7 @@ import List.Extra as List
 import Match exposing (LobbyPreview, Match, MatchActive, MatchSetupMsg, MatchState, Place(..), Player, PlayerData, PlayerMode(..), ServerTime(..), TimelineEvent, WorldCoordinate)
 import MatchName
 import MatchPage exposing (MatchId, MatchLocalOnly(..), ScreenCoordinate, WorldPixel)
+import NetworkModel
 import Pixels exposing (Pixels)
 import Ports
 import Quantity exposing (Quantity(..), Rate)
@@ -457,6 +458,32 @@ updateLoadedFromBackend msg model =
 
         RejoinMainLobby mainLobbyInitData ->
             ( { model | page = MainLobbyPage { lobbies = mainLobbyInitData.lobbies, joinLobbyError = Nothing } }
+            , Command.none
+            )
+
+        LoadMatchActiveResponse matchId result ->
+            ( { model
+                | page =
+                    case model.page of
+                        MatchPage matchPage ->
+                            case result of
+                                Ok { match, timelineCache } ->
+                                    if matchPage.lobbyId == matchId then
+                                        { matchPage
+                                            | networkModel = NetworkModel.init match
+                                        }
+                                            MatchPage.init
+                                            |> MatchPage
+
+                                    else
+                                        model.page
+
+                                Err () ->
+                                    Debug.todo ""
+
+                        MainLobbyPage _ ->
+                            model.page
+              }
             , Command.none
             )
 

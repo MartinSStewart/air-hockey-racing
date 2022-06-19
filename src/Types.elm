@@ -142,7 +142,7 @@ type ToFrontend
     | PingResponse ServerTime
     | MatchPageToFrontend MatchPage.ToFrontend
     | RejoinMainLobby MainLobbyInitData
-    | LoadMatchActiveResponse (Id MatchId) (Result JoinLobbyError { match : Match, timelineCache : TimelineCache MatchState })
+    | LoadMatchActiveResponse (Id MatchId) (Result () { match : Match, timelineCache : TimelineCache MatchState })
 
 
 type JoinLobbyError
