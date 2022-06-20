@@ -258,6 +258,16 @@ updateLoaded msg model =
         PressedCreateLobby ->
             ( model, Effect.Lamdera.sendToBackend CreateMatchRequest )
 
+        PressedOpenLevelEditor ->
+            ( case model.page of
+                MainLobbyPage _ ->
+                    { model | page = EditorPage EditorPage.init }
+
+                _ ->
+                    model
+            , Command.none
+            )
+
         PressedJoinLobby lobbyId ->
             ( model
             , MatchPage.MatchSetupRequest lobbyId (Id.fromInt -1) Match.JoinMatchSetup
@@ -557,6 +567,7 @@ loadedView model =
                     ]
                     [ Element.el [ Element.Font.bold ] (Element.text "Air Hockey Racing")
                     , Ui.simpleButton PressedCreateLobby (Element.text "Create new match")
+                    , Ui.simpleButton PressedOpenLevelEditor (Element.text "Open level editor")
                     , Element.column
                         [ Element.width Element.fill, Element.height Element.fill, Element.spacing 8 ]
                         [ Element.text "Or join existing match"
@@ -595,7 +606,7 @@ loadedView model =
                     ]
 
             EditorPage editorPageModel ->
-                EditorPage.view editorPageModel
+                EditorPage.view model editorPageModel |> Element.map EditorPageMsg
         )
 
 

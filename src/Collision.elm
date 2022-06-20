@@ -1,9 +1,10 @@
-module Collision exposing (circleCircle, circleLine, circlePoint, cubicSplineToQuadratic)
+module Collision exposing (circleCircle, circleLine, circlePoint, cubicSplineToQuadratic, pointsToLineSegments)
 
 import Axis2d exposing (Axis2d)
 import CubicSpline2d exposing (CubicSpline2d)
 import Length exposing (Meters)
 import LineSegment2d exposing (LineSegment2d)
+import List.Extra as List
 import Point2d exposing (Point2d)
 import Quantity exposing (Quantity)
 import Vector2d exposing (Vector2d)
@@ -425,3 +426,24 @@ cubicSplineToQuadratic cubicSpline =
         { remainingSpline = cubicSpline, splineSegments = [], lastPoint = 0 }
         criticalPoints
         |> .splineSegments
+
+
+pointsToLineSegments : List (Point2d units coordinates) -> List (LineSegment2d units coordinates)
+pointsToLineSegments points =
+    case ( List.head points, List.reverse points |> List.head ) of
+        ( Just head, Just last ) ->
+            points
+                |> List.groupsOfWithStep 2 1
+                |> (::) [ last, head ]
+                |> List.filterMap
+                    (\list ->
+                        case list of
+                            [ first, second ] ->
+                                LineSegment2d.from first second |> Just
+
+                            _ ->
+                                Nothing
+                    )
+
+        _ ->
+            []

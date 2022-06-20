@@ -112,6 +112,7 @@ type FrontendMsg_
     | GotDevicePixelRatio (Quantity Float (Rate WorldPixel Pixels))
     | AnimationFrame Time.Posix
     | PressedCreateLobby
+    | PressedOpenLevelEditor
     | PressedJoinLobby (Id MatchId)
     | SoundLoaded String (Result Audio.LoadError Audio.Source)
     | MatchPageMsg MatchPage.Msg

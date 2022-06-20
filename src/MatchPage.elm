@@ -11,13 +11,18 @@ module MatchPage exposing
     , actualTime
     , animationFrame
     , audio
+    , backgroundGrid
     , camera
+    , canvasView
     , canvasViewHelper
+    , fragmentShader
     , init
+    , lineSegmentMesh
     , scrollToBottom
     , unnamedMatchText
     , update
     , updateFromBackend
+    , vertexShader
     , view
     )
 
@@ -877,6 +882,29 @@ camera position viewportHeight =
         }
 
 
+backgroundGrid : Point2d units coordinates -> Float -> Size -> WebGL.Entity
+backgroundGrid cameraPosition zoom canvasSize =
+    let
+        { width, height } =
+            canvasSize
+
+        canvasWidth =
+            Pixels.inPixels width |> toFloat
+
+        canvasHeight =
+            Pixels.inPixels height |> toFloat
+    in
+    WebGL.entityWith
+        [ WebGL.Settings.cullFace WebGL.Settings.back ]
+        backgroundVertexShader
+        backgroundFragmentShader
+        squareMesh
+        { view = Geometry.Interop.LinearAlgebra.Point2d.toVec2 cameraPosition
+        , viewZoom = canvasHeight * zoom
+        , windowSize = Math.Vector2.vec2 canvasWidth canvasHeight
+        }
+
+
 canvasViewHelper : Config a -> Model -> Size -> List WebGL.Entity
 canvasViewHelper model matchSetup canvasSize =
     case ( Match.matchActive (getLocalState matchSetup), matchSetup.matchData ) of
@@ -959,15 +987,7 @@ canvasViewHelper model matchSetup canvasSize =
                                 input =
                                     getInputDirection model.windowSize model.currentKeys matchData.touchPosition
                             in
-                            WebGL.entityWith
-                                [ WebGL.Settings.cullFace WebGL.Settings.back ]
-                                backgroundVertexShader
-                                backgroundFragmentShader
-                                squareMesh
-                                { view = Geometry.Interop.LinearAlgebra.Point2d.toVec2 cameraPosition
-                                , viewZoom = toFloat canvasHeight * zoom
-                                , windowSize = Math.Vector2.vec2 (toFloat canvasWidth) (toFloat canvasHeight)
-                                }
+                            backgroundGrid cameraPosition zoom canvasSize
                                 :: WebGL.entityWith
                                     [ WebGL.Settings.cullFace WebGL.Settings.back ]
                                     vertexShader
@@ -1088,8 +1108,8 @@ playerStart =
 
 wallSegments : List (LineSegment2d Meters WorldCoordinate)
 wallSegments =
-    verticesToLineSegments (Polygon2d.outerLoop wall)
-        ++ List.concatMap verticesToLineSegments (Polygon2d.innerLoops wall)
+    Collision.pointsToLineSegments (Polygon2d.outerLoop wall)
+        ++ List.concatMap Collision.pointsToLineSegments (Polygon2d.innerLoops wall)
 
 
 gridSize : Length
@@ -1142,29 +1162,8 @@ getCollisionCandidates point =
     RegularDict.get (pointToGrid point |> (\{ x, y } -> ( x, y ))) wallLookUp |> Maybe.withDefault Set.empty
 
 
-verticesToLineSegments : List (Point2d units coordinates) -> List (LineSegment2d units coordinates)
-verticesToLineSegments points =
-    case ( List.head points, List.reverse points |> List.head ) of
-        ( Just head, Just last ) ->
-            points
-                |> List.groupsOfWithStep 2 1
-                |> (::) [ last, head ]
-                |> List.filterMap
-                    (\list ->
-                        case list of
-                            [ first, second ] ->
-                                LineSegment2d.from first second |> Just
-
-                            _ ->
-                                Nothing
-                    )
-
-        _ ->
-            []
-
-
-wallMesh : Vec3 -> List (LineSegment2d Meters WorldCoordinate) -> Mesh Vertex
-wallMesh color lines =
+lineSegmentMesh : Vec3 -> List (LineSegment2d Meters WorldCoordinate) -> Mesh Vertex
+lineSegmentMesh color lines =
     List.concatMap (lineMesh color) lines |> WebGL.triangles
 
 
@@ -1671,7 +1670,7 @@ updateMatchData newMsg newNetworkModel oldNetworkModel oldMatchData =
                                     Nothing
                         )
                     |> Dict.fromList
-            , wallMesh = wallMesh (Math.Vector3.vec3 1 0 0) wallSegments
+            , wallMesh = lineSegmentMesh (Math.Vector3.vec3 1 0 0) wallSegments
             , touchPosition = Nothing
             , previousTouchPosition = Nothing
             }
