@@ -11,6 +11,10 @@ module EditorPage exposing
 
 import Effect.Command as Command exposing (Command, FrontendOnly)
 import Element exposing (Element)
+import Match exposing (WorldCoordinate)
+import MatchPage exposing (ScreenCoordinate)
+import Pixels exposing (Pixels)
+import Point2d exposing (Point2d)
 
 
 type Msg
@@ -18,7 +22,10 @@ type Msg
 
 
 type alias Model =
-    {}
+    { mousePosition : Maybe (Point2d Pixels ScreenCoordinate)
+    , mouseDownAt : Maybe (Point2d Pixels ScreenCoordinate)
+    , cameraPosition : Point2d Pixels WorldCoordinate
+    }
 
 
 type ToBackend

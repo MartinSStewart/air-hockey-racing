@@ -1,4 +1,4 @@
-module Collision exposing (circleCircle, circleLine, circlePoint)
+module Collision exposing (circleCircle, circleLine, circlePoint, cubicSplineToQuadratic)
 
 import Axis2d exposing (Axis2d)
 import CubicSpline2d exposing (CubicSpline2d)
@@ -398,8 +398,8 @@ get_t_values_of_critical_points point1 point2 point3 point4 =
     tvalues ++ inflectionpoints |> List.sort
 
 
-abc : CubicSpline2d unit coordinate -> List (CubicSpline2d.CubicSpline2d unit coordinate)
-abc cubicSpline =
+cubicSplineToQuadratic : CubicSpline2d unit coordinate -> List (CubicSpline2d.CubicSpline2d unit coordinate)
+cubicSplineToQuadratic cubicSpline =
     let
         criticalPoints : List Float
         criticalPoints =
@@ -413,13 +413,15 @@ abc cubicSpline =
         (\criticalPoint state ->
             let
                 ( s0, s1 ) =
-                    CubicSpline2d.splitAt criticalPoint state.remainingSpline
+                    CubicSpline2d.splitAt
+                        ((criticalPoint - state.lastPoint) / (1 - state.lastPoint))
+                        state.remainingSpline
             in
             { remainingSpline = s1
             , splineSegments = s0 :: state.splineSegments
-            , scaleFactor = state.scaleFactor / (1 - criticalPoint)
+            , lastPoint = criticalPoint
             }
         )
-        { remainingSpline = cubicSpline, splineSegments = [], scaleFactor = 1 }
+        { remainingSpline = cubicSpline, splineSegments = [], lastPoint = 0 }
         criticalPoints
         |> .splineSegments

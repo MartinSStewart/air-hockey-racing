@@ -11,6 +11,7 @@ module MatchPage exposing
     , actualTime
     , animationFrame
     , audio
+    , camera
     , canvasViewHelper
     , init
     , scrollToBottom
@@ -26,11 +27,13 @@ import AssocSet as Set exposing (Set)
 import Audio
 import Axis2d
 import BoundingBox2d exposing (BoundingBox2d)
+import Camera3d exposing (Camera3d)
 import Collision
 import ColorIndex exposing (ColorIndex)
 import Decal exposing (Decal)
 import Dict as RegularDict
 import Direction2d exposing (Direction2d)
+import Direction3d
 import Duration exposing (Duration)
 import Effect.Browser.Dom exposing (HtmlId)
 import Effect.Command as Command exposing (Command, FrontendOnly)
@@ -43,6 +46,7 @@ import Element.Background
 import Element.Border
 import Element.Font
 import Element.Input
+import Geometry.Interop.LinearAlgebra.Point2d
 import Html.Attributes
 import Html.Events
 import Html.Events.Extra.Touch
@@ -64,6 +68,7 @@ import NetworkModel exposing (EventId, NetworkModel)
 import PingData exposing (PingData)
 import Pixels exposing (Pixels)
 import Point2d exposing (Point2d)
+import Point3d
 import Polygon2d exposing (Polygon2d)
 import Quantity exposing (Quantity(..), Rate)
 import Random
@@ -72,9 +77,11 @@ import RasterShapes
 import Sounds exposing (Sounds)
 import TextMessage exposing (TextMessage)
 import Timeline exposing (FrameId, TimelineCache)
-import Ui exposing (WindowSize)
+import Ui exposing (Size)
 import User exposing (UserId)
 import Vector2d exposing (Vector2d)
+import Viewpoint3d
+import WebGL.Matrices
 import WebGL.Settings
 
 
@@ -426,7 +433,7 @@ updateFromBackend msg matchSetup =
 
 type alias Config a =
     { a
-        | windowSize : WindowSize
+        | windowSize : Size
         , userId : Id UserId
         , pingData : Maybe PingData
         , time : Time.Posix
@@ -462,7 +469,12 @@ view config model =
                                     :: Element.htmlAttribute (Html.Events.Extra.Touch.onCancel (\_ -> PointerUp))
                                     :: Element.htmlAttribute (Html.Events.Extra.Touch.onEnd (\_ -> PointerUp))
                                     :: Element.inFront (countdown config match)
-                                    :: Element.behindContent (canvasView config model)
+                                    :: Element.behindContent
+                                        (canvasView
+                                            config.windowSize
+                                            config.devicePixelRatio
+                                            (canvasViewHelper config model)
+                                        )
                                     :: (case matchData.touchPosition of
                                             Just _ ->
                                                 [ Element.htmlAttribute (Html.Events.Extra.Touch.onMove PointerMoved) ]
@@ -767,12 +779,12 @@ textChat matchSetupData lobby =
         ]
 
 
-findPixelPerfectSize : Config a -> { canvasSize : ( Quantity Int Pixels, Quantity Int Pixels ), actualCanvasSize : ( Int, Int ) }
-findPixelPerfectSize config =
+findPixelPerfectSize :
+    Size
+    -> Quantity Float (Rate WorldPixel Pixels)
+    -> { canvasSize : ( Quantity Int Pixels, Quantity Int Pixels ), actualCanvasSize : Size }
+findPixelPerfectSize windowSize (Quantity pixelRatio) =
     let
-        (Quantity pixelRatio) =
-            config.devicePixelRatio
-
         findValue : Quantity Int Pixels -> ( Int, Int )
         findValue value =
             List.range 0 9
@@ -789,34 +801,33 @@ findPixelPerfectSize config =
                 |> Maybe.withDefault ( Pixels.inPixels value, toFloat (Pixels.inPixels value) * pixelRatio |> round )
 
         ( w, actualW ) =
-            findValue config.windowSize.width
+            findValue windowSize.width
 
         ( h, actualH ) =
-            findValue config.windowSize.height
+            findValue windowSize.height
     in
-    { canvasSize = ( Pixels.pixels w, Pixels.pixels h ), actualCanvasSize = ( actualW, actualH ) }
+    { canvasSize = ( Pixels.pixels w, Pixels.pixels h )
+    , actualCanvasSize = { width = Pixels.pixels actualW, height = Pixels.pixels actualH }
+    }
 
 
-canvasView : Config a -> Model -> Element msg
-canvasView config model =
+canvasView : Size -> Quantity Float (Rate WorldPixel Pixels) -> (Size -> List WebGL.Entity) -> Element msg
+canvasView windowSize devicePixelRatio entities =
     let
-        ( canvasWidth, canvasHeight ) =
-            actualCanvasSize
-
         ( cssWindowWidth, cssWindowHeight ) =
             canvasSize
 
         { canvasSize, actualCanvasSize } =
-            findPixelPerfectSize config
+            findPixelPerfectSize windowSize devicePixelRatio
     in
     WebGL.toHtmlWith
         [ WebGL.alpha False ]
-        [ Html.Attributes.width canvasWidth
-        , Html.Attributes.height canvasHeight
+        [ Html.Attributes.width (Pixels.inPixels actualCanvasSize.width)
+        , Html.Attributes.height (Pixels.inPixels actualCanvasSize.height)
         , Html.Attributes.style "width" (String.fromInt (Pixels.inPixels cssWindowWidth) ++ "px")
         , Html.Attributes.style "height" (String.fromInt (Pixels.inPixels cssWindowHeight) ++ "px")
         ]
-        (canvasViewHelper canvasWidth canvasHeight config model)
+        (entities actualCanvasSize)
         |> Element.html
 
 
@@ -849,8 +860,25 @@ placementText place =
             ]
 
 
-canvasViewHelper : Int -> Int -> Config a -> Model -> List WebGL.Entity
-canvasViewHelper canvasWidth canvasHeight model matchSetup =
+camera : Point2d Meters WorldCoordinate -> Length -> Camera3d Meters WorldCoordinate
+camera position viewportHeight =
+    let
+        { x, y } =
+            Point2d.toMeters position
+    in
+    Camera3d.orthographic
+        { viewpoint =
+            Viewpoint3d.lookAt
+                { focalPoint = Point3d.fromMeters { x = x, y = y, z = 0 }
+                , eyePoint = Point3d.fromMeters { x = x, y = y, z = 1 }
+                , upDirection = Direction3d.y
+                }
+        , viewportHeight = viewportHeight
+        }
+
+
+canvasViewHelper : Config a -> Model -> Size -> List WebGL.Entity
+canvasViewHelper model matchSetup canvasSize =
     case ( Match.matchActive (getLocalState matchSetup), matchSetup.matchData ) of
         ( Just match, MatchActiveLocal matchData ) ->
             case matchData.timelineCache of
@@ -858,10 +886,16 @@ canvasViewHelper canvasWidth canvasHeight model matchSetup =
                     case Timeline.getStateAt gameUpdate (timeToFrameId model match) cache match.timeline of
                         Ok ( _, state ) ->
                             let
-                                ( { x, y }, zoomFactor ) =
+                                canvasWidth =
+                                    Pixels.inPixels canvasSize.width
+
+                                canvasHeight =
+                                    Pixels.inPixels canvasSize.height
+
+                                ( cameraPosition, zoomFactor ) =
                                     case Dict.get model.userId state.players of
                                         Just player ->
-                                            ( Point2d.toMeters player.position, 1 )
+                                            ( player.position, 1 )
 
                                         Nothing ->
                                             let
@@ -896,19 +930,26 @@ canvasViewHelper canvasWidth canvasHeight model matchSetup =
                                                 |> Vector2d.sum
                                                 |> Vector2d.scaleBy (1 / totalWeight)
                                                 |> (\v -> Point2d.translateBy v Point2d.origin)
-                                                |> Point2d.toMeters
                                             , 0.8
                                             )
 
+                                zoom : Float
                                 zoom =
-                                    zoomFactor * toFloat (max canvasWidth canvasHeight) / 2000
+                                    zoomFactor
+                                        * toFloat (max canvasWidth canvasHeight)
+                                        / (toFloat canvasHeight * 2000)
 
+                                viewMatrix : Mat4
                                 viewMatrix =
-                                    Mat4.makeScale3
-                                        (zoom * 2 / toFloat canvasWidth)
-                                        (zoom * 2 / toFloat canvasHeight)
-                                        1
-                                        |> Mat4.translate3 -x -y 0
+                                    WebGL.Matrices.viewProjectionMatrix
+                                        (camera cameraPosition (Length.meters (1 / zoom)))
+                                        { nearClipDepth = Length.meters 0.1
+                                        , farClipDepth = Length.meters 10
+                                        , aspectRatio =
+                                            Quantity.ratio
+                                                (Quantity.toFloatQuantity canvasSize.width)
+                                                (Quantity.toFloatQuantity canvasSize.height)
+                                        }
 
                                 playerRadius_ : Float
                                 playerRadius_ =
@@ -923,8 +964,8 @@ canvasViewHelper canvasWidth canvasHeight model matchSetup =
                                 backgroundVertexShader
                                 backgroundFragmentShader
                                 squareMesh
-                                { view = Math.Vector2.vec2 x y
-                                , viewZoom = zoom
+                                { view = Geometry.Interop.LinearAlgebra.Point2d.toVec2 cameraPosition
+                                , viewZoom = toFloat canvasHeight * zoom
                                 , windowSize = Math.Vector2.vec2 (toFloat canvasWidth) (toFloat canvasHeight)
                                 }
                                 :: WebGL.entityWith
@@ -1033,11 +1074,16 @@ wall =
          ]
             |> List.map (Point2d.scaleAbout Point2d.origin 5)
         )
+        |> Polygon2d.translateBy (Vector2d.meters 0 -800)
 
 
 playerStart : Point2d Meters WorldCoordinate
 playerStart =
-    Point2d.fromMeters { x = 2300, y = 800 }
+    Point2d.fromMeters { x = 2300, y = 0 }
+
+
+
+--Point2d.fromMeters { x = 0, y = 0 }
 
 
 wallSegments : List (LineSegment2d Meters WorldCoordinate)
@@ -1336,9 +1382,15 @@ arrow =
     ]
         |> List.map
             (\{ v0, v1, v2 } ->
-                ( { position = Math.Vector2.vec2 (Tuple.first v0) (Tuple.second v0), color = Math.Vector3.vec3 1 0.8 0.1 }
-                , { position = Math.Vector2.vec2 (Tuple.first v1) (Tuple.second v1), color = Math.Vector3.vec3 1 0.8 0.1 }
-                , { position = Math.Vector2.vec2 (Tuple.first v2) (Tuple.second v2), color = Math.Vector3.vec3 1 0.8 0.1 }
+                ( { position = Math.Vector2.vec2 (Tuple.first v0) (Tuple.second v0)
+                  , color = Math.Vector3.vec3 1 0.8 0.1
+                  }
+                , { position = Math.Vector2.vec2 (Tuple.first v1) (Tuple.second v1)
+                  , color = Math.Vector3.vec3 1 0.8 0.1
+                  }
+                , { position = Math.Vector2.vec2 (Tuple.first v2) (Tuple.second v2)
+                  , color = Math.Vector3.vec3 1 0.8 0.1
+                  }
                 )
             )
         |> WebGL.triangles
@@ -1442,7 +1494,9 @@ circleMesh size color =
 
 finishLine : BoundingBox2d Meters WorldCoordinate
 finishLine =
-    BoundingBox2d.from (Point2d.fromMeters { x = 5300, y = 1600 }) (Point2d.fromMeters { x = 6000, y = 2000 })
+    BoundingBox2d.from
+        (Point2d.fromMeters { x = 5300, y = 800 })
+        (Point2d.fromMeters { x = 6000, y = 1200 })
 
 
 finishLineMesh : Mesh Vertex
@@ -1963,7 +2017,7 @@ colorSelector onSelect currentColor =
         |> Element.wrappedRow []
 
 
-getInputDirection : WindowSize -> List Key -> Maybe (Point2d Pixels ScreenCoordinate) -> Maybe (Direction2d WorldCoordinate)
+getInputDirection : Size -> List Key -> Maybe (Point2d Pixels ScreenCoordinate) -> Maybe (Direction2d WorldCoordinate)
 getInputDirection windowSize keys maybeTouchPosition =
     let
         input : Keyboard.Arrows.Direction

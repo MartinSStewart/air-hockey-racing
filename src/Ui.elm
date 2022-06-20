@@ -1,6 +1,6 @@
 module Ui exposing
     ( DisplayType(..)
-    , WindowSize
+    , Size
     , button
     , displayType
     , ifMobile
@@ -14,7 +14,7 @@ import Pixels exposing (Pixels)
 import Quantity exposing (Quantity)
 
 
-type alias WindowSize =
+type alias Size =
     { width : Quantity Int Pixels, height : Quantity Int Pixels }
 
 
@@ -39,7 +39,7 @@ type DisplayType
     | Mobile
 
 
-displayType : WindowSize -> DisplayType
+displayType : Size -> DisplayType
 displayType windowSize =
     if windowSize.width |> Quantity.lessThan (Pixels.pixels 800) then
         Mobile

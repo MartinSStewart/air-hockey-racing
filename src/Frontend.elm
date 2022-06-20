@@ -32,7 +32,7 @@ import Quantity exposing (Quantity(..), Rate)
 import Sounds exposing (Sounds)
 import Time
 import Types exposing (..)
-import Ui exposing (WindowSize)
+import Ui exposing (Size)
 import Url exposing (Url)
 import Url.Parser exposing ((<?>))
 import Url.Parser.Query
@@ -301,7 +301,7 @@ updateLoaded msg model =
                     ( model, Command.none )
 
 
-windowResizedUpdate : WindowSize -> { b | windowSize : WindowSize } -> ( { b | windowSize : WindowSize }, Command FrontendOnly toMsg FrontendMsg_ )
+windowResizedUpdate : Size -> { b | windowSize : Size } -> ( { b | windowSize : Size }, Command FrontendOnly toMsg FrontendMsg_ )
 windowResizedUpdate windowSize model =
     ( { model | windowSize = windowSize }, Ports.devicePixelRatioRequest )
 

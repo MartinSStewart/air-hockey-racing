@@ -31,7 +31,7 @@ import PingData exposing (PingData)
 import Pixels exposing (Pixels)
 import Quantity exposing (Quantity, Rate)
 import Sounds exposing (Sounds)
-import Ui exposing (WindowSize)
+import Ui exposing (Size)
 import User exposing (UserId)
 
 
@@ -50,7 +50,7 @@ type FrontendModel_
 
 type alias FrontendLoading =
     { key : Effect.Browser.Navigation.Key
-    , windowSize : WindowSize
+    , windowSize : Size
     , devicePixelRatio : Quantity Float (Rate WorldPixel Pixels)
     , time : Maybe Time.Posix
     , debugTimeOffset : Duration
@@ -61,7 +61,7 @@ type alias FrontendLoading =
 
 type alias FrontendLoaded =
     { key : Effect.Browser.Navigation.Key
-    , windowSize : WindowSize
+    , windowSize : Size
     , currentKeys : List Keyboard.Key
     , previousKeys : List Keyboard.Key
     , devicePixelRatio : Quantity Float (Rate WorldPixel Pixels)
@@ -108,7 +108,7 @@ type FrontendMsg_
     = UrlClicked Browser.UrlRequest
     | UrlChanged
     | KeyMsg Keyboard.Msg
-    | WindowResized WindowSize
+    | WindowResized Size
     | GotDevicePixelRatio (Quantity Float (Rate WorldPixel Pixels))
     | AnimationFrame Time.Posix
     | PressedCreateLobby
