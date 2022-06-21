@@ -1,6 +1,5 @@
 module Ui exposing
     ( DisplayType(..)
-    , Size
     , button
     , displayType
     , ifMobile
@@ -12,10 +11,7 @@ import Element.Background
 import Element.Input
 import Pixels exposing (Pixels)
 import Quantity exposing (Quantity)
-
-
-type alias Size =
-    { width : Quantity Int Pixels, height : Quantity Int Pixels }
+import Size exposing (Size)
 
 
 button : List (Element.Attribute msg) -> { onPress : msg, label : Element msg } -> Element msg

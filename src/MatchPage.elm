@@ -79,10 +79,11 @@ import Quantity exposing (Quantity(..), Rate)
 import Random
 import Random.List as Random
 import RasterShapes
+import Size exposing (Size)
 import Sounds exposing (Sounds)
 import TextMessage exposing (TextMessage)
 import Timeline exposing (FrameId, TimelineCache)
-import Ui exposing (Size)
+import Ui
 import User exposing (UserId)
 import Vector2d exposing (Vector2d)
 import Viewpoint3d

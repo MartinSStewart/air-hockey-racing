@@ -29,10 +29,11 @@ import MatchPage exposing (MatchId, MatchLocalOnly(..), ScreenCoordinate, WorldP
 import Pixels exposing (Pixels)
 import Ports
 import Quantity exposing (Quantity(..), Rate)
+import Size exposing (Size)
 import Sounds exposing (Sounds)
 import Time
 import Types exposing (..)
-import Ui exposing (Size)
+import Ui
 import Url exposing (Url)
 import Url.Parser exposing ((<?>))
 import Url.Parser.Query
@@ -102,7 +103,9 @@ loadedInit loading time sounds ( userId, lobbyData ) =
       , devicePixelRatio = loading.devicePixelRatio
       , time = time
       , debugTimeOffset = loading.debugTimeOffset
-      , page = MainLobbyPage { lobbies = lobbyData.lobbies, joinLobbyError = Nothing }
+      , page = EditorPage EditorPage.init
+
+      --MainLobbyPage { lobbies = lobbyData.lobbies, joinLobbyError = Nothing }
       , sounds = sounds
       , userId = userId
       , pingStartTime = Nothing
@@ -301,7 +304,7 @@ updateLoaded msg model =
                 EditorPage editorPage ->
                     let
                         ( newEditorPage, cmd ) =
-                            EditorPage.update editorPageMsg editorPage
+                            EditorPage.update model editorPageMsg editorPage
                     in
                     ( { model | page = EditorPage newEditorPage }
                     , Command.map EditorPageToBackend EditorPageMsg cmd

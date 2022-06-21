@@ -30,8 +30,8 @@ import MatchPage exposing (MatchId, WorldPixel)
 import PingData exposing (PingData)
 import Pixels exposing (Pixels)
 import Quantity exposing (Quantity, Rate)
+import Size exposing (Size)
 import Sounds exposing (Sounds)
-import Ui exposing (Size)
 import User exposing (UserId)
 
 
