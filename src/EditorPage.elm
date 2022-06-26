@@ -15,19 +15,26 @@ import Axis2d
 import Axis3d
 import Camera3d exposing (Camera3d)
 import Collision
+import CubicSpline2d
 import Effect.Command as Command exposing (Command, FrontendOnly)
 import Effect.WebGL as WebGL exposing (Entity, Mesh)
 import Element exposing (Element)
+import FontRender exposing (FontVertex)
+import Geometry.Interop.LinearAlgebra.Point2d as Point2d
 import Geometry.Types exposing (Rectangle2d(..))
 import Html.Events.Extra.Mouse exposing (Event)
 import Length exposing (Length, Meters)
+import List.Nonempty
 import Match exposing (WorldCoordinate)
 import MatchPage exposing (ScreenCoordinate, Vertex, WorldPixel)
 import Math.Matrix4 as Mat4 exposing (Mat4)
+import Math.Vector2 exposing (Vec2)
 import Math.Vector3
+import Math.Vector4
 import Pixels exposing (Pixels)
 import Point2d exposing (Point2d)
 import Point3d
+import QuadraticSpline2d
 import Quantity exposing (Quantity(..), Rate)
 import Rectangle2d
 import Size exposing (Size)
@@ -267,3 +274,131 @@ canvasView model canvasSize =
         , model = Mat4.identity
         }
     ]
+        ++ FontRender.drawLayer (Math.Vector4.vec4 1 0 0.5 1) mesh viewMatrix
+
+
+
+--++ [ WebGL.entityWith
+--        []
+--        FontRender.vertexShaderFont
+--        FontRender.fragmentShaderFont
+--        mesh
+--        { viewMatrix = viewMatrix
+--        , color = Math.Vector4.vec4 1 0 0.5 1
+--        }
+--   ]
+
+
+mesh : Mesh FontVertex
+mesh =
+    shapeToMesh_ bezierExample
+
+
+
+--bezierExample : List { position : Point2d Meters coordinates, controlPoint : Point2d Meters coordinates }
+--bezierExample =
+--    [ CubicSpline2d.fromControlPoints
+--        Point2d.origin
+--        (Point2d.meters -100 150)
+--        (Point2d.meters -150 200)
+--        (Point2d.meters 0 300)
+--    , CubicSpline2d.fromControlPoints
+--        (Point2d.meters 0 300)
+--        (Point2d.meters 100 -150)
+--        (Point2d.meters 150 400)
+--        Point2d.origin
+--    ]
+--        |> List.concatMap Collision.cubicSplineToQuadratic
+--        |> Debug.log ""
+--        |> List.map
+--            (\spline ->
+--                { position = QuadraticSpline2d.startPoint spline
+--                , controlPoint = QuadraticSpline2d.secondControlPoint spline
+--                }
+--            )
+
+
+bezierExample : List { position : Point2d Meters coordinates, controlPoint : Point2d Meters coordinates }
+bezierExample =
+    [ CubicSpline2d.fromControlPoints
+        Point2d.origin
+        (Point2d.meters -200 300)
+        (Point2d.meters -300 400)
+        (Point2d.meters 0 300)
+    , CubicSpline2d.fromControlPoints
+        (Point2d.meters 0 300)
+        (Point2d.meters 200 -300)
+        (Point2d.meters 300 800)
+        Point2d.origin
+    ]
+        |> List.concatMap (Collision.cubicSplineToQuadratic (Length.meters 1) >> List.Nonempty.toList)
+        |> List.map
+            (\spline ->
+                { position = QuadraticSpline2d.startPoint spline
+                , controlPoint = QuadraticSpline2d.secondControlPoint spline
+                }
+            )
+
+
+shapeExample =
+    [ { position = Point2d.origin, controlPoint = Point2d.meters -200 300 }
+    , { position = Point2d.meters 0 600, controlPoint = Point2d.meters 380 380 }
+    , { position = Point2d.meters 600 0, controlPoint = Point2d.meters 300 200 }
+    ]
+
+
+shapeToMesh_ :
+    List { position : Point2d units coordinates, controlPoint : Point2d units coordinates }
+    -> Mesh FontVertex
+shapeToMesh_ path =
+    (case List.map (.position >> Point2d.toVec2) path of
+        first :: second :: rest ->
+            List.foldl
+                (\point state ->
+                    { first = state.first
+                    , previous = point
+                    , triangles =
+                        ( { position = point, s = 0.2, t = 0.2 }
+                        , { position = state.previous, s = 0.2, t = 0.2 }
+                        , { position = state.first, s = 0.2, t = 0.2 }
+                        )
+                            :: state.triangles
+                    }
+                )
+                { first = first, previous = second, triangles = [] }
+                rest
+                |> .triangles
+
+        _ ->
+            []
+    )
+        ++ (case path of
+                first :: rest ->
+                    List.foldl
+                        (\point state ->
+                            { previous = point
+                            , triangles =
+                                ( { position = Point2d.toVec2 point.position
+                                  , s = 0
+                                  , t = 0
+                                  }
+                                , { position = Point2d.toVec2 state.previous.position
+                                  , s = 0
+                                  , t = 1
+                                  }
+                                , { position = Point2d.toVec2 state.previous.controlPoint
+                                  , s = 1
+                                  , t = 0
+                                  }
+                                )
+                                    :: state.triangles
+                            }
+                        )
+                        { previous = first, triangles = [] }
+                        (rest ++ [ first ])
+                        |> .triangles
+
+                [] ->
+                    []
+           )
+        |> WebGL.triangles

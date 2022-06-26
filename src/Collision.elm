@@ -5,19 +5,21 @@ import CubicSpline2d exposing (CubicSpline2d)
 import Length exposing (Meters)
 import LineSegment2d exposing (LineSegment2d)
 import List.Extra as List
+import List.Nonempty exposing (Nonempty(..))
 import Point2d exposing (Point2d)
+import QuadraticSpline2d exposing (QuadraticSpline2d)
 import Quantity exposing (Quantity)
 import Vector2d exposing (Vector2d)
 
 
-axisAxis : Axis2d Meters coordinates -> Axis2d Meters coordinates -> Maybe (Point2d Meters coordinates)
+axisAxis : Axis2d units coordinates -> Axis2d units coordinates -> Maybe (Point2d units coordinates)
 axisAxis axis1 axis2 =
     let
         a1p1 =
             Axis2d.originPoint axis1
 
         a1p2 =
-            Point2d.translateIn (Axis2d.direction axis1) Length.meter a1p1
+            Point2d.translateIn (Axis2d.direction axis1) (Quantity.unsafe 1) a1p1
 
         a1 =
             Vector2d.from a1p2 a1p1 |> Vector2d.yComponent |> Quantity.unwrap
@@ -32,7 +34,7 @@ axisAxis axis1 axis2 =
             Axis2d.originPoint axis2
 
         a2p2 =
-            Point2d.translateIn (Axis2d.direction axis2) Length.meter a2p1
+            Point2d.translateIn (Axis2d.direction axis2) (Quantity.unsafe 1) a2p1
 
         a2 =
             Vector2d.from a2p2 a2p1 |> Vector2d.yComponent |> Quantity.unwrap
@@ -56,7 +58,7 @@ axisAxis axis1 axis2 =
         Nothing
 
     else
-        Point2d.fromMeters { x = x, y = y } |> Just
+        Point2d.unsafe { x = x, y = y } |> Just
 
 
 lineToAxis : LineSegment2d units coordinates -> Maybe (Axis2d units coordinates)
@@ -399,33 +401,193 @@ get_t_values_of_critical_points point1 point2 point3 point4 =
     tvalues ++ inflectionpoints |> List.sort
 
 
-cubicSplineToQuadratic : CubicSpline2d unit coordinate -> List (CubicSpline2d.CubicSpline2d unit coordinate)
-cubicSplineToQuadratic cubicSpline =
+cubicSplineToQuadratic :
+    Quantity Float unit
+    -> CubicSpline2d unit coordinate
+    -> Result () (Nonempty (QuadraticSpline2d unit coordinate))
+cubicSplineToQuadratic tolerance cubicSpline =
+    cubicSplineToQuadraticHelper 1 tolerance cubicSpline
+
+
+cubicSplineToQuadraticHelper :
+    Int
+    -> Quantity Float unit
+    -> CubicSpline2d unit coordinate
+    -> Result () (Nonempty (QuadraticSpline2d unit coordinate))
+cubicSplineToQuadraticHelper iterations tolerance cubicSpline =
+    --[ s0, s1, s2, s3 ]
+    --    |> List.map simpleCubicSplineToQuadratic
+    --splitRecursively 2 cubicSpline
+    if iterations > 100 then
+        Err ()
+
+    else
+        case splitIntoSegments iterations tolerance cubicSpline of
+            Just nonempty ->
+                Ok nonempty
+
+            Nothing ->
+                cubicSplineToQuadraticHelper (iterations + 1) tolerance cubicSpline
+
+
+splitRecursively : Int -> CubicSpline2d units coordinates -> List (CubicSpline2d units coordinates)
+splitRecursively n cubicSpline =
+    if n > 0 then
+        let
+            ( s0, s1 ) =
+                CubicSpline2d.splitAt 0.5 cubicSpline
+        in
+        splitRecursively (n - 1) s0 ++ splitRecursively (n - 1) s1
+
+    else
+        [ cubicSpline ]
+
+
+simpleCubicSplineToQuadratic : CubicSpline2d unit coordinate -> QuadraticSpline2d unit coordinate
+simpleCubicSplineToQuadratic cubicSpline =
     let
-        criticalPoints : List Float
-        criticalPoints =
-            get_t_values_of_critical_points
-                (CubicSpline2d.firstControlPoint cubicSpline)
-                (CubicSpline2d.secondControlPoint cubicSpline)
-                (CubicSpline2d.thirdControlPoint cubicSpline)
-                (CubicSpline2d.fourthControlPoint cubicSpline)
+        p0 =
+            CubicSpline2d.firstControlPoint cubicSpline
+
+        v0 =
+            Vector2d.zero
+
+        v1 =
+            Vector2d.from p0 (CubicSpline2d.secondControlPoint cubicSpline)
+
+        v2 =
+            Vector2d.from p0 (CubicSpline2d.thirdControlPoint cubicSpline)
+
+        v3 =
+            Vector2d.from p0 (CubicSpline2d.fourthControlPoint cubicSpline)
     in
-    List.foldl
-        (\criticalPoint state ->
-            let
-                ( s0, s1 ) =
-                    CubicSpline2d.splitAt
-                        ((criticalPoint - state.lastPoint) / (1 - state.lastPoint))
-                        state.remainingSpline
-            in
-            { remainingSpline = s1
-            , splineSegments = s0 :: state.splineSegments
-            , lastPoint = criticalPoint
-            }
+    QuadraticSpline2d.fromControlPoints
+        p0
+        (Point2d.translateBy
+            (Vector2d.sum
+                [ Vector2d.scaleBy (-1 / 4) v0
+                , Vector2d.scaleBy (3 / 4) v1
+                , Vector2d.scaleBy (3 / 4) v2
+                , Vector2d.scaleBy (-1 / 4) v3
+                ]
+            )
+            p0
         )
-        { remainingSpline = cubicSpline, splineSegments = [], lastPoint = 0 }
-        criticalPoints
-        |> .splineSegments
+        (CubicSpline2d.fourthControlPoint cubicSpline)
+
+
+splitIntoSegments :
+    Int
+    -> Quantity Float unit
+    -> CubicSpline2d unit coordinate
+    -> Maybe (Nonempty (QuadraticSpline2d unit coordinate))
+splitIntoSegments segments tolerance cubicSpline =
+    List.range 1 (segments - 1)
+        |> List.map (\index -> toFloat index / toFloat segments)
+        |> List.foldl
+            (\criticalPoint maybeState ->
+                case maybeState of
+                    Just state ->
+                        let
+                            ( s0, s1 ) =
+                                CubicSpline2d.splitAt
+                                    ((criticalPoint - state.lastPoint) / (1 - state.lastPoint))
+                                    state.remainingSpline
+
+                            quadraticSpline : QuadraticSpline2d units coordinates
+                            quadraticSpline =
+                                simpleCubicSplineToQuadratic s0
+                        in
+                        if checkTolerance tolerance quadraticSpline cubicSpline then
+                            { remainingSpline = s1
+                            , splineSegments = quadraticSpline :: state.splineSegments
+                            , lastPoint = criticalPoint
+                            }
+                                |> Just
+
+                        else
+                            Nothing
+
+                    Nothing ->
+                        Nothing
+            )
+            (Just { remainingSpline = cubicSpline, splineSegments = [], lastPoint = 0 })
+        |> Maybe.andThen
+            (\a ->
+                let
+                    quadraticSpline : QuadraticSpline2d unit coordinate
+                    quadraticSpline =
+                        simpleCubicSplineToQuadratic a.remainingSpline
+                in
+                if checkTolerance tolerance quadraticSpline cubicSpline then
+                    Nonempty quadraticSpline a.splineSegments |> List.Nonempty.reverse |> Just
+
+                else
+                    Nothing
+            )
+
+
+checkTolerance : Quantity Float units -> QuadraticSpline2d units coordinates -> CubicSpline2d units coordinates -> Bool
+checkTolerance tolerance quadraticSpline cubicSpline =
+    List.range 1 9
+        |> List.all
+            (\index ->
+                let
+                    t =
+                        toFloat index / 10
+                in
+                Point2d.distanceFrom
+                    (QuadraticSpline2d.pointOn quadraticSpline t)
+                    (CubicSpline2d.pointOn cubicSpline t)
+                    |> Quantity.lessThan tolerance
+            )
+
+
+
+--let
+--    criticalPoints : List Float
+--    criticalPoints =
+--        get_t_values_of_critical_points
+--            (CubicSpline2d.firstControlPoint cubicSpline)
+--            (CubicSpline2d.secondControlPoint cubicSpline)
+--            (CubicSpline2d.thirdControlPoint cubicSpline)
+--            (CubicSpline2d.fourthControlPoint cubicSpline)
+--in
+--List.foldl
+--    (\criticalPoint state ->
+--        let
+--            ( s0, s1 ) =
+--                CubicSpline2d.splitAt
+--                    ((criticalPoint - state.lastPoint) / (1 - state.lastPoint))
+--                    state.remainingSpline
+--        in
+--        { remainingSpline = s1
+--        , splineSegments = s0 :: state.splineSegments
+--        , lastPoint = criticalPoint
+--        }
+--    )
+--    { remainingSpline = cubicSpline, splineSegments = [], lastPoint = 0 }
+--    criticalPoints
+--    |> .splineSegments
+--    |> List.map
+--        (\cubic ->
+--            QuadraticSpline2d.fromControlPoints
+--                (CubicSpline2d.firstControlPoint cubic)
+--                (axisAxis
+--                    (Axis2d.throughPoints
+--                        (CubicSpline2d.firstControlPoint cubic)
+--                        (CubicSpline2d.secondControlPoint cubic)
+--                        |> Maybe.withDefault Axis2d.x
+--                    )
+--                    (Axis2d.throughPoints
+--                        (CubicSpline2d.thirdControlPoint cubic)
+--                        (CubicSpline2d.fourthControlPoint cubic)
+--                        |> Maybe.withDefault Axis2d.x
+--                    )
+--                    |> Maybe.withDefault (CubicSpline2d.firstControlPoint cubic)
+--                )
+--                (CubicSpline2d.fourthControlPoint cubic)
+--        )
 
 
 pointsToLineSegments : List (Point2d units coordinates) -> List (LineSegment2d units coordinates)
