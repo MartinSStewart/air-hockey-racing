@@ -331,7 +331,7 @@ bezierExample =
         (Point2d.meters 300 800)
         Point2d.origin
     ]
-        |> List.concatMap (Collision.cubicSplineToQuadratic (Length.meters 1) >> List.Nonempty.toList)
+        |> List.concatMap (Collision.cubicSplineToQuadratic (Length.meters 3) >> List.Nonempty.toList)
         |> List.map
             (\spline ->
                 { position = QuadraticSpline2d.startPoint spline
