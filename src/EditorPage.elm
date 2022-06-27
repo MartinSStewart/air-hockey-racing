@@ -22,8 +22,10 @@ import FontRender exposing (FontVertex)
 import Geometry.Interop.LinearAlgebra.Point2d as Point2d
 import Geometry.Types exposing (Rectangle2d(..))
 import Html.Events.Extra.Mouse exposing (Event)
+import Keyboard
 import Length exposing (Length, Meters)
 import LineSegment2d
+import List.Extra as List
 import List.Nonempty
 import Match exposing (WorldCoordinate)
 import MatchPage exposing (ScreenCoordinate, Vertex, WorldPixel)
@@ -54,11 +56,18 @@ type alias Model =
     { mousePosition : Maybe (Point2d Pixels ScreenCoordinate)
     , mouseDownAt : Maybe (Point2d Meters WorldCoordinate)
     , cameraPosition : Point2d Meters WorldCoordinate
-    , path : List PathSegment
-    , nextPathSegment : NextPathSegment
+    , editorState : EditorState
+    , undoHistory : List EditorState
+    , redoHistory : List EditorState
     , pathMesh : Mesh Vertex
     , pathFillMesh : Mesh FontVertex
     , viewportHeight : Length
+    }
+
+
+type alias EditorState =
+    { path : List PathSegment
+    , nextPathSegment : NextPathSegment
     }
 
 
@@ -86,6 +95,8 @@ type alias Config a =
     { a
         | devicePixelRatio : Quantity Float (Rate WorldPixel Pixels)
         , windowSize : Size
+        , currentKeys : List Keyboard.Key
+        , previousKeys : List Keyboard.Key
     }
 
 
@@ -94,8 +105,9 @@ init =
     { mousePosition = Nothing
     , mouseDownAt = Nothing
     , cameraPosition = Point2d.origin
-    , path = []
-    , nextPathSegment = NoPathSegment
+    , undoHistory = []
+    , editorState = { path = [], nextPathSegment = NoPathSegment }
+    , redoHistory = []
     , pathMesh = WebGL.triangles []
     , pathFillMesh = shapeToMesh_ []
     , viewportHeight = Length.meters 2000
@@ -104,21 +116,21 @@ init =
 
 startPathSegment : Config a -> Point2d Meters WorldCoordinate -> Model -> Model
 startPathSegment config point model =
-    (case model.nextPathSegment of
+    case model.editorState.nextPathSegment of
         NoPathSegment ->
-            { model
-                | nextPathSegment = PlacingHandles point
-            }
+            let
+                editorState =
+                    model.editorState
+            in
+            addEditorState { editorState | nextPathSegment = PlacingHandles point } model
 
         PlacingHandles _ ->
             model
-    )
-        |> updateMesh config
 
 
 fullPath : Config a -> Model -> List PathSegment
 fullPath config model =
-    (case model.nextPathSegment of
+    (case model.editorState.nextPathSegment of
         NoPathSegment ->
             []
 
@@ -138,108 +150,168 @@ fullPath config model =
               }
             ]
     )
-        ++ model.path
+        ++ model.editorState.path
 
 
 finishPathSegment : Config a -> Point2d Meters WorldCoordinate -> Model -> Model
 finishPathSegment config point model =
-    (case model.nextPathSegment of
+    case model.editorState.nextPathSegment of
         NoPathSegment ->
             model
 
         PlacingHandles position ->
-            { model
-                | path =
+            replaceEditorState
+                { path =
                     { position = position
                     , handlePrevious = Vector2d.from position point
                     , handleNext = Vector2d.from point position
                     }
-                        :: model.path
+                        :: model.editorState.path
                 , nextPathSegment = NoPathSegment
-            }
-    )
-        |> updateMesh config
+                }
+                model
 
 
-updateMesh : Config a -> Model -> Model
-updateMesh config model =
-    let
-        fullPath_ =
-            fullPath config model
-    in
+addEditorState : EditorState -> Model -> Model
+addEditorState newEditorState model =
     { model
-        | pathFillMesh = pathToFillMesh fullPath_
-        , pathMesh =
-            List.concatMap
-                (\segment ->
-                    let
-                        position =
-                            Point2d.toMeters segment.position
-
-                        handlePrevious =
-                            Point2d.translateBy segment.handlePrevious segment.position
-                                |> Point2d.toMeters
-
-                        handleNext =
-                            Point2d.translateBy segment.handleNext segment.position
-                                |> Point2d.toMeters
-
-                        size =
-                            6
-
-                        drawSquare p =
-                            [ ( { position = Math.Vector2.vec2 (p.x - size) (p.y - size)
-                                , color = Math.Vector3.vec3 0 0 0
-                                }
-                              , { position = Math.Vector2.vec2 (p.x + size) (p.y - size)
-                                , color = Math.Vector3.vec3 0 0 0
-                                }
-                              , { position = Math.Vector2.vec2 (p.x + size) (p.y + size)
-                                , color = Math.Vector3.vec3 0 0 0
-                                }
-                              )
-                            , ( { position = Math.Vector2.vec2 (p.x - size) (p.y - size)
-                                , color = Math.Vector3.vec3 0 0 0
-                                }
-                              , { position = Math.Vector2.vec2 (p.x + size) (p.y + size)
-                                , color = Math.Vector3.vec3 0 0 0
-                                }
-                              , { position = Math.Vector2.vec2 (p.x - size) (p.y + size)
-                                , color = Math.Vector3.vec3 0 0 0
-                                }
-                              )
-                            ]
-                    in
-                    drawSquare position
-                        ++ drawSquare handlePrevious
-                        ++ drawSquare handleNext
-                        ++ MatchPage.lineMesh
-                            (Length.meters 3)
-                            (Math.Vector3.vec3 0 0 0)
-                            (LineSegment2d.from
-                                segment.position
-                                (Point2d.translateBy segment.handleNext segment.position)
-                            )
-                        ++ MatchPage.lineMesh
-                            (Length.meters 3)
-                            (Math.Vector3.vec3 0 0 0)
-                            (LineSegment2d.from
-                                segment.position
-                                (Point2d.translateBy segment.handlePrevious segment.position)
-                            )
-                )
-                fullPath_
-                |> WebGL.triangles
+        | editorState = newEditorState
+        , undoHistory = model.editorState :: model.undoHistory |> List.take 50
+        , redoHistory = []
     }
 
 
-pathToFillMesh : List PathSegment -> Mesh FontVertex
-pathToFillMesh path =
+replaceEditorState : EditorState -> Model -> Model
+replaceEditorState newEditorState model =
+    { model | editorState = newEditorState }
+
+
+updateMesh : Config a -> Model -> Model -> Model
+updateMesh config previousModel model =
+    let
+        fullPath_ =
+            fullPath config model
+
+        maybeDragging =
+            isDragging config model
+    in
+    if model.editorState == previousModel.editorState && model.mousePosition == previousModel.mousePosition then
+        model
+
+    else
+        { model
+            | pathFillMesh = pathToFillMesh maybeDragging fullPath_
+            , pathMesh =
+                List.indexedMap
+                    (\index segment ->
+                        let
+                            segment2 =
+                                dragSegment index maybeDragging segment
+
+                            handlePrevious =
+                                Point2d.translateBy segment2.handlePrevious segment2.position
+
+                            handleNext =
+                                Point2d.translateBy segment2.handleNext segment2.position
+
+                            size =
+                                6
+
+                            drawSquare p =
+                                let
+                                    { x, y } =
+                                        Point2d.toMeters p
+                                in
+                                [ ( { position = Math.Vector2.vec2 (x - size) (y - size)
+                                    , color = Math.Vector3.vec3 0 0 0
+                                    }
+                                  , { position = Math.Vector2.vec2 (x + size) (y - size)
+                                    , color = Math.Vector3.vec3 0 0 0
+                                    }
+                                  , { position = Math.Vector2.vec2 (x + size) (y + size)
+                                    , color = Math.Vector3.vec3 0 0 0
+                                    }
+                                  )
+                                , ( { position = Math.Vector2.vec2 (x - size) (y - size)
+                                    , color = Math.Vector3.vec3 0 0 0
+                                    }
+                                  , { position = Math.Vector2.vec2 (x + size) (y + size)
+                                    , color = Math.Vector3.vec3 0 0 0
+                                    }
+                                  , { position = Math.Vector2.vec2 (x - size) (y + size)
+                                    , color = Math.Vector3.vec3 0 0 0
+                                    }
+                                  )
+                                ]
+                        in
+                        drawSquare segment2.position
+                            ++ drawSquare handlePrevious
+                            ++ drawSquare handleNext
+                            ++ MatchPage.lineMesh
+                                (Length.meters 2)
+                                (Math.Vector3.vec3 0 0 0)
+                                (LineSegment2d.from
+                                    segment2.position
+                                    (Point2d.translateBy segment2.handleNext segment2.position)
+                                )
+                            ++ MatchPage.lineMesh
+                                (Length.meters 2)
+                                (Math.Vector3.vec3 0 0 0)
+                                (LineSegment2d.from
+                                    segment2.position
+                                    (Point2d.translateBy segment2.handlePrevious segment2.position)
+                                )
+                    )
+                    fullPath_
+                    |> List.concat
+                    |> WebGL.triangles
+        }
+
+
+dragSegment : Int -> Maybe Dragging -> PathSegment -> PathSegment
+dragSegment index maybeDragging pathSegment =
+    case maybeDragging of
+        Just dragging ->
+            if dragging.index == index then
+                case dragging.dragType of
+                    CenterPoint ->
+                        { pathSegment
+                            | position = Point2d.translateBy dragging.offset pathSegment.position
+                        }
+
+                    NextHandle ->
+                        { pathSegment
+                            | handleNext = Vector2d.plus dragging.offset pathSegment.handleNext
+                        }
+
+                    PreviousHandle ->
+                        { pathSegment
+                            | handlePrevious = Vector2d.plus dragging.offset pathSegment.handlePrevious
+                        }
+
+            else
+                pathSegment
+
+        Nothing ->
+            pathSegment
+
+
+pathToFillMesh : Maybe Dragging -> List PathSegment -> Mesh FontVertex
+pathToFillMesh maybeDragging path =
     case path of
         first :: rest ->
+            let
+                pathLength =
+                    List.length path
+            in
             List.foldl
                 (\segment state ->
-                    { previousPoint = segment
+                    let
+                        segment2 =
+                            dragSegment (modBy pathLength state.index) maybeDragging segment
+                    in
+                    { index = state.index + 1
+                    , previousPoint = segment2
                     , curves =
                         state.curves
                             ++ (Collision.cubicSplineToQuadratic
@@ -251,16 +323,16 @@ pathToFillMesh path =
                                             state.previousPoint.position
                                         )
                                         (Point2d.translateBy
-                                            segment.handlePrevious
-                                            segment.position
+                                            segment2.handlePrevious
+                                            segment2.position
                                         )
-                                        segment.position
+                                        segment2.position
                                     )
                                     |> List.Nonempty.toList
                                )
                     }
                 )
-                { previousPoint = first, curves = [] }
+                { index = 1, previousPoint = dragSegment 0 maybeDragging first, curves = [] }
                 (rest ++ [ first ])
                 |> .curves
                 |> List.map
@@ -277,7 +349,63 @@ pathToFillMesh path =
 
 animationFrame : Config a -> Model -> ( Model, Command FrontendOnly ToBackend Msg )
 animationFrame config model =
-    ( model, Command.none )
+    ( if pressedUndo config then
+        case model.undoHistory of
+            head :: rest ->
+                { model
+                    | undoHistory = rest
+                    , editorState = head
+                    , redoHistory = model.editorState :: model.redoHistory
+                }
+
+            [] ->
+                model
+
+      else if pressedRedo config then
+        case model.redoHistory of
+            head :: rest ->
+                { model
+                    | redoHistory = rest
+                    , editorState = head
+                    , undoHistory = model.editorState :: model.undoHistory
+                }
+
+            [] ->
+                model
+
+      else
+        model
+    , Command.none
+    )
+        |> Tuple.mapFirst (updateMesh config model)
+
+
+pressedUndo : Config a -> Bool
+pressedUndo config =
+    keyPressed config (Keyboard.Character "Z")
+        && not (keyDown config Keyboard.Shift)
+        && (keyDown config Keyboard.Control || keyDown config Keyboard.Meta)
+
+
+pressedRedo : Config a -> Bool
+pressedRedo config =
+    (keyPressed config (Keyboard.Character "Z")
+        && keyDown config Keyboard.Shift
+        && (keyDown config Keyboard.Control || keyDown config Keyboard.Meta)
+    )
+        || (keyPressed config (Keyboard.Character "Y")
+                && (keyDown config Keyboard.Control || keyDown config Keyboard.Meta)
+           )
+
+
+keyPressed : Config a -> Keyboard.Key -> Bool
+keyPressed config key =
+    List.any ((==) key) config.currentKeys && not (List.any ((==) key) config.previousKeys)
+
+
+keyDown : Config a -> Keyboard.Key -> Bool
+keyDown config key =
+    List.any ((==) key) config.currentKeys
 
 
 newPoint : Quantity Float units -> Quantity Float units -> Point2d units coordinates
@@ -303,9 +431,86 @@ screenToWorld config model screenPosition =
         |> (\p -> Point3d.toMeters p |> (\a -> Point2d.meters a.x a.y))
 
 
+type DragType
+    = CenterPoint
+    | NextHandle
+    | PreviousHandle
+
+
+type alias Dragging =
+    { offset : Vector2d Meters WorldCoordinate, dragType : DragType, index : Int }
+
+
+isDragging : Config a -> Model -> Maybe Dragging
+isDragging config model =
+    case ( model.mouseDownAt, model.mousePosition ) of
+        ( Just mouseDownAt, Just mousePosition ) ->
+            List.indexedMap
+                (\index segment ->
+                    let
+                        centerDistance =
+                            Vector2d.from mouseDownAt segment.position |> Vector2d.length
+
+                        nextDistance =
+                            Vector2d.from
+                                mouseDownAt
+                                (Point2d.translateBy segment.handleNext segment.position)
+                                |> Vector2d.length
+
+                        previousDistance =
+                            Vector2d.from
+                                mouseDownAt
+                                (Point2d.translateBy segment.handlePrevious segment.position)
+                                |> Vector2d.length
+
+                        offset =
+                            Vector2d.from mouseDownAt (screenToWorld config model mousePosition)
+                    in
+                    [ if centerDistance |> Quantity.lessThan (Length.meters 20) then
+                        { distance = centerDistance
+                        , offset = offset
+                        , dragType = CenterPoint
+                        , index = index
+                        }
+                            |> Just
+
+                      else
+                        Nothing
+                    , if nextDistance |> Quantity.lessThan (Length.meters 30) then
+                        { distance = nextDistance
+                        , offset = offset
+                        , dragType = NextHandle
+                        , index = index
+                        }
+                            |> Just
+
+                      else
+                        Nothing
+                    , if previousDistance |> Quantity.lessThan (Length.meters 30) then
+                        { distance = previousDistance
+                        , offset = offset
+                        , dragType = PreviousHandle
+                        , index = index
+                        }
+                            |> Just
+
+                      else
+                        Nothing
+                    ]
+                        |> List.filterMap identity
+                )
+                model.editorState.path
+                |> List.concat
+                |> Quantity.minimumBy .distance
+                |> Maybe.map (\a -> { offset = a.offset, dragType = a.dragType, index = a.index })
+
+        _ ->
+            Nothing
+
+
 update : Config a -> Msg -> Model -> ( Model, Command FrontendOnly ToBackend Msg )
 update config msg model =
-    case msg of
+    (case msg of
         NoOp ->
             ( model, Command.none )
 
@@ -325,7 +530,14 @@ update config msg model =
                 | mousePosition = Just screenPosition
                 , mouseDownAt = Just worldPosition
               }
-                |> startPathSegment config worldPosition
+                |> (\model2 ->
+                        case isDragging config model2 of
+                            Just _ ->
+                                model2
+
+                            Nothing ->
+                                startPathSegment config worldPosition model2
+                   )
             , Command.none
             )
 
@@ -337,12 +549,31 @@ update config msg model =
                 screenPosition : Point2d Pixels ScreenCoordinate
                 screenPosition =
                     Point2d.pixels x y
+
+                model2 =
+                    { model
+                        | mousePosition = Point2d.pixels x y |> Just
+                        , mouseDownAt = Nothing
+                    }
             in
-            ( { model
-                | mousePosition = Point2d.pixels x y |> Just
-                , mouseDownAt = Nothing
-              }
-                |> finishPathSegment config (screenToWorld config model screenPosition)
+            ( case isDragging config model of
+                Just dragging ->
+                    let
+                        editorState =
+                            model.editorState
+                    in
+                    addEditorState
+                        { editorState
+                            | path =
+                                List.updateAt
+                                    dragging.index
+                                    (\segment -> dragSegment dragging.index (Just dragging) segment)
+                                    model.editorState.path
+                        }
+                        model2
+
+                Nothing ->
+                    finishPathSegment config (screenToWorld config model screenPosition) model2
             , Command.none
             )
 
@@ -351,7 +582,11 @@ update config msg model =
                 ( x, y ) =
                     event.pagePos
             in
-            ( { model | mousePosition = Point2d.pixels x y |> Just } |> updateMesh config, Command.none )
+            ( { model | mousePosition = Point2d.pixels x y |> Just }
+            , Command.none
+            )
+    )
+        |> Tuple.mapFirst (updateMesh config model)
 
 
 updateFromBackend : ToFrontend -> Model -> ( Model, Command FrontendOnly ToBackend Msg )
