@@ -378,6 +378,35 @@ simpleCubicSplineToQuadratic cubicSpline =
         (CubicSpline2d.fourthControlPoint cubicSpline)
 
 
+
+--
+--cubicBeziersToPath : CubicSpline2d unit coordinate -> List (CubicSpline2d unit coordinate)
+--cubicBeziersToPath cubicSpline =
+--    let
+--        c0 =
+--            CubicSpline2d.firstControlPoint cubicSpline
+--
+--        c1 =
+--            CubicSpline2d.firstControlPoint cubicSpline
+--
+--        c2 =
+--            CubicSpline2d.firstControlPoint cubicSpline
+--
+--        c3 =
+--            CubicSpline2d.firstControlPoint cubicSpline
+--
+--        list =
+--            [ c0, c1, c2, c3 ]
+--                |> List.foldl
+--                    (\point state ->
+--                        case state.previousPoint of
+--                            Nothing state
+--                    )
+--                    { previousPoint = Nothing, offsetPath = [] }
+--    in
+--    []
+
+
 splitIntoSegments :
     Int
     -> Quantity Float unit

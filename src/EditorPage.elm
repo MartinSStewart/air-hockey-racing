@@ -22,6 +22,7 @@ import FontRender exposing (FontVertex)
 import Geometry.Interop.LinearAlgebra.Point2d as Point2d
 import Geometry.Types exposing (Rectangle2d(..))
 import Html.Events.Extra.Mouse exposing (Event)
+import Html.Events.Extra.Wheel
 import Keyboard
 import Length exposing (Length, Meters)
 import LineSegment2d
@@ -50,11 +51,14 @@ type Msg
     | MouseDown Event
     | MouseUp Event
     | MouseMoved Event
+    | MouseWheel Html.Events.Extra.Wheel.Event
 
 
 type alias Model =
     { mousePosition : Maybe (Point2d Pixels ScreenCoordinate)
+    , mousePositionPrevious : Maybe (Point2d Pixels ScreenCoordinate)
     , mouseDownAt : Maybe (Point2d Meters WorldCoordinate)
+    , wheelDownAt : Maybe (Point2d Meters WorldCoordinate)
     , cameraPosition : Point2d Meters WorldCoordinate
     , editorState : EditorState
     , undoHistory : List EditorState
@@ -103,7 +107,9 @@ type alias Config a =
 init : Model
 init =
     { mousePosition = Nothing
+    , mousePositionPrevious = Nothing
     , mouseDownAt = Nothing
+    , wheelDownAt = Nothing
     , cameraPosition = Point2d.origin
     , undoHistory = []
     , editorState = { path = [], nextPathSegment = NoPathSegment }
@@ -194,8 +200,15 @@ updateMesh config previousModel model =
 
         maybeDragging =
             isDragging config model
+
+        uiScale =
+            Quantity.ratio model.viewportHeight (Length.meters 800)
     in
-    if model.editorState == previousModel.editorState && model.mousePosition == previousModel.mousePosition then
+    if
+        (model.editorState == previousModel.editorState)
+            && (model.mousePosition == previousModel.mousePosition)
+            && (model.viewportHeight == previousModel.viewportHeight)
+    then
         model
 
     else
@@ -215,7 +228,7 @@ updateMesh config previousModel model =
                                 Point2d.translateBy segment2.handleNext segment2.position
 
                             size =
-                                6
+                                3 * uiScale
 
                             drawSquare p =
                                 let
@@ -248,14 +261,14 @@ updateMesh config previousModel model =
                             ++ drawSquare handlePrevious
                             ++ drawSquare handleNext
                             ++ MatchPage.lineMesh
-                                (Length.meters 2)
+                                (Length.meters uiScale)
                                 (Math.Vector3.vec3 0 0 0)
                                 (LineSegment2d.from
                                     segment2.position
                                     (Point2d.translateBy segment2.handleNext segment2.position)
                                 )
                             ++ MatchPage.lineMesh
-                                (Length.meters 2)
+                                (Length.meters uiScale)
                                 (Math.Vector3.vec3 0 0 0)
                                 (LineSegment2d.from
                                     segment2.position
@@ -526,18 +539,26 @@ update config msg model =
                 worldPosition =
                     screenToWorld config model screenPosition
             in
-            ( { model
-                | mousePosition = Just screenPosition
-                , mouseDownAt = Just worldPosition
-              }
-                |> (\model2 ->
-                        case isDragging config model2 of
-                            Just _ ->
-                                model2
+            ( case event.button of
+                Html.Events.Extra.Mouse.MainButton ->
+                    { model
+                        | mousePosition = Just screenPosition
+                        , mouseDownAt = Just worldPosition
+                    }
+                        |> (\model2 ->
+                                case isDragging config model2 of
+                                    Just _ ->
+                                        model2
 
-                            Nothing ->
-                                startPathSegment config worldPosition model2
-                   )
+                                    Nothing ->
+                                        startPathSegment config worldPosition model2
+                           )
+
+                Html.Events.Extra.Mouse.MiddleButton ->
+                    { model | mousePosition = Just screenPosition, wheelDownAt = Just worldPosition }
+
+                _ ->
+                    model
             , Command.none
             )
 
@@ -556,33 +577,78 @@ update config msg model =
                         , mouseDownAt = Nothing
                     }
             in
-            ( case isDragging config model of
-                Just dragging ->
-                    let
-                        editorState =
-                            model.editorState
-                    in
-                    addEditorState
-                        { editorState
-                            | path =
-                                List.updateAt
-                                    dragging.index
-                                    (\segment -> dragSegment dragging.index (Just dragging) segment)
-                                    model.editorState.path
-                        }
-                        model2
+            ( case event.button of
+                Html.Events.Extra.Mouse.MainButton ->
+                    case isDragging config model of
+                        Just dragging ->
+                            let
+                                editorState =
+                                    model.editorState
+                            in
+                            addEditorState
+                                { editorState
+                                    | path =
+                                        List.updateAt
+                                            dragging.index
+                                            (\segment -> dragSegment dragging.index (Just dragging) segment)
+                                            model.editorState.path
+                                }
+                                model2
 
-                Nothing ->
-                    finishPathSegment config (screenToWorld config model screenPosition) model2
+                        Nothing ->
+                            finishPathSegment config (screenToWorld config model screenPosition) model2
+
+                Html.Events.Extra.Mouse.MiddleButton ->
+                    { model
+                        | mousePosition = Point2d.pixels x y |> Just
+                        , wheelDownAt = Nothing
+                    }
+
+                _ ->
+                    model
             , Command.none
             )
 
         MouseMoved event ->
-            let
-                ( x, y ) =
-                    event.pagePos
-            in
-            ( { model | mousePosition = Point2d.pixels x y |> Just }
+            if event.button == Html.Events.Extra.Mouse.MainButton then
+                let
+                    ( x, y ) =
+                        event.pagePos
+                in
+                ( { model
+                    | mousePosition = Point2d.pixels x y |> Just
+                    , mousePositionPrevious = model.mousePosition
+                    , cameraPosition =
+                        case ( model.mousePosition, model.mousePositionPrevious, model.wheelDownAt ) of
+                            ( Just mousePosition, Just mousePositionPrevious, Just _ ) ->
+                                Point2d.translateBy
+                                    (Vector2d.from
+                                        (screenToWorld config model mousePosition)
+                                        (screenToWorld config model mousePositionPrevious)
+                                    )
+                                    model.cameraPosition
+
+                            _ ->
+                                model.cameraPosition
+                  }
+                , Command.none
+                )
+
+            else
+                ( model, Command.none )
+
+        MouseWheel event ->
+            ( { model
+                | viewportHeight =
+                    Quantity.multiplyBy
+                        (if event.deltaY > 0 then
+                            1.2
+
+                         else
+                            1 / 1.2
+                        )
+                        model.viewportHeight
+              }
             , Command.none
             )
     )
@@ -609,6 +675,7 @@ view config model =
         , Element.htmlAttribute (Html.Events.Extra.Mouse.onDown MouseDown)
         , Element.htmlAttribute (Html.Events.Extra.Mouse.onUp MouseUp)
         , Element.htmlAttribute (Html.Events.Extra.Mouse.onMove MouseMoved)
+        , Element.htmlAttribute (Html.Events.Extra.Wheel.onWheel MouseWheel)
         ]
         Element.none
 
