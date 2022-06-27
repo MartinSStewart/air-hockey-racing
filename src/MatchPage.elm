@@ -17,8 +17,10 @@ module MatchPage exposing
     , canvasViewHelper
     , fragmentShader
     , init
+    , lineMesh
     , lineSegmentMesh
     , scrollToBottom
+    , squareMesh
     , unnamedMatchText
     , update
     , updateFromBackend
@@ -1165,11 +1167,11 @@ getCollisionCandidates point =
 
 lineSegmentMesh : Vec3 -> List (LineSegment2d Meters WorldCoordinate) -> Mesh Vertex
 lineSegmentMesh color lines =
-    List.concatMap (lineMesh color) lines |> WebGL.triangles
+    List.concatMap (lineMesh (Length.meters 10) color) lines |> WebGL.triangles
 
 
-lineMesh : Vec3 -> LineSegment2d Meters WorldCoordinate -> List ( Vertex, Vertex, Vertex )
-lineMesh color line =
+lineMesh : Quantity Float Meters -> Vec3 -> LineSegment2d Meters WorldCoordinate -> List ( Vertex, Vertex, Vertex )
+lineMesh thickness color line =
     let
         ( p0, p1 ) =
             LineSegment2d.endpoints line
@@ -1179,7 +1181,7 @@ lineMesh color line =
             Vector2d.from p0 p1
                 |> Vector2d.perpendicularTo
                 |> Vector2d.normalize
-                |> Vector2d.scaleBy 10
+                |> Vector2d.scaleBy (Length.inMeters thickness)
                 |> Vector2d.unwrap
                 |> Vector2d.unsafe
     in

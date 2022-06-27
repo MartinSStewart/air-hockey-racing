@@ -11,7 +11,6 @@ module EditorPage exposing
     , view
     )
 
-import Axis2d
 import Axis3d
 import Camera3d exposing (Camera3d)
 import Collision
@@ -24,11 +23,12 @@ import Geometry.Interop.LinearAlgebra.Point2d as Point2d
 import Geometry.Types exposing (Rectangle2d(..))
 import Html.Events.Extra.Mouse exposing (Event)
 import Length exposing (Length, Meters)
+import LineSegment2d
 import List.Nonempty
 import Match exposing (WorldCoordinate)
 import MatchPage exposing (ScreenCoordinate, Vertex, WorldPixel)
 import Math.Matrix4 as Mat4 exposing (Mat4)
-import Math.Vector2 exposing (Vec2)
+import Math.Vector2
 import Math.Vector3
 import Math.Vector4
 import Pixels exposing (Pixels)
@@ -57,6 +57,7 @@ type alias Model =
     , path : List PathSegment
     , nextPathSegment : NextPathSegment
     , pathMesh : Mesh Vertex
+    , pathFillMesh : Mesh FontVertex
     , viewportHeight : Length
     }
 
@@ -95,58 +96,103 @@ init =
     , cameraPosition = Point2d.origin
     , path = []
     , nextPathSegment = NoPathSegment
-    , pathMesh = MatchPage.lineSegmentMesh (Math.Vector3.vec3 1 0.1 0.1) []
+    , pathMesh = WebGL.triangles []
+    , pathFillMesh = shapeToMesh_ []
     , viewportHeight = Length.meters 2000
     }
 
 
 startPathSegment : Point2d Meters WorldCoordinate -> Model -> Model
 startPathSegment point model =
-    case model.nextPathSegment of
+    (case model.nextPathSegment of
         NoPathSegment ->
             { model
                 | nextPathSegment = PlacingHandles point
-                , pathMesh = pathToMesh NoPathSegment model.path
             }
 
         PlacingHandles _ ->
             model
+    )
+        |> updateMesh
+
+
+fullPath : Model -> List PathSegment
+fullPath model =
+    (case model.nextPathSegment of
+        NoPathSegment ->
+            []
+
+        PlacingHandles position ->
+            [ { position = position, handleNext = Vector2d.zero, handlePrevious = Vector2d.zero } ]
+    )
+        ++ model.path
 
 
 finishPathSegment : Point2d Meters WorldCoordinate -> Model -> Model
 finishPathSegment point model =
-    case model.nextPathSegment of
+    (case model.nextPathSegment of
         NoPathSegment ->
             model
 
         PlacingHandles position ->
-            let
-                newPath =
+            { model
+                | path =
                     { position = position
                     , handlePrevious = Vector2d.from position point
                     , handleNext = Vector2d.from point position
                     }
                         :: model.path
-            in
-            { model
-                | path = newPath
                 , nextPathSegment = NoPathSegment
-                , pathMesh = pathToMesh NoPathSegment newPath
             }
-
-
-pathToMesh : NextPathSegment -> List PathSegment -> WebGL.Mesh Vertex
-pathToMesh nextPathSegment pathSegments =
-    (case nextPathSegment of
-        NoPathSegment ->
-            []
-
-        PlacingHandles position ->
-            [ position ]
     )
-        ++ List.map .position pathSegments
-        |> Collision.pointsToLineSegments
-        |> MatchPage.lineSegmentMesh (Math.Vector3.vec3 1 0 0)
+        |> updateMesh
+
+
+updateMesh : Model -> Model
+updateMesh model =
+    { model | pathFillMesh = pathToFillMesh (fullPath model) }
+
+
+pathToFillMesh : List PathSegment -> Mesh FontVertex
+pathToFillMesh path =
+    case path of
+        first :: rest ->
+            List.foldl
+                (\segment state ->
+                    { previousPoint = segment
+                    , curves =
+                        state.curves
+                            ++ (Collision.cubicSplineToQuadratic
+                                    (Length.meters 2)
+                                    (CubicSpline2d.fromControlPoints
+                                        state.previousPoint.position
+                                        (Point2d.translateBy
+                                            state.previousPoint.handleNext
+                                            state.previousPoint.position
+                                        )
+                                        (Point2d.translateBy
+                                            segment.handlePrevious
+                                            segment.position
+                                        )
+                                        segment.position
+                                    )
+                                    |> List.Nonempty.toList
+                               )
+                    }
+                )
+                { previousPoint = first, curves = [] }
+                (rest ++ [ first ])
+                |> .curves
+                |> List.map
+                    (\spline ->
+                        { position = QuadraticSpline2d.startPoint spline
+                        , controlPoint = QuadraticSpline2d.secondControlPoint spline
+                        }
+                    )
+                |> shapeToMesh_
+
+        [] ->
+            shapeToMesh_ []
 
 
 animationFrame : Config a -> Model -> ( Model, Command FrontendOnly ToBackend Msg )
@@ -264,20 +310,100 @@ canvasView model canvasSize =
                         (Quantity.toFloatQuantity canvasSize.height)
                 }
     in
-    [ MatchPage.backgroundGrid model.cameraPosition (1 / Length.inMeters model.viewportHeight) canvasSize
-    , WebGL.entityWith
-        [ WebGL.Settings.cullFace WebGL.Settings.back ]
-        MatchPage.vertexShader
-        MatchPage.fragmentShader
-        model.pathMesh
-        { view = viewMatrix
-        , model = Mat4.identity
-        }
-    ]
-        ++ FontRender.drawLayer (Math.Vector4.vec4 1 0 0.5 1) mesh viewMatrix
+    [ MatchPage.backgroundGrid model.cameraPosition (1 / Length.inMeters model.viewportHeight) canvasSize ]
+        ++ FontRender.drawLayer (Math.Vector4.vec4 1 0 0.5 1) model.pathFillMesh viewMatrix
+        ++ List.concatMap
+            (\segment ->
+                let
+                    position =
+                        Point2d.toMeters segment.position
+
+                    handlePrevious =
+                        Point2d.translateBy segment.handlePrevious segment.position
+                            |> Point2d.toMeters
+
+                    handleNext =
+                        Point2d.translateBy segment.handleNext segment.position
+                            |> Point2d.toMeters
+
+                    size =
+                        6
+                in
+                [ WebGL.entityWith
+                    [ WebGL.Settings.cullFace WebGL.Settings.back ]
+                    MatchPage.vertexShader
+                    MatchPage.fragmentShader
+                    squareMesh
+                    { view = viewMatrix
+                    , model = Mat4.makeTranslate3 position.x position.y 0 |> Mat4.scale3 size size 1
+                    }
+                , WebGL.entityWith
+                    [ WebGL.Settings.cullFace WebGL.Settings.back ]
+                    MatchPage.vertexShader
+                    MatchPage.fragmentShader
+                    squareMesh
+                    { view = viewMatrix
+                    , model =
+                        Mat4.makeTranslate3 handlePrevious.x handlePrevious.y 0
+                            |> Mat4.scale3 size size 1
+                    }
+                , WebGL.entityWith
+                    [ WebGL.Settings.cullFace WebGL.Settings.back ]
+                    MatchPage.vertexShader
+                    MatchPage.fragmentShader
+                    squareMesh
+                    { view = viewMatrix
+                    , model = Mat4.makeTranslate3 handleNext.x handleNext.y 0 |> Mat4.scale3 size size 1
+                    }
+                , WebGL.entityWith
+                    [ WebGL.Settings.cullFace WebGL.Settings.back ]
+                    MatchPage.vertexShader
+                    MatchPage.fragmentShader
+                    (MatchPage.lineMesh
+                        (Length.meters 3)
+                        (Math.Vector3.vec3 0 0 0)
+                        (LineSegment2d.from
+                            segment.position
+                            (Point2d.translateBy segment.handlePrevious segment.position)
+                        )
+                        |> WebGL.triangles
+                    )
+                    { view = viewMatrix
+                    , model = Mat4.identity
+                    }
+                , WebGL.entityWith
+                    [ WebGL.Settings.cullFace WebGL.Settings.back ]
+                    MatchPage.vertexShader
+                    MatchPage.fragmentShader
+                    (MatchPage.lineMesh
+                        (Length.meters 3)
+                        (Math.Vector3.vec3 0 0 0)
+                        (LineSegment2d.from
+                            segment.position
+                            (Point2d.translateBy segment.handleNext segment.position)
+                        )
+                        |> WebGL.triangles
+                    )
+                    { view = viewMatrix
+                    , model = Mat4.identity
+                    }
+                ]
+            )
+            model.path
+
+
+squareMesh : WebGL.Mesh Vertex
+squareMesh =
+    WebGL.triangleFan
+        [ { position = Math.Vector2.vec2 -1 -1, color = Math.Vector3.vec3 0 0 0 }
+        , { position = Math.Vector2.vec2 1 -1, color = Math.Vector3.vec3 0 0 0 }
+        , { position = Math.Vector2.vec2 1 1, color = Math.Vector3.vec3 0 0 0 }
+        , { position = Math.Vector2.vec2 -1 1, color = Math.Vector3.vec3 0 0 0 }
+        ]
 
 
 
+--++ FontRender.drawLayer (Math.Vector4.vec4 1 0 0.5 1) mesh viewMatrix
 --++ [ WebGL.entityWith
 --        []
 --        FontRender.vertexShaderFont
@@ -294,30 +420,6 @@ mesh =
     shapeToMesh_ bezierExample
 
 
-
---bezierExample : List { position : Point2d Meters coordinates, controlPoint : Point2d Meters coordinates }
---bezierExample =
---    [ CubicSpline2d.fromControlPoints
---        Point2d.origin
---        (Point2d.meters -100 150)
---        (Point2d.meters -150 200)
---        (Point2d.meters 0 300)
---    , CubicSpline2d.fromControlPoints
---        (Point2d.meters 0 300)
---        (Point2d.meters 100 -150)
---        (Point2d.meters 150 400)
---        Point2d.origin
---    ]
---        |> List.concatMap Collision.cubicSplineToQuadratic
---        |> Debug.log ""
---        |> List.map
---            (\spline ->
---                { position = QuadraticSpline2d.startPoint spline
---                , controlPoint = QuadraticSpline2d.secondControlPoint spline
---                }
---            )
-
-
 bezierExample : List { position : Point2d Meters coordinates, controlPoint : Point2d Meters coordinates }
 bezierExample =
     [ CubicSpline2d.fromControlPoints
@@ -331,7 +433,7 @@ bezierExample =
         (Point2d.meters 300 800)
         Point2d.origin
     ]
-        |> List.concatMap (Collision.cubicSplineToQuadratic (Length.meters 3) >> List.Nonempty.toList)
+        |> List.concatMap (Collision.cubicSplineToQuadratic (Length.meters 2) >> List.Nonempty.toList)
         |> List.map
             (\spline ->
                 { position = QuadraticSpline2d.startPoint spline
