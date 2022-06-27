@@ -52,7 +52,7 @@ type Msg
 
 type alias Model =
     { mousePosition : Maybe (Point2d Pixels ScreenCoordinate)
-    , mouseDownAt : Maybe (Point2d Pixels ScreenCoordinate)
+    , mouseDownAt : Maybe (Point2d Meters WorldCoordinate)
     , cameraPosition : Point2d Meters WorldCoordinate
     , path : List PathSegment
     , nextPathSegment : NextPathSegment
@@ -102,8 +102,8 @@ init =
     }
 
 
-startPathSegment : Point2d Meters WorldCoordinate -> Model -> Model
-startPathSegment point model =
+startPathSegment : Config a -> Point2d Meters WorldCoordinate -> Model -> Model
+startPathSegment config point model =
     (case model.nextPathSegment of
         NoPathSegment ->
             { model
@@ -113,23 +113,36 @@ startPathSegment point model =
         PlacingHandles _ ->
             model
     )
-        |> updateMesh
+        |> updateMesh config
 
 
-fullPath : Model -> List PathSegment
-fullPath model =
+fullPath : Config a -> Model -> List PathSegment
+fullPath config model =
     (case model.nextPathSegment of
         NoPathSegment ->
             []
 
         PlacingHandles position ->
-            [ { position = position, handleNext = Vector2d.zero, handlePrevious = Vector2d.zero } ]
+            let
+                mouseWorld =
+                    case ( model.mouseDownAt, model.mousePosition ) of
+                        ( Just mouseDownAt, Just mousePosition ) ->
+                            Vector2d.from (screenToWorld config model mousePosition) mouseDownAt
+
+                        _ ->
+                            Vector2d.zero
+            in
+            [ { position = position
+              , handleNext = mouseWorld
+              , handlePrevious = Vector2d.reverse mouseWorld
+              }
+            ]
     )
         ++ model.path
 
 
-finishPathSegment : Point2d Meters WorldCoordinate -> Model -> Model
-finishPathSegment point model =
+finishPathSegment : Config a -> Point2d Meters WorldCoordinate -> Model -> Model
+finishPathSegment config point model =
     (case model.nextPathSegment of
         NoPathSegment ->
             model
@@ -145,12 +158,79 @@ finishPathSegment point model =
                 , nextPathSegment = NoPathSegment
             }
     )
-        |> updateMesh
+        |> updateMesh config
 
 
-updateMesh : Model -> Model
-updateMesh model =
-    { model | pathFillMesh = pathToFillMesh (fullPath model) }
+updateMesh : Config a -> Model -> Model
+updateMesh config model =
+    let
+        fullPath_ =
+            fullPath config model
+    in
+    { model
+        | pathFillMesh = pathToFillMesh fullPath_
+        , pathMesh =
+            List.concatMap
+                (\segment ->
+                    let
+                        position =
+                            Point2d.toMeters segment.position
+
+                        handlePrevious =
+                            Point2d.translateBy segment.handlePrevious segment.position
+                                |> Point2d.toMeters
+
+                        handleNext =
+                            Point2d.translateBy segment.handleNext segment.position
+                                |> Point2d.toMeters
+
+                        size =
+                            6
+
+                        drawSquare p =
+                            [ ( { position = Math.Vector2.vec2 (p.x - size) (p.y - size)
+                                , color = Math.Vector3.vec3 0 0 0
+                                }
+                              , { position = Math.Vector2.vec2 (p.x + size) (p.y - size)
+                                , color = Math.Vector3.vec3 0 0 0
+                                }
+                              , { position = Math.Vector2.vec2 (p.x + size) (p.y + size)
+                                , color = Math.Vector3.vec3 0 0 0
+                                }
+                              )
+                            , ( { position = Math.Vector2.vec2 (p.x - size) (p.y - size)
+                                , color = Math.Vector3.vec3 0 0 0
+                                }
+                              , { position = Math.Vector2.vec2 (p.x + size) (p.y + size)
+                                , color = Math.Vector3.vec3 0 0 0
+                                }
+                              , { position = Math.Vector2.vec2 (p.x - size) (p.y + size)
+                                , color = Math.Vector3.vec3 0 0 0
+                                }
+                              )
+                            ]
+                    in
+                    drawSquare position
+                        ++ drawSquare handlePrevious
+                        ++ drawSquare handleNext
+                        ++ MatchPage.lineMesh
+                            (Length.meters 3)
+                            (Math.Vector3.vec3 0 0 0)
+                            (LineSegment2d.from
+                                segment.position
+                                (Point2d.translateBy segment.handleNext segment.position)
+                            )
+                        ++ MatchPage.lineMesh
+                            (Length.meters 3)
+                            (Math.Vector3.vec3 0 0 0)
+                            (LineSegment2d.from
+                                segment.position
+                                (Point2d.translateBy segment.handlePrevious segment.position)
+                            )
+                )
+                fullPath_
+                |> WebGL.triangles
+    }
 
 
 pathToFillMesh : List PathSegment -> Mesh FontVertex
@@ -237,12 +317,15 @@ update config msg model =
                 screenPosition : Point2d Pixels ScreenCoordinate
                 screenPosition =
                     Point2d.pixels x y
+
+                worldPosition =
+                    screenToWorld config model screenPosition
             in
             ( { model
                 | mousePosition = Just screenPosition
-                , mouseDownAt = Just screenPosition
+                , mouseDownAt = Just worldPosition
               }
-                |> startPathSegment (screenToWorld config model screenPosition)
+                |> startPathSegment config worldPosition
             , Command.none
             )
 
@@ -259,7 +342,7 @@ update config msg model =
                 | mousePosition = Point2d.pixels x y |> Just
                 , mouseDownAt = Nothing
               }
-                |> finishPathSegment (screenToWorld config model screenPosition)
+                |> finishPathSegment config (screenToWorld config model screenPosition)
             , Command.none
             )
 
@@ -268,7 +351,7 @@ update config msg model =
                 ( x, y ) =
                     event.pagePos
             in
-            ( { model | mousePosition = Point2d.pixels x y |> Just }, Command.none )
+            ( { model | mousePosition = Point2d.pixels x y |> Just } |> updateMesh config, Command.none )
 
 
 updateFromBackend : ToFrontend -> Model -> ( Model, Command FrontendOnly ToBackend Msg )
@@ -312,84 +395,96 @@ canvasView model canvasSize =
     in
     [ MatchPage.backgroundGrid model.cameraPosition (1 / Length.inMeters model.viewportHeight) canvasSize ]
         ++ FontRender.drawLayer (Math.Vector4.vec4 1 0 0.5 1) model.pathFillMesh viewMatrix
-        ++ List.concatMap
-            (\segment ->
-                let
-                    position =
-                        Point2d.toMeters segment.position
+        ++ [ WebGL.entityWith
+                [ WebGL.Settings.cullFace WebGL.Settings.back ]
+                MatchPage.vertexShader
+                MatchPage.fragmentShader
+                model.pathMesh
+                { view = viewMatrix
+                , model = Mat4.identity
+                }
+           ]
 
-                    handlePrevious =
-                        Point2d.translateBy segment.handlePrevious segment.position
-                            |> Point2d.toMeters
 
-                    handleNext =
-                        Point2d.translateBy segment.handleNext segment.position
-                            |> Point2d.toMeters
 
-                    size =
-                        6
-                in
-                [ WebGL.entityWith
-                    [ WebGL.Settings.cullFace WebGL.Settings.back ]
-                    MatchPage.vertexShader
-                    MatchPage.fragmentShader
-                    squareMesh
-                    { view = viewMatrix
-                    , model = Mat4.makeTranslate3 position.x position.y 0 |> Mat4.scale3 size size 1
-                    }
-                , WebGL.entityWith
-                    [ WebGL.Settings.cullFace WebGL.Settings.back ]
-                    MatchPage.vertexShader
-                    MatchPage.fragmentShader
-                    squareMesh
-                    { view = viewMatrix
-                    , model =
-                        Mat4.makeTranslate3 handlePrevious.x handlePrevious.y 0
-                            |> Mat4.scale3 size size 1
-                    }
-                , WebGL.entityWith
-                    [ WebGL.Settings.cullFace WebGL.Settings.back ]
-                    MatchPage.vertexShader
-                    MatchPage.fragmentShader
-                    squareMesh
-                    { view = viewMatrix
-                    , model = Mat4.makeTranslate3 handleNext.x handleNext.y 0 |> Mat4.scale3 size size 1
-                    }
-                , WebGL.entityWith
-                    [ WebGL.Settings.cullFace WebGL.Settings.back ]
-                    MatchPage.vertexShader
-                    MatchPage.fragmentShader
-                    (MatchPage.lineMesh
-                        (Length.meters 3)
-                        (Math.Vector3.vec3 0 0 0)
-                        (LineSegment2d.from
-                            segment.position
-                            (Point2d.translateBy segment.handlePrevious segment.position)
-                        )
-                        |> WebGL.triangles
-                    )
-                    { view = viewMatrix
-                    , model = Mat4.identity
-                    }
-                , WebGL.entityWith
-                    [ WebGL.Settings.cullFace WebGL.Settings.back ]
-                    MatchPage.vertexShader
-                    MatchPage.fragmentShader
-                    (MatchPage.lineMesh
-                        (Length.meters 3)
-                        (Math.Vector3.vec3 0 0 0)
-                        (LineSegment2d.from
-                            segment.position
-                            (Point2d.translateBy segment.handleNext segment.position)
-                        )
-                        |> WebGL.triangles
-                    )
-                    { view = viewMatrix
-                    , model = Mat4.identity
-                    }
-                ]
-            )
-            model.path
+--++ List.concatMap
+--    (\segment ->
+--        let
+--            position =
+--                Point2d.toMeters segment.position
+--
+--            handlePrevious =
+--                Point2d.translateBy segment.handlePrevious segment.position
+--                    |> Point2d.toMeters
+--
+--            handleNext =
+--                Point2d.translateBy segment.handleNext segment.position
+--                    |> Point2d.toMeters
+--
+--            size =
+--                6
+--        in
+--        [ WebGL.entityWith
+--            [ WebGL.Settings.cullFace WebGL.Settings.back ]
+--            MatchPage.vertexShader
+--            MatchPage.fragmentShader
+--            squareMesh
+--            { view = viewMatrix
+--            , model = Mat4.makeTranslate3 position.x position.y 0 |> Mat4.scale3 size size 1
+--            }
+--        , WebGL.entityWith
+--            [ WebGL.Settings.cullFace WebGL.Settings.back ]
+--            MatchPage.vertexShader
+--            MatchPage.fragmentShader
+--            squareMesh
+--            { view = viewMatrix
+--            , model =
+--                Mat4.makeTranslate3 handlePrevious.x handlePrevious.y 0
+--                    |> Mat4.scale3 size size 1
+--            }
+--        , WebGL.entityWith
+--            [ WebGL.Settings.cullFace WebGL.Settings.back ]
+--            MatchPage.vertexShader
+--            MatchPage.fragmentShader
+--            squareMesh
+--            { view = viewMatrix
+--            , model = Mat4.makeTranslate3 handleNext.x handleNext.y 0 |> Mat4.scale3 size size 1
+--            }
+--        , WebGL.entityWith
+--            [ WebGL.Settings.cullFace WebGL.Settings.back ]
+--            MatchPage.vertexShader
+--            MatchPage.fragmentShader
+--            (MatchPage.lineMesh
+--                (Length.meters 3)
+--                (Math.Vector3.vec3 0 0 0)
+--                (LineSegment2d.from
+--                    segment.position
+--                    (Point2d.translateBy segment.handlePrevious segment.position)
+--                )
+--                |> WebGL.triangles
+--            )
+--            { view = viewMatrix
+--            , model = Mat4.identity
+--            }
+--        , WebGL.entityWith
+--            [ WebGL.Settings.cullFace WebGL.Settings.back ]
+--            MatchPage.vertexShader
+--            MatchPage.fragmentShader
+--            (MatchPage.lineMesh
+--                (Length.meters 3)
+--                (Math.Vector3.vec3 0 0 0)
+--                (LineSegment2d.from
+--                    segment.position
+--                    (Point2d.translateBy segment.handleNext segment.position)
+--                )
+--                |> WebGL.triangles
+--            )
+--            { view = viewMatrix
+--            , model = Mat4.identity
+--            }
+--        ]
+--    )
+--    model.path
 
 
 squareMesh : WebGL.Mesh Vertex

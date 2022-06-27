@@ -342,7 +342,7 @@ cubicSplineToQuadraticHelper iterations tolerance cubicSpline =
                 nonempty
 
             Nothing ->
-                cubicSplineToQuadraticHelper (iterations + 1 |> Debug.log "a") tolerance cubicSpline
+                cubicSplineToQuadraticHelper (iterations + 1) tolerance cubicSpline
 
 
 simpleCubicSplineToQuadratic : CubicSpline2d unit coordinate -> QuadraticSpline2d unit coordinate
