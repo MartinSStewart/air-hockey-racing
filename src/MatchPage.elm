@@ -829,7 +829,7 @@ canvasView windowSize devicePixelRatio entities =
             findPixelPerfectSize windowSize devicePixelRatio
     in
     WebGL.toHtmlWith
-        [ WebGL.alpha False, WebGL.stencil 0 ]
+        [ WebGL.stencil 0 ]
         [ Html.Attributes.width (Pixels.inPixels actualCanvasSize.width)
         , Html.Attributes.height (Pixels.inPixels actualCanvasSize.height)
         , Html.Attributes.style "width" (String.fromInt (Pixels.inPixels cssWindowWidth) ++ "px")
