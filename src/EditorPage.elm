@@ -14,7 +14,6 @@ module EditorPage exposing
 import AssocList as Dict exposing (Dict)
 import Axis3d
 import Camera3d exposing (Camera3d)
-import Collision
 import CubicSpline2d
 import Effect.Command as Command exposing (Command, FrontendOnly)
 import Effect.WebGL as WebGL exposing (Entity, Mesh)
@@ -25,6 +24,7 @@ import Element.Font
 import Element.Input
 import Element.Lazy
 import FontRender exposing (FontVertex)
+import Geometry
 import Geometry.Interop.LinearAlgebra.Point2d as Point2d
 import Geometry.Types exposing (Rectangle2d(..))
 import Html.Events.Extra.Mouse exposing (Event)
@@ -534,7 +534,7 @@ pathToFillMesh config maybeDragging path =
                     , previousPoint = segment2
                     , curves =
                         state.curves
-                            ++ (Collision.cubicSplineToQuadratic
+                            ++ (Geometry.cubicSplineToQuadratic
                                     (Length.meters 2)
                                     (CubicSpline2d.fromControlPoints
                                         state.previousPoint.position
@@ -1390,7 +1390,7 @@ bezierExample =
         (Point2d.meters 300 800)
         Point2d.origin
     ]
-        |> List.concatMap (Collision.cubicSplineToQuadratic (Length.meters 2) >> List.Nonempty.toList)
+        |> List.concatMap (Geometry.cubicSplineToQuadratic (Length.meters 2) >> List.Nonempty.toList)
         |> List.map
             (\spline ->
                 { position = QuadraticSpline2d.startPoint spline

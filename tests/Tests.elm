@@ -1,7 +1,7 @@
 module Tests exposing (..)
 
-import Collision
 import Expect
+import Geometry
 import Length
 import LineSegment2d
 import Point2d
@@ -15,7 +15,7 @@ suite =
         [ describe "circleLine"
             [ test "Wall collision 0" <|
                 \_ ->
-                    Collision.circleLine
+                    Geometry.circleLine
                         Length.meter
                         (Point2d.fromMeters { x = -1, y = 0 })
                         (Vector2d.fromMeters { x = 2, y = 0 })
@@ -23,7 +23,7 @@ suite =
                         |> Expect.equal (Just (Point2d.fromMeters { x = 0, y = 0 }))
             , test "Wall collision 1" <|
                 \_ ->
-                    Collision.circleLine
+                    Geometry.circleLine
                         Length.meter
                         (Point2d.fromMeters { x = 4, y = 0 })
                         (Vector2d.fromMeters { x = -3, y = 0 })
@@ -31,7 +31,7 @@ suite =
                         |> Expect.equal (Just (Point2d.fromMeters { x = 2, y = 0 }))
             , test "Wall collision 2" <|
                 \_ ->
-                    Collision.circleLine
+                    Geometry.circleLine
                         (Length.meters 2)
                         (Point2d.fromMeters { x = 4, y = 0 })
                         (Vector2d.fromMeters { x = -3, y = 0 })
@@ -39,7 +39,7 @@ suite =
                         |> Expect.equal (Just (Point2d.fromMeters { x = 3, y = 0 }))
             , test "Wall collision 3" <|
                 \_ ->
-                    Collision.circleLine
+                    Geometry.circleLine
                         Length.meter
                         (Point2d.fromMeters { x = -1, y = -1 })
                         (Vector2d.fromMeters { x = 2, y = 2 })
@@ -47,7 +47,7 @@ suite =
                         |> Expect.equal (Just (Point2d.fromMeters { x = 0, y = 0 }))
             , test "Wall collision 4" <|
                 \_ ->
-                    Collision.circleLine
+                    Geometry.circleLine
                         Length.meter
                         (Point2d.fromMeters { x = -1, y = -1 })
                         (Vector2d.fromMeters { x = 0.5, y = 0.5 })
@@ -55,7 +55,7 @@ suite =
                         |> Expect.equal Nothing
             , test "Wall collision 5" <|
                 \_ ->
-                    Collision.circleLine
+                    Geometry.circleLine
                         Length.meter
                         (Point2d.fromMeters { x = -0.5, y = 0 })
                         (Vector2d.fromMeters { x = -2, y = 0 })
@@ -63,7 +63,7 @@ suite =
                         |> Expect.equal Nothing
             , test "Wall collision 6" <|
                 \_ ->
-                    Collision.circleLine
+                    Geometry.circleLine
                         Length.meter
                         (Point2d.fromMeters { x = -0.01, y = 0 })
                         (Vector2d.fromMeters { x = 0.2, y = 1 })

@@ -1,4 +1,4 @@
-module Collision exposing (circleCircle, circleLine, circlePoint, cubicSplineToQuadratic, pointsToLineSegments)
+module Geometry exposing (circleCircle, circleLine, circlePoint, cubicSplineToQuadratic, pointsToLineSegments)
 
 import Axis2d exposing (Axis2d)
 import CubicSpline2d exposing (CubicSpline2d)
@@ -243,80 +243,6 @@ circleCircle radius p1 v1 p2 v2 =
 
     else
         Nothing
-
-
-{-| <https://stackoverflow.com/a/14514491>
--}
-find_inflection_points : Float -> Float -> Float -> Float -> Float -> Float -> Float -> Float -> List Float
-find_inflection_points p1x p1y p2x p2y p3x p3y p4x p4y =
-    let
-        ax =
-            -p1x + 3 * p2x - 3 * p3x + p4x
-
-        bx =
-            3 * p1x - 6 * p2x + 3 * p3x
-
-        cx =
-            -3 * p1x + 3 * p2x
-
-        ay =
-            -p1y + 3 * p2y - 3 * p3y + p4y
-
-        by =
-            3 * p1y - 6 * p2y + 3 * p3y
-
-        cy =
-            -3 * p1y + 3 * p2y
-
-        a =
-            3 * (ay * bx - ax * by)
-
-        b =
-            3 * (ay * cx - ax * cy)
-
-        c =
-            by * cx - bx * cy
-
-        r2 =
-            b * b - 4 * a * c
-    in
-    if r2 >= 0 && a /= 0 then
-        let
-            r =
-                sqrt r2
-
-            firstIfp =
-                (-b + r) / (2 * a)
-
-            secondIfp =
-                (-b - r) / (2 * a)
-        in
-        if (firstIfp > 0 && firstIfp < 1) && (secondIfp > 0 && secondIfp < 1) then
-            let
-                data =
-                    if firstIfp > secondIfp then
-                        { firstIfp = secondIfp, secondIfp = firstIfp }
-
-                    else
-                        { firstIfp = firstIfp, secondIfp = secondIfp }
-            in
-            if data.secondIfp - data.firstIfp > 0.00001 then
-                [ data.firstIfp, data.secondIfp ]
-
-            else
-                [ data.firstIfp ]
-
-        else if firstIfp > 0 && firstIfp < 1 then
-            [ firstIfp ]
-
-        else if secondIfp > 0 && secondIfp < 1 then
-            [ secondIfp ]
-
-        else
-            []
-
-    else
-        []
 
 
 cubicSplineToQuadratic :

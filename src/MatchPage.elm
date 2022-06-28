@@ -35,7 +35,6 @@ import Audio
 import Axis2d
 import BoundingBox2d exposing (BoundingBox2d)
 import Camera3d exposing (Camera3d)
-import Collision
 import ColorIndex exposing (ColorIndex)
 import Decal exposing (Decal)
 import Dict as RegularDict
@@ -53,6 +52,7 @@ import Element.Background
 import Element.Border
 import Element.Font
 import Element.Input
+import Geometry
 import Geometry.Interop.LinearAlgebra.Point2d
 import Html.Attributes
 import Html.Events
@@ -1111,8 +1111,8 @@ playerStart =
 
 wallSegments : List (LineSegment2d Meters WorldCoordinate)
 wallSegments =
-    Collision.pointsToLineSegments (Polygon2d.outerLoop wall)
-        ++ List.concatMap Collision.pointsToLineSegments (Polygon2d.innerLoops wall)
+    Geometry.pointsToLineSegments (Polygon2d.outerLoop wall)
+        ++ List.concatMap Geometry.pointsToLineSegments (Polygon2d.innerLoops wall)
 
 
 gridSize : Length
@@ -1273,7 +1273,7 @@ updateVelocities frameId players =
                             (\line ->
                                 let
                                     lineCollision =
-                                        Collision.circleLine playerRadius a.position a.velocity line
+                                        Geometry.circleLine playerRadius a.position a.velocity line
                                 in
                                 case ( lineCollision, LineSegment2d.direction line ) of
                                     ( Just collisionPosition, Just lineDirection ) ->
@@ -1291,7 +1291,7 @@ updateVelocities frameId players =
                                             point =
                                                 LineSegment2d.startPoint line
                                         in
-                                        case Collision.circlePoint playerRadius a.position a.velocity point of
+                                        case Geometry.circlePoint playerRadius a.position a.velocity point of
                                             Just collisionPoint ->
                                                 case Direction2d.from collisionPoint point of
                                                     Just direction ->
@@ -1400,7 +1400,7 @@ arrow =
 
 handleCollision : Id FrameId -> Player -> Player -> ( Player, Player )
 handleCollision frameId playerA playerB =
-    case Collision.circleCircle playerRadius playerA.position playerA.velocity playerB.position playerB.velocity of
+    case Geometry.circleCircle playerRadius playerA.position playerA.velocity playerB.position playerB.velocity of
         Just ( v1, v2 ) ->
             ( { playerA | velocity = v1, lastCollision = Just frameId }, { playerB | velocity = v2 } )
 
