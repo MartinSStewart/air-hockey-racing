@@ -11,6 +11,7 @@ module EditorPage exposing
     , view
     )
 
+import AssocList as Dict exposing (Dict)
 import Axis3d
 import Camera3d exposing (Camera3d)
 import Collision
@@ -18,16 +19,20 @@ import CubicSpline2d
 import Effect.Command as Command exposing (Command, FrontendOnly)
 import Effect.WebGL as WebGL exposing (Entity, Mesh)
 import Element exposing (Element)
+import Element.Background
+import Element.Border
+import Element.Font
 import FontRender exposing (FontVertex)
 import Geometry.Interop.LinearAlgebra.Point2d as Point2d
 import Geometry.Types exposing (Rectangle2d(..))
 import Html.Events.Extra.Mouse exposing (Event)
 import Html.Events.Extra.Wheel
+import Id exposing (Id)
 import Keyboard
 import Length exposing (Length, Meters)
 import LineSegment2d
 import List.Extra as List
-import List.Nonempty
+import List.Nonempty exposing (Nonempty(..))
 import Match exposing (WorldCoordinate)
 import MatchPage exposing (ScreenCoordinate, Vertex, WorldPixel)
 import Math.Matrix4 as Mat4 exposing (Mat4)
@@ -41,6 +46,7 @@ import QuadraticSpline2d
 import Quantity exposing (Quantity(..), Rate)
 import Rectangle2d
 import Size exposing (Size)
+import Ui
 import Vector2d exposing (Vector2d)
 import WebGL.Matrices
 import WebGL.Settings
@@ -52,6 +58,9 @@ type Msg
     | MouseUp Event
     | MouseMoved Event
     | MouseWheel Html.Events.Extra.Wheel.Event
+    | PressedLayer (Id LayerId)
+    | PressedAddLayer
+    | PressedRemoveLayer (Id LayerId)
 
 
 type alias Model =
@@ -69,9 +78,32 @@ type alias Model =
     }
 
 
+type LayerId
+    = LayerId Never
+
+
 type alias EditorState =
+    { layers : Dict (Id LayerId) Layer
+    , currentLayer : Id LayerId
+    }
+
+
+type alias Layer =
     { path : List PathSegment
     , nextPathSegment : NextPathSegment
+    , red : Int
+    , green : Int
+    , blue : Int
+    }
+
+
+initLayer : Layer
+initLayer =
+    { path = []
+    , nextPathSegment = NoPathSegment
+    , red = 255
+    , green = 0
+    , blue = 100
     }
 
 
@@ -112,7 +144,10 @@ init =
     , wheelDownAt = Nothing
     , cameraPosition = Point2d.origin
     , undoHistory = []
-    , editorState = { path = [], nextPathSegment = NoPathSegment }
+    , editorState =
+        { layers = Dict.fromList [ ( Id.fromInt 0, initLayer ) ]
+        , currentLayer = Id.fromInt 0
+        }
     , redoHistory = []
     , pathMesh = WebGL.triangles []
     , pathFillMesh = shapeToMesh_ []
@@ -120,31 +155,65 @@ init =
     }
 
 
-startPathSegment : Config a -> Point2d Meters WorldCoordinate -> Model -> Model
-startPathSegment config point model =
-    case model.editorState.nextPathSegment of
+setNonempty : Int -> a -> Nonempty a -> Nonempty a
+setNonempty index value nonempty =
+    List.Nonempty.toList nonempty
+        |> List.setAt index value
+        |> List.Nonempty.fromList
+        |> Maybe.withDefault nonempty
+
+
+getLayer : EditorState -> Layer
+getLayer editorState =
+    case Dict.get editorState.currentLayer editorState.layers of
+        Just layer ->
+            layer
+
+        Nothing ->
+            Dict.values editorState.layers |> List.head |> Maybe.withDefault initLayer
+
+
+setLayer : Layer -> EditorState -> EditorState
+setLayer layer editorState =
+    if Dict.member editorState.currentLayer editorState.layers then
+        { editorState | layers = Dict.update editorState.currentLayer (\_ -> Just layer) editorState.layers }
+
+    else
+        case Dict.toList editorState.layers of
+            ( id, _ ) :: rest ->
+                { editorState | layers = ( id, layer ) :: rest |> Dict.fromList }
+
+            [] ->
+                { editorState | layers = [ ( Id.fromInt 0, layer ) ] |> Dict.fromList }
+
+
+startPathSegment : Point2d Meters WorldCoordinate -> Model -> Model
+startPathSegment point model =
+    let
+        layer =
+            getLayer model.editorState
+    in
+    case layer.nextPathSegment of
         NoPathSegment ->
-            let
-                editorState =
-                    model.editorState
-            in
-            addEditorState { editorState | nextPathSegment = PlacingHandles point } model
+            addEditorState
+                (setLayer { layer | nextPathSegment = PlacingHandles point } model.editorState)
+                model
 
         PlacingHandles _ ->
             model
 
 
-fullPath : Config a -> Model -> List PathSegment
-fullPath config model =
-    (case model.editorState.nextPathSegment of
+fullPath : Config a -> Layer -> Bool -> Model -> List PathSegment
+fullPath config layer isCurrentLayer model =
+    (case layer.nextPathSegment of
         NoPathSegment ->
             []
 
         PlacingHandles position ->
             let
                 mouseWorld =
-                    case ( model.mouseDownAt, model.mousePosition ) of
-                        ( Just mouseDownAt, Just mousePosition ) ->
+                    case ( isCurrentLayer, model.mouseDownAt, model.mousePosition ) of
+                        ( True, Just mouseDownAt, Just mousePosition ) ->
                             Vector2d.from (screenToWorld config model mousePosition) mouseDownAt
 
                         _ ->
@@ -156,25 +225,33 @@ fullPath config model =
               }
             ]
     )
-        ++ model.editorState.path
+        ++ layer.path
 
 
 finishPathSegment : Config a -> Point2d Meters WorldCoordinate -> Model -> Model
 finishPathSegment config point model =
-    case model.editorState.nextPathSegment of
+    let
+        layer =
+            getLayer model.editorState
+    in
+    case layer.nextPathSegment of
         NoPathSegment ->
             model
 
         PlacingHandles position ->
             replaceEditorState
-                { path =
-                    { position = position
-                    , handlePrevious = Vector2d.from position point
-                    , handleNext = Vector2d.from point position
+                (setLayer
+                    { layer
+                        | path =
+                            { position = position
+                            , handlePrevious = Vector2d.from position point
+                            , handleNext = Vector2d.from point position
+                            }
+                                :: layer.path
+                        , nextPathSegment = NoPathSegment
                     }
-                        :: model.editorState.path
-                , nextPathSegment = NoPathSegment
-                }
+                    model.editorState
+                )
                 model
 
 
@@ -195,8 +272,11 @@ replaceEditorState newEditorState model =
 updateMesh : Config a -> Model -> Model -> Model
 updateMesh config previousModel model =
     let
+        layer =
+            getLayer model.editorState
+
         fullPath_ =
-            fullPath config model
+            fullPath config layer True model
 
         maybeDragging =
             isDragging config model
@@ -458,6 +538,10 @@ isDragging : Config a -> Model -> Maybe Dragging
 isDragging config model =
     case ( model.mouseDownAt, model.mousePosition ) of
         ( Just mouseDownAt, Just mousePosition ) ->
+            let
+                layer =
+                    getLayer model.editorState
+            in
             List.indexedMap
                 (\index segment ->
                     let
@@ -512,7 +596,7 @@ isDragging config model =
                     ]
                         |> List.filterMap identity
                 )
-                model.editorState.path
+                layer.path
                 |> List.concat
                 |> Quantity.minimumBy .distance
                 |> Maybe.map (\a -> { offset = a.offset, dragType = a.dragType, index = a.index })
@@ -541,18 +625,22 @@ update config msg model =
             in
             ( case event.button of
                 Html.Events.Extra.Mouse.MainButton ->
-                    { model
-                        | mousePosition = Just screenPosition
-                        , mouseDownAt = Just worldPosition
-                    }
-                        |> (\model2 ->
-                                case isDragging config model2 of
-                                    Just _ ->
-                                        model2
+                    if x < layersViewWidth then
+                        model
 
-                                    Nothing ->
-                                        startPathSegment config worldPosition model2
-                           )
+                    else
+                        { model
+                            | mousePosition = Just screenPosition
+                            , mouseDownAt = Just worldPosition
+                        }
+                            |> (\model2 ->
+                                    case isDragging config model2 of
+                                        Just _ ->
+                                            model2
+
+                                        Nothing ->
+                                            startPathSegment worldPosition model2
+                               )
 
                 Html.Events.Extra.Mouse.MiddleButton ->
                     { model | mousePosition = Just screenPosition, wheelDownAt = Just worldPosition }
@@ -582,17 +670,20 @@ update config msg model =
                     case isDragging config model of
                         Just dragging ->
                             let
-                                editorState =
-                                    model.editorState
+                                layer =
+                                    getLayer model.editorState
                             in
                             addEditorState
-                                { editorState
-                                    | path =
-                                        List.updateAt
-                                            dragging.index
-                                            (\segment -> dragSegment dragging.index (Just dragging) segment)
-                                            model.editorState.path
-                                }
+                                (setLayer
+                                    { layer
+                                        | path =
+                                            List.updateAt
+                                                dragging.index
+                                                (\segment -> dragSegment dragging.index (Just dragging) segment)
+                                                layer.path
+                                    }
+                                    model.editorState
+                                )
                                 model2
 
                         Nothing ->
@@ -651,6 +742,41 @@ update config msg model =
               }
             , Command.none
             )
+
+        PressedLayer layerId ->
+            let
+                editorState =
+                    model.editorState
+            in
+            ( replaceEditorState { editorState | currentLayer = layerId } model
+            , Command.none
+            )
+
+        PressedAddLayer ->
+            let
+                editorState =
+                    model.editorState
+
+                layerId =
+                    Dict.keys model.editorState.layers |> List.maximumBy Id.toInt |> Maybe.withDefault (Id.fromInt 0) |> Id.increment
+            in
+            ( addEditorState
+                { editorState
+                    | layers = Dict.insert layerId initLayer editorState.layers
+                    , currentLayer = layerId
+                }
+                model
+            , Command.none
+            )
+
+        PressedRemoveLayer layerId ->
+            let
+                editorState =
+                    model.editorState
+            in
+            ( addEditorState { editorState | layers = Dict.remove layerId editorState.layers } model
+            , Command.none
+            )
     )
         |> Tuple.mapFirst (updateMesh config model)
 
@@ -676,8 +802,50 @@ view config model =
         , Element.htmlAttribute (Html.Events.Extra.Mouse.onUp MouseUp)
         , Element.htmlAttribute (Html.Events.Extra.Mouse.onMove MouseMoved)
         , Element.htmlAttribute (Html.Events.Extra.Wheel.onWheel MouseWheel)
+        , layersView model.editorState.currentLayer model.editorState.layers |> Element.inFront
         ]
         Element.none
+
+
+layersView : Id LayerId -> Dict (Id LayerId) Layer -> Element Msg
+layersView currentLayer layers =
+    List.map
+        (\( layerId, layer ) ->
+            Ui.button
+                [ Element.padding 8
+                , Element.width Element.fill
+                , Element.Border.width 1
+                , if currentLayer == layerId then
+                    Element.Font.bold
+
+                  else
+                    Element.Font.regular
+                ]
+                { onPress = PressedLayer layerId
+                , label = "Layer " ++ String.fromInt (Id.toInt layerId) |> Element.text
+                }
+        )
+        (Dict.toList layers)
+        ++ [ Ui.button
+                [ Element.padding 8
+                , Element.width Element.fill
+                , Element.Background.color (Element.rgb 1 1 1)
+                , Element.Border.width 1
+                ]
+                { onPress = PressedAddLayer
+                , label = Element.text "Add layer"
+                }
+           ]
+        |> Element.column
+            [ Element.width (Element.px layersViewWidth)
+            , Element.height Element.fill
+            , Element.Background.color (Element.rgb 1 1 1)
+            , Element.Border.width 1
+            ]
+
+
+layersViewWidth =
+    140
 
 
 canvasView : Model -> Size -> List Entity
