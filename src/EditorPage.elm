@@ -22,6 +22,8 @@ import Element exposing (Element)
 import Element.Background
 import Element.Border
 import Element.Font
+import Element.Input
+import Element.Lazy
 import FontRender exposing (FontVertex)
 import Geometry.Interop.LinearAlgebra.Point2d as Point2d
 import Geometry.Types exposing (Rectangle2d(..))
@@ -42,9 +44,11 @@ import Math.Vector4
 import Pixels exposing (Pixels)
 import Point2d exposing (Point2d)
 import Point3d
+import Ports
 import QuadraticSpline2d
 import Quantity exposing (Quantity(..), Rate)
 import Rectangle2d
+import Serialize exposing (Codec)
 import Size exposing (Size)
 import Ui
 import Vector2d exposing (Vector2d)
@@ -61,6 +65,8 @@ type Msg
     | PressedLayer (Id LayerId)
     | PressedAddLayer
     | PressedRemoveLayer (Id LayerId)
+    | TypedColor { red : Int, green : Int, blue : Int }
+    | PressedSave
 
 
 type alias Model =
@@ -72,9 +78,8 @@ type alias Model =
     , editorState : EditorState
     , undoHistory : List EditorState
     , redoHistory : List EditorState
-    , pathMesh : Mesh Vertex
-    , pathFillMesh : Mesh FontVertex
     , viewportHeight : Length
+    , meshCache : Dict (Id LayerId) { pathMesh : Mesh Vertex, pathFillMesh : Mesh FontVertex }
     }
 
 
@@ -85,6 +90,7 @@ type LayerId
 type alias EditorState =
     { layers : Dict (Id LayerId) Layer
     , currentLayer : Id LayerId
+    , selectedNode : Maybe Int
     }
 
 
@@ -95,6 +101,63 @@ type alias Layer =
     , green : Int
     , blue : Int
     }
+
+
+editorStateCodec : Codec e EditorState
+editorStateCodec =
+    Serialize.record (\a -> EditorState a (Id.fromInt 0) Nothing)
+        |> Serialize.field .layers (dictCodec idCodec layerCodec)
+        |> Serialize.finishRecord
+
+
+idCodec : Codec e (Id idType)
+idCodec =
+    Serialize.int |> Serialize.map Id.fromInt Id.toInt
+
+
+dictCodec : Codec e k -> Codec e v -> Codec e (Dict k v)
+dictCodec keyCodec valueCodec =
+    Serialize.list (Serialize.tuple keyCodec valueCodec) |> Serialize.map Dict.fromList Dict.toList
+
+
+layerCodec : Codec e Layer
+layerCodec =
+    Serialize.record (\a b c d -> Layer a NoPathSegment b c d)
+        |> Serialize.field .path (Serialize.list pathSegmentCodec)
+        |> Serialize.field .red Serialize.byte
+        |> Serialize.field .green Serialize.byte
+        |> Serialize.field .blue Serialize.byte
+        |> Serialize.finishRecord
+
+
+pathSegmentCodec : Codec e PathSegment
+pathSegmentCodec =
+    Serialize.record PathSegment
+        |> Serialize.field .position point2d
+        |> Serialize.field .handlePrevious vector2d
+        |> Serialize.field .handleNext vector2d
+        |> Serialize.finishRecord
+
+
+point2d : Codec e (Point2d units coordinates)
+point2d =
+    Serialize.record Point2d.xy
+        |> Serialize.field Point2d.xCoordinate quantity
+        |> Serialize.field Point2d.yCoordinate quantity
+        |> Serialize.finishRecord
+
+
+vector2d : Codec e (Vector2d units coordinates)
+vector2d =
+    Serialize.record Vector2d.xy
+        |> Serialize.field Vector2d.xComponent quantity
+        |> Serialize.field Vector2d.yComponent quantity
+        |> Serialize.finishRecord
+
+
+quantity : Codec e (Quantity Float units)
+quantity =
+    Serialize.float |> Serialize.map Quantity.Quantity (\(Quantity.Quantity a) -> a)
 
 
 initLayer : Layer
@@ -147,11 +210,11 @@ init =
     , editorState =
         { layers = Dict.fromList [ ( Id.fromInt 0, initLayer ) ]
         , currentLayer = Id.fromInt 0
+        , selectedNode = Nothing
         }
     , redoHistory = []
-    , pathMesh = WebGL.triangles []
-    , pathFillMesh = shapeToMesh_ []
     , viewportHeight = Length.meters 2000
+    , meshCache = Dict.empty
     }
 
 
@@ -163,14 +226,14 @@ setNonempty index value nonempty =
         |> Maybe.withDefault nonempty
 
 
-getLayer : EditorState -> Layer
+getLayer : EditorState -> ( Id LayerId, Layer )
 getLayer editorState =
     case Dict.get editorState.currentLayer editorState.layers of
         Just layer ->
-            layer
+            ( editorState.currentLayer, layer )
 
         Nothing ->
-            Dict.values editorState.layers |> List.head |> Maybe.withDefault initLayer
+            Dict.toList editorState.layers |> List.head |> Maybe.withDefault ( Id.fromInt 0, initLayer )
 
 
 setLayer : Layer -> EditorState -> EditorState
@@ -190,13 +253,19 @@ setLayer layer editorState =
 startPathSegment : Point2d Meters WorldCoordinate -> Model -> Model
 startPathSegment point model =
     let
-        layer =
+        ( _, layer ) =
             getLayer model.editorState
+
+        editorState =
+            model.editorState
     in
     case layer.nextPathSegment of
         NoPathSegment ->
             addEditorState
-                (setLayer { layer | nextPathSegment = PlacingHandles point } model.editorState)
+                (setLayer
+                    { layer | nextPathSegment = PlacingHandles point }
+                    { editorState | selectedNode = Just 0 }
+                )
                 model
 
         PlacingHandles _ ->
@@ -231,7 +300,7 @@ fullPath config layer isCurrentLayer model =
 finishPathSegment : Config a -> Point2d Meters WorldCoordinate -> Model -> Model
 finishPathSegment config point model =
     let
-        layer =
+        ( _, layer ) =
             getLayer model.editorState
     in
     case layer.nextPathSegment of
@@ -272,93 +341,118 @@ replaceEditorState newEditorState model =
 updateMesh : Config a -> Model -> Model -> Model
 updateMesh config previousModel model =
     let
-        layer =
-            getLayer model.editorState
-
-        fullPath_ =
-            fullPath config layer True model
-
-        maybeDragging =
-            isDragging config model
-
         uiScale =
             Quantity.ratio model.viewportHeight (Length.meters 800)
     in
-    if
-        (model.editorState == previousModel.editorState)
-            && (model.mousePosition == previousModel.mousePosition)
-            && (model.viewportHeight == previousModel.viewportHeight)
-    then
-        model
+    { model
+        | meshCache =
+            Dict.map
+                (\layerId layer ->
+                    let
+                        fullPath_ =
+                            fullPath config layer True model
 
-    else
-        { model
-            | pathFillMesh = pathToFillMesh maybeDragging fullPath_
-            , pathMesh =
-                List.indexedMap
-                    (\index segment ->
-                        let
-                            segment2 =
-                                dragSegment index maybeDragging segment
+                        isCurrentLayer =
+                            layerId == model.editorState.currentLayer
 
-                            handlePrevious =
-                                Point2d.translateBy segment2.handlePrevious segment2.position
+                        maybeDragging =
+                            if isCurrentLayer then
+                                isDragging config model
 
-                            handleNext =
-                                Point2d.translateBy segment2.handleNext segment2.position
+                            else
+                                Nothing
+                    in
+                    case
+                        ( Dict.get layerId model.meshCache
+                        , (model.editorState == previousModel.editorState)
+                            && (model.mousePosition == previousModel.mousePosition || (maybeDragging == Nothing && layer.nextPathSegment == NoPathSegment))
+                            && (model.viewportHeight == previousModel.viewportHeight || not isCurrentLayer)
+                        )
+                    of
+                        ( Just cache, True ) ->
+                            cache
 
-                            size =
-                                3 * uiScale
+                        _ ->
+                            let
+                                _ =
+                                    Debug.log "a" layerId
+                            in
+                            { pathFillMesh = pathToFillMesh maybeDragging fullPath_
+                            , pathMesh =
+                                List.indexedMap
+                                    (\index segment ->
+                                        let
+                                            color =
+                                                if isCurrentLayer && model.editorState.selectedNode == Just index then
+                                                    Math.Vector3.vec3 0 0.8 0.1
 
-                            drawSquare p =
-                                let
-                                    { x, y } =
-                                        Point2d.toMeters p
-                                in
-                                [ ( { position = Math.Vector2.vec2 (x - size) (y - size)
-                                    , color = Math.Vector3.vec3 0 0 0
-                                    }
-                                  , { position = Math.Vector2.vec2 (x + size) (y - size)
-                                    , color = Math.Vector3.vec3 0 0 0
-                                    }
-                                  , { position = Math.Vector2.vec2 (x + size) (y + size)
-                                    , color = Math.Vector3.vec3 0 0 0
-                                    }
-                                  )
-                                , ( { position = Math.Vector2.vec2 (x - size) (y - size)
-                                    , color = Math.Vector3.vec3 0 0 0
-                                    }
-                                  , { position = Math.Vector2.vec2 (x + size) (y + size)
-                                    , color = Math.Vector3.vec3 0 0 0
-                                    }
-                                  , { position = Math.Vector2.vec2 (x - size) (y + size)
-                                    , color = Math.Vector3.vec3 0 0 0
-                                    }
-                                  )
-                                ]
-                        in
-                        drawSquare segment2.position
-                            ++ drawSquare handlePrevious
-                            ++ drawSquare handleNext
-                            ++ MatchPage.lineMesh
-                                (Length.meters uiScale)
-                                (Math.Vector3.vec3 0 0 0)
-                                (LineSegment2d.from
-                                    segment2.position
-                                    (Point2d.translateBy segment2.handleNext segment2.position)
-                                )
-                            ++ MatchPage.lineMesh
-                                (Length.meters uiScale)
-                                (Math.Vector3.vec3 0 0 0)
-                                (LineSegment2d.from
-                                    segment2.position
-                                    (Point2d.translateBy segment2.handlePrevious segment2.position)
-                                )
-                    )
-                    fullPath_
-                    |> List.concat
-                    |> WebGL.triangles
-        }
+                                                else
+                                                    Math.Vector3.vec3 0 0 0
+
+                                            segment2 =
+                                                dragSegment index maybeDragging segment
+
+                                            handlePrevious =
+                                                Point2d.translateBy segment2.handlePrevious segment2.position
+
+                                            handleNext =
+                                                Point2d.translateBy segment2.handleNext segment2.position
+
+                                            size =
+                                                3 * uiScale
+
+                                            drawSquare p =
+                                                let
+                                                    { x, y } =
+                                                        Point2d.toMeters p
+                                                in
+                                                [ ( { position = Math.Vector2.vec2 (x - size) (y - size)
+                                                    , color = color
+                                                    }
+                                                  , { position = Math.Vector2.vec2 (x + size) (y - size)
+                                                    , color = color
+                                                    }
+                                                  , { position = Math.Vector2.vec2 (x + size) (y + size)
+                                                    , color = color
+                                                    }
+                                                  )
+                                                , ( { position = Math.Vector2.vec2 (x - size) (y - size)
+                                                    , color = color
+                                                    }
+                                                  , { position = Math.Vector2.vec2 (x + size) (y + size)
+                                                    , color = color
+                                                    }
+                                                  , { position = Math.Vector2.vec2 (x - size) (y + size)
+                                                    , color = color
+                                                    }
+                                                  )
+                                                ]
+                                        in
+                                        drawSquare segment2.position
+                                            ++ drawSquare handlePrevious
+                                            ++ drawSquare handleNext
+                                            ++ MatchPage.lineMesh
+                                                (Length.meters uiScale)
+                                                color
+                                                (LineSegment2d.from
+                                                    segment2.position
+                                                    (Point2d.translateBy segment2.handleNext segment2.position)
+                                                )
+                                            ++ MatchPage.lineMesh
+                                                (Length.meters uiScale)
+                                                color
+                                                (LineSegment2d.from
+                                                    segment2.position
+                                                    (Point2d.translateBy segment2.handlePrevious segment2.position)
+                                                )
+                                    )
+                                    fullPath_
+                                    |> List.concat
+                                    |> WebGL.triangles
+                            }
+                )
+                model.editorState.layers
+    }
 
 
 dragSegment : Int -> Maybe Dragging -> PathSegment -> PathSegment
@@ -442,13 +536,20 @@ pathToFillMesh maybeDragging path =
 
 animationFrame : Config a -> Model -> ( Model, Command FrontendOnly ToBackend Msg )
 animationFrame config model =
+    let
+        ( _, layer ) =
+            getLayer editorState
+
+        editorState =
+            model.editorState
+    in
     ( if pressedUndo config then
         case model.undoHistory of
             head :: rest ->
                 { model
                     | undoHistory = rest
                     , editorState = head
-                    , redoHistory = model.editorState :: model.redoHistory
+                    , redoHistory = editorState :: model.redoHistory
                 }
 
             [] ->
@@ -460,10 +561,29 @@ animationFrame config model =
                 { model
                     | redoHistory = rest
                     , editorState = head
-                    , undoHistory = model.editorState :: model.undoHistory
+                    , undoHistory = editorState :: model.undoHistory
                 }
 
             [] ->
+                model
+
+      else if keyPressed config Keyboard.Delete then
+        case editorState.selectedNode of
+            Just selectedNode ->
+                addEditorState
+                    (setLayer
+                        (case layer.nextPathSegment of
+                            NoPathSegment ->
+                                { layer | path = List.removeAt selectedNode layer.path }
+
+                            PlacingHandles _ ->
+                                { layer | nextPathSegment = NoPathSegment }
+                        )
+                        { editorState | selectedNode = Nothing }
+                    )
+                    model
+
+            Nothing ->
                 model
 
       else
@@ -539,7 +659,7 @@ isDragging config model =
     case ( model.mouseDownAt, model.mousePosition ) of
         ( Just mouseDownAt, Just mousePosition ) ->
             let
-                layer =
+                ( _, layer ) =
                     getLayer model.editorState
             in
             List.indexedMap
@@ -635,8 +755,14 @@ update config msg model =
                         }
                             |> (\model2 ->
                                     case isDragging config model2 of
-                                        Just _ ->
-                                            model2
+                                        Just dragging ->
+                                            let
+                                                editorState =
+                                                    model2.editorState
+                                            in
+                                            replaceEditorState
+                                                { editorState | selectedNode = Just dragging.index }
+                                                model2
 
                                         Nothing ->
                                             startPathSegment worldPosition model2
@@ -670,7 +796,7 @@ update config msg model =
                     case isDragging config model of
                         Just dragging ->
                             let
-                                layer =
+                                ( _, layer ) =
                                     getLayer model.editorState
                             in
                             addEditorState
@@ -748,7 +874,9 @@ update config msg model =
                 editorState =
                     model.editorState
             in
-            ( replaceEditorState { editorState | currentLayer = layerId } model
+            ( replaceEditorState
+                { editorState | currentLayer = layerId, selectedNode = Nothing }
+                model
             , Command.none
             )
 
@@ -764,6 +892,7 @@ update config msg model =
                 { editorState
                     | layers = Dict.insert layerId initLayer editorState.layers
                     , currentLayer = layerId
+                    , selectedNode = Nothing
                 }
                 model
             , Command.none
@@ -776,6 +905,23 @@ update config msg model =
             in
             ( addEditorState { editorState | layers = Dict.remove layerId editorState.layers } model
             , Command.none
+            )
+
+        TypedColor { red, green, blue } ->
+            let
+                ( _, layer ) =
+                    getLayer model.editorState
+            in
+            ( addEditorState
+                (setLayer { layer | red = red, green = green, blue = blue } model.editorState)
+                model
+            , Command.none
+            )
+
+        PressedSave ->
+            ( model
+            , Serialize.encodeToString editorStateCodec model.editorState
+                |> Ports.writeToClipboard
             )
     )
         |> Tuple.mapFirst (updateMesh config model)
@@ -798,13 +944,87 @@ view config model =
             config.devicePixelRatio
             (canvasView model)
             |> Element.behindContent
-        , Element.htmlAttribute (Html.Events.Extra.Mouse.onDown MouseDown)
+        , Element.htmlAttribute
+            (Html.Events.Extra.Mouse.onWithOptions
+                "mousedown"
+                { stopPropagation = False
+                , preventDefault = False
+                }
+                MouseDown
+            )
         , Element.htmlAttribute (Html.Events.Extra.Mouse.onUp MouseUp)
         , Element.htmlAttribute (Html.Events.Extra.Mouse.onMove MouseMoved)
         , Element.htmlAttribute (Html.Events.Extra.Wheel.onWheel MouseWheel)
-        , layersView model.editorState.currentLayer model.editorState.layers |> Element.inFront
+        , Element.Lazy.lazy toolView model.editorState |> Element.inFront
         ]
         Element.none
+
+
+toolView : EditorState -> Element Msg
+toolView editorState =
+    let
+        ( _, layer ) =
+            getLayer editorState
+    in
+    Element.column
+        [ Element.width (Element.px layersViewWidth)
+        , Element.height Element.fill
+        , Element.Background.color (Element.rgb 1 1 1)
+        , Element.Border.width 1
+        , Element.spacing 4
+        ]
+        [ layersView editorState.currentLayer editorState.layers
+        , Element.column
+            [ Element.spacing 4, Element.padding 4 ]
+            [ Element.Input.text
+                [ Element.padding 4 ]
+                { onChange =
+                    \text ->
+                        TypedColor
+                            { red = String.toInt text |> Maybe.withDefault layer.red
+                            , green = layer.green
+                            , blue = layer.blue
+                            }
+                , text = String.fromInt layer.red
+                , placeholder = Nothing
+                , label = Element.Input.labelLeft [] (Element.text "R")
+                }
+            , Element.Input.text
+                [ Element.padding 4 ]
+                { onChange =
+                    \text ->
+                        TypedColor
+                            { red = layer.red
+                            , green = String.toInt text |> Maybe.withDefault layer.green
+                            , blue = layer.blue
+                            }
+                , text = String.fromInt layer.green
+                , placeholder = Nothing
+                , label = Element.Input.labelLeft [] (Element.text "G")
+                }
+            , Element.Input.text
+                [ Element.padding 4 ]
+                { onChange =
+                    \text ->
+                        TypedColor
+                            { red = layer.red
+                            , green = layer.green
+                            , blue = String.toInt text |> Maybe.withDefault layer.blue
+                            }
+                , text = String.fromInt layer.blue
+                , placeholder = Nothing
+                , label = Element.Input.labelLeft [] (Element.text "B")
+                }
+            ]
+        , Ui.button buttonAttributes { onPress = PressedSave, label = Element.text "Save to clipboard" }
+        ]
+
+
+buttonAttributes =
+    [ Element.padding 8
+    , Element.width Element.fill
+    , Element.Border.width 1
+    ]
 
 
 layersView : Id LayerId -> Dict (Id LayerId) Layer -> Element Msg
@@ -812,40 +1032,34 @@ layersView currentLayer layers =
     List.map
         (\( layerId, layer ) ->
             Ui.button
-                [ Element.padding 8
-                , Element.width Element.fill
-                , Element.Border.width 1
-                , if currentLayer == layerId then
+                ((if currentLayer == layerId then
                     Element.Font.bold
 
                   else
                     Element.Font.regular
-                ]
+                 )
+                    :: buttonAttributes
+                )
                 { onPress = PressedLayer layerId
                 , label = "Layer " ++ String.fromInt (Id.toInt layerId) |> Element.text
                 }
         )
         (Dict.toList layers)
         ++ [ Ui.button
-                [ Element.padding 8
-                , Element.width Element.fill
-                , Element.Background.color (Element.rgb 1 1 1)
-                , Element.Border.width 1
-                ]
+                buttonAttributes
                 { onPress = PressedAddLayer
                 , label = Element.text "Add layer"
                 }
            ]
         |> Element.column
-            [ Element.width (Element.px layersViewWidth)
-            , Element.height Element.fill
-            , Element.Background.color (Element.rgb 1 1 1)
+            [ Element.width Element.fill
             , Element.Border.width 1
             ]
 
 
+layersViewWidth : number
 layersViewWidth =
-    140
+    190
 
 
 canvasView : Model -> Size -> List Entity
@@ -864,16 +1078,38 @@ canvasView model canvasSize =
                 }
     in
     [ MatchPage.backgroundGrid model.cameraPosition (1 / Length.inMeters model.viewportHeight) canvasSize ]
-        ++ FontRender.drawLayer (Math.Vector4.vec4 1 0 0.5 1) model.pathFillMesh viewMatrix
-        ++ [ WebGL.entityWith
-                [ WebGL.Settings.cullFace WebGL.Settings.back ]
-                MatchPage.vertexShader
-                MatchPage.fragmentShader
-                model.pathMesh
-                { view = viewMatrix
-                , model = Mat4.identity
-                }
-           ]
+        ++ List.concatMap
+            (\( layerId, layer ) ->
+                case Dict.get layerId model.meshCache of
+                    Just cache ->
+                        FontRender.drawLayer
+                            (Math.Vector4.vec4
+                                (toFloat layer.red / 255)
+                                (toFloat layer.green / 255)
+                                (toFloat layer.blue / 255)
+                                1
+                            )
+                            cache.pathFillMesh
+                            viewMatrix
+                            ++ (if layerId == model.editorState.currentLayer then
+                                    [ WebGL.entityWith
+                                        [ WebGL.Settings.cullFace WebGL.Settings.back ]
+                                        MatchPage.vertexShader
+                                        MatchPage.fragmentShader
+                                        cache.pathMesh
+                                        { view = viewMatrix
+                                        , model = Mat4.identity
+                                        }
+                                    ]
+
+                                else
+                                    []
+                               )
+
+                    Nothing ->
+                        []
+            )
+            (Dict.toList model.editorState.layers)
 
 
 
