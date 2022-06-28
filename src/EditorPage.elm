@@ -69,6 +69,7 @@ type Msg
     | PressedRemoveLayer (Id LayerId)
     | TypedColor { red : Int, green : Int, blue : Int }
     | PressedSave
+    | TypedLoadFromClipboard String
     | PressedMoveLayerUp (Id LayerId)
     | PressedMoveLayerDown (Id LayerId)
 
@@ -121,7 +122,8 @@ idCodec =
 
 dictCodec : Codec e k -> Codec e v -> Codec e (Dict k v)
 dictCodec keyCodec valueCodec =
-    Serialize.list (Serialize.tuple keyCodec valueCodec) |> Serialize.map Dict.fromList Dict.toList
+    Serialize.list (Serialize.tuple keyCodec valueCodec)
+        |> Serialize.map (List.reverse >> Dict.fromList) Dict.toList
 
 
 layerCodec : Codec e Layer
@@ -959,6 +961,16 @@ update config msg model =
 
         MouseLeft _ ->
             ( { model | mousePosition = Nothing }, Command.none )
+
+        TypedLoadFromClipboard text ->
+            ( case Serialize.decodeFromString editorStateCodec text of
+                Ok ok ->
+                    addEditorState ok model
+
+                Err _ ->
+                    model
+            , Command.none
+            )
     )
         |> Tuple.mapFirst (updateMesh config model)
 
@@ -1104,6 +1116,13 @@ toolView config model =
                 }
             ]
         , Ui.button buttonAttributes { onPress = PressedSave, label = Element.text "Save to clipboard" }
+        , Element.Input.text
+            [ Element.padding 4 ]
+            { onChange = TypedLoadFromClipboard
+            , text = ""
+            , placeholder = Element.Input.placeholder [] (Element.text "Load from clipboard") |> Just
+            , label = Element.Input.labelHidden "Load from clipboard"
+            }
         , case model.mousePosition of
             Just mousePosition ->
                 let
