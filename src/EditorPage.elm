@@ -61,12 +61,16 @@ type Msg
     | MouseDown Event
     | MouseUp Event
     | MouseMoved Event
+    | MouseLeft Event
     | MouseWheel Html.Events.Extra.Wheel.Event
     | PressedLayer (Id LayerId)
     | PressedAddLayer
+    | PressedDuplicate
     | PressedRemoveLayer (Id LayerId)
     | TypedColor { red : Int, green : Int, blue : Int }
     | PressedSave
+    | PressedMoveLayerUp (Id LayerId)
+    | PressedMoveLayerDown (Id LayerId)
 
 
 type alias Model =
@@ -218,14 +222,6 @@ init =
     }
 
 
-setNonempty : Int -> a -> Nonempty a -> Nonempty a
-setNonempty index value nonempty =
-    List.Nonempty.toList nonempty
-        |> List.setAt index value
-        |> List.Nonempty.fromList
-        |> Maybe.withDefault nonempty
-
-
 getLayer : EditorState -> ( Id LayerId, Layer )
 getLayer editorState =
     case Dict.get editorState.currentLayer editorState.layers of
@@ -338,11 +334,16 @@ replaceEditorState newEditorState model =
     { model | editorState = newEditorState }
 
 
+uiScale : { a | viewportHeight : Quantity Float Meters } -> Float
+uiScale model =
+    Quantity.ratio model.viewportHeight (Length.meters 800)
+
+
 updateMesh : Config a -> Model -> Model -> Model
 updateMesh config previousModel model =
     let
-        uiScale =
-            Quantity.ratio model.viewportHeight (Length.meters 800)
+        uiScale_ =
+            uiScale model
     in
     { model
         | meshCache =
@@ -365,6 +366,12 @@ updateMesh config previousModel model =
                     case
                         ( Dict.get layerId model.meshCache
                         , (model.editorState == previousModel.editorState)
+                            && not
+                                (keyPressed config Keyboard.Control
+                                    || keyPressed config Keyboard.Meta
+                                    || keyReleased config Keyboard.Control
+                                    || keyReleased config Keyboard.Meta
+                                )
                             && (model.mousePosition == previousModel.mousePosition || (maybeDragging == Nothing && layer.nextPathSegment == NoPathSegment))
                             && (model.viewportHeight == previousModel.viewportHeight || not isCurrentLayer)
                         )
@@ -377,7 +384,7 @@ updateMesh config previousModel model =
                                 _ =
                                     Debug.log "a" layerId
                             in
-                            { pathFillMesh = pathToFillMesh maybeDragging fullPath_
+                            { pathFillMesh = pathToFillMesh config maybeDragging fullPath_
                             , pathMesh =
                                 List.indexedMap
                                     (\index segment ->
@@ -390,7 +397,7 @@ updateMesh config previousModel model =
                                                     Math.Vector3.vec3 0 0 0
 
                                             segment2 =
-                                                dragSegment index maybeDragging segment
+                                                dragSegment config index maybeDragging segment
 
                                             handlePrevious =
                                                 Point2d.translateBy segment2.handlePrevious segment2.position
@@ -399,7 +406,7 @@ updateMesh config previousModel model =
                                                 Point2d.translateBy segment2.handleNext segment2.position
 
                                             size =
-                                                3 * uiScale
+                                                3 * uiScale_
 
                                             drawSquare p =
                                                 let
@@ -432,14 +439,14 @@ updateMesh config previousModel model =
                                             ++ drawSquare handlePrevious
                                             ++ drawSquare handleNext
                                             ++ MatchPage.lineMesh
-                                                (Length.meters uiScale)
+                                                (Length.meters uiScale_)
                                                 color
                                                 (LineSegment2d.from
                                                     segment2.position
                                                     (Point2d.translateBy segment2.handleNext segment2.position)
                                                 )
                                             ++ MatchPage.lineMesh
-                                                (Length.meters uiScale)
+                                                (Length.meters uiScale_)
                                                 color
                                                 (LineSegment2d.from
                                                     segment2.position
@@ -455,8 +462,12 @@ updateMesh config previousModel model =
     }
 
 
-dragSegment : Int -> Maybe Dragging -> PathSegment -> PathSegment
-dragSegment index maybeDragging pathSegment =
+dragSegment : Config a -> Int -> Maybe Dragging -> PathSegment -> PathSegment
+dragSegment config index maybeDragging pathSegment =
+    let
+        ctrlDown =
+            keyDown config Keyboard.Control || keyDown config Keyboard.Meta
+    in
     case maybeDragging of
         Just dragging ->
             if dragging.index == index then
@@ -467,13 +478,33 @@ dragSegment index maybeDragging pathSegment =
                         }
 
                     NextHandle ->
+                        let
+                            handleNext =
+                                Vector2d.plus dragging.offset pathSegment.handleNext
+                        in
                         { pathSegment
-                            | handleNext = Vector2d.plus dragging.offset pathSegment.handleNext
+                            | handleNext = handleNext
+                            , handlePrevious =
+                                if ctrlDown then
+                                    Vector2d.reverse handleNext
+
+                                else
+                                    pathSegment.handlePrevious
                         }
 
                     PreviousHandle ->
+                        let
+                            handlePrevious =
+                                Vector2d.plus dragging.offset pathSegment.handlePrevious
+                        in
                         { pathSegment
-                            | handlePrevious = Vector2d.plus dragging.offset pathSegment.handlePrevious
+                            | handlePrevious = handlePrevious
+                            , handleNext =
+                                if ctrlDown then
+                                    Vector2d.reverse handlePrevious
+
+                                else
+                                    pathSegment.handleNext
                         }
 
             else
@@ -483,8 +514,8 @@ dragSegment index maybeDragging pathSegment =
             pathSegment
 
 
-pathToFillMesh : Maybe Dragging -> List PathSegment -> Mesh FontVertex
-pathToFillMesh maybeDragging path =
+pathToFillMesh : Config a -> Maybe Dragging -> List PathSegment -> Mesh FontVertex
+pathToFillMesh config maybeDragging path =
     case path of
         first :: rest ->
             let
@@ -495,7 +526,7 @@ pathToFillMesh maybeDragging path =
                 (\segment state ->
                     let
                         segment2 =
-                            dragSegment (modBy pathLength state.index) maybeDragging segment
+                            dragSegment config (modBy pathLength state.index) maybeDragging segment
                     in
                     { index = state.index + 1
                     , previousPoint = segment2
@@ -519,7 +550,7 @@ pathToFillMesh maybeDragging path =
                                )
                     }
                 )
-                { index = 1, previousPoint = dragSegment 0 maybeDragging first, curves = [] }
+                { index = 1, previousPoint = dragSegment config 0 maybeDragging first, curves = [] }
                 (rest ++ [ first ])
                 |> .curves
                 |> List.map
@@ -616,6 +647,11 @@ keyPressed config key =
     List.any ((==) key) config.currentKeys && not (List.any ((==) key) config.previousKeys)
 
 
+keyReleased : Config a -> Keyboard.Key -> Bool
+keyReleased config key =
+    List.any ((==) key) config.previousKeys && not (List.any ((==) key) config.currentKeys)
+
+
 keyDown : Config a -> Keyboard.Key -> Bool
 keyDown config key =
     List.any ((==) key) config.currentKeys
@@ -661,6 +697,9 @@ isDragging config model =
             let
                 ( _, layer ) =
                     getLayer model.editorState
+
+                uiScale_ =
+                    uiScale model
             in
             List.indexedMap
                 (\index segment ->
@@ -683,7 +722,7 @@ isDragging config model =
                         offset =
                             Vector2d.from mouseDownAt (screenToWorld config model mousePosition)
                     in
-                    [ if centerDistance |> Quantity.lessThan (Length.meters 20) then
+                    [ if centerDistance |> Quantity.lessThan (Length.meters (20 * uiScale_)) then
                         { distance = centerDistance
                         , offset = offset
                         , dragType = CenterPoint
@@ -693,7 +732,7 @@ isDragging config model =
 
                       else
                         Nothing
-                    , if nextDistance |> Quantity.lessThan (Length.meters 30) then
+                    , if nextDistance |> Quantity.lessThan (Length.meters (30 * uiScale_)) then
                         { distance = nextDistance
                         , offset = offset
                         , dragType = NextHandle
@@ -703,7 +742,7 @@ isDragging config model =
 
                       else
                         Nothing
-                    , if previousDistance |> Quantity.lessThan (Length.meters 30) then
+                    , if previousDistance |> Quantity.lessThan (Length.meters (30 * uiScale_)) then
                         { distance = previousDistance
                         , offset = offset
                         , dragType = PreviousHandle
@@ -805,7 +844,7 @@ update config msg model =
                                         | path =
                                             List.updateAt
                                                 dragging.index
-                                                (\segment -> dragSegment dragging.index (Just dragging) segment)
+                                                (\segment -> dragSegment config dragging.index (Just dragging) segment)
                                                 layer.path
                                     }
                                     model.editorState
@@ -881,22 +920,7 @@ update config msg model =
             )
 
         PressedAddLayer ->
-            let
-                editorState =
-                    model.editorState
-
-                layerId =
-                    Dict.keys model.editorState.layers |> List.maximumBy Id.toInt |> Maybe.withDefault (Id.fromInt 0) |> Id.increment
-            in
-            ( addEditorState
-                { editorState
-                    | layers = Dict.insert layerId initLayer editorState.layers
-                    , currentLayer = layerId
-                    , selectedNode = Nothing
-                }
-                model
-            , Command.none
-            )
+            ( addLayer initLayer model, Command.none )
 
         PressedRemoveLayer layerId ->
             let
@@ -923,8 +947,70 @@ update config msg model =
             , Serialize.encodeToString editorStateCodec model.editorState
                 |> Ports.writeToClipboard
             )
+
+        PressedMoveLayerUp layerId ->
+            ( moveLayers True layerId model, Command.none )
+
+        PressedMoveLayerDown layerId ->
+            ( moveLayers False layerId model, Command.none )
+
+        PressedDuplicate ->
+            ( addLayer (getLayer model.editorState |> Tuple.second) model, Command.none )
+
+        MouseLeft _ ->
+            ( { model | mousePosition = Nothing }, Command.none )
     )
         |> Tuple.mapFirst (updateMesh config model)
+
+
+addLayer : Layer -> Model -> Model
+addLayer layer model =
+    let
+        editorState =
+            model.editorState
+
+        layerId =
+            Dict.keys model.editorState.layers
+                |> List.maximumBy Id.toInt
+                |> Maybe.withDefault (Id.fromInt 0)
+                |> Id.increment
+    in
+    addEditorState
+        { editorState
+            | layers = Dict.insert layerId layer editorState.layers
+            , currentLayer = layerId
+            , selectedNode = Nothing
+        }
+        model
+
+
+moveLayers : Bool -> Id LayerId -> Model -> Model
+moveLayers moveUp layerId model =
+    let
+        editorState =
+            model.editorState
+    in
+    case Dict.toList editorState.layers |> List.findIndex (Tuple.first >> (==) layerId) of
+        Just index ->
+            addEditorState
+                { editorState
+                    | layers =
+                        Dict.toList editorState.layers
+                            |> List.swapAt
+                                index
+                                (if moveUp then
+                                    index - 1
+
+                                 else
+                                    index + 1
+                                )
+                            |> List.reverse
+                            |> Dict.fromList
+                }
+                model
+
+        Nothing ->
+            model
 
 
 updateFromBackend : ToFrontend -> Model -> ( Model, Command FrontendOnly ToBackend Msg )
@@ -954,17 +1040,18 @@ view config model =
             )
         , Element.htmlAttribute (Html.Events.Extra.Mouse.onUp MouseUp)
         , Element.htmlAttribute (Html.Events.Extra.Mouse.onMove MouseMoved)
+        , Element.htmlAttribute (Html.Events.Extra.Mouse.onLeave MouseLeft)
         , Element.htmlAttribute (Html.Events.Extra.Wheel.onWheel MouseWheel)
-        , Element.Lazy.lazy toolView model.editorState |> Element.inFront
+        , toolView config model |> Element.inFront
         ]
         Element.none
 
 
-toolView : EditorState -> Element Msg
-toolView editorState =
+toolView : Config a -> Model -> Element Msg
+toolView config model =
     let
         ( _, layer ) =
-            getLayer editorState
+            getLayer model.editorState
     in
     Element.column
         [ Element.width (Element.px layersViewWidth)
@@ -973,7 +1060,7 @@ toolView editorState =
         , Element.Border.width 1
         , Element.spacing 4
         ]
-        [ layersView editorState.currentLayer editorState.layers
+        [ layersView model.editorState.currentLayer model.editorState.layers
         , Element.column
             [ Element.spacing 4, Element.padding 4 ]
             [ Element.Input.text
@@ -1017,6 +1104,20 @@ toolView editorState =
                 }
             ]
         , Ui.button buttonAttributes { onPress = PressedSave, label = Element.text "Save to clipboard" }
+        , case model.mousePosition of
+            Just mousePosition ->
+                let
+                    { x, y } =
+                        screenToWorld config model mousePosition |> Point2d.toMeters
+                in
+                String.fromInt (round x)
+                    ++ ","
+                    ++ String.fromInt (round y)
+                    |> Element.text
+                    |> Element.el [ Element.alignBottom ]
+
+            Nothing ->
+                Element.none
         ]
 
 
@@ -1031,24 +1132,60 @@ layersView : Id LayerId -> Dict (Id LayerId) Layer -> Element Msg
 layersView currentLayer layers =
     List.map
         (\( layerId, layer ) ->
-            Ui.button
-                ((if currentLayer == layerId then
-                    Element.Font.bold
+            Element.row
+                [ Element.width Element.fill ]
+                [ Ui.button
+                    ((if currentLayer == layerId then
+                        Element.Font.bold
 
-                  else
-                    Element.Font.regular
-                 )
-                    :: buttonAttributes
-                )
-                { onPress = PressedLayer layerId
-                , label = "Layer " ++ String.fromInt (Id.toInt layerId) |> Element.text
-                }
+                      else
+                        Element.Font.regular
+                     )
+                        :: buttonAttributes
+                    )
+                    { onPress = PressedLayer layerId
+                    , label = "Layer " ++ String.fromInt (Id.toInt layerId) |> Element.text
+                    }
+                , Ui.button
+                    [ Element.padding 4
+                    , Element.height Element.fill
+                    , Element.Border.width 1
+                    , Element.Background.color (Element.rgb 0.8 0.8 0.8)
+                    ]
+                    { onPress = PressedMoveLayerUp layerId
+                    , label = Element.text "🡹"
+                    }
+                , Ui.button
+                    [ Element.padding 4
+                    , Element.height Element.fill
+                    , Element.Border.width 1
+                    , Element.Background.color (Element.rgb 0.8 0.8 0.8)
+                    ]
+                    { onPress = PressedMoveLayerDown layerId
+                    , label = Element.text "🡻"
+                    }
+                , Ui.button
+                    [ Element.padding 4
+                    , Element.height Element.fill
+                    , Element.Border.width 1
+                    , Element.Background.color (Element.rgb 0.8 0.8 0.8)
+                    , Element.Font.bold
+                    ]
+                    { onPress = PressedRemoveLayer layerId
+                    , label = Element.text "X"
+                    }
+                ]
         )
         (Dict.toList layers)
         ++ [ Ui.button
                 buttonAttributes
                 { onPress = PressedAddLayer
                 , label = Element.text "Add layer"
+                }
+           , Ui.button
+                buttonAttributes
+                { onPress = PressedDuplicate
+                , label = Element.text "Duplicate"
                 }
            ]
         |> Element.column
