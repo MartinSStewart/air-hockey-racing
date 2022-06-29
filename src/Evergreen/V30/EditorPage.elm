@@ -16,8 +16,7 @@ import Pixels
 
 
 type Msg
-    = NoOp
-    | MouseDown Html.Events.Extra.Mouse.Event
+    = MouseDown Html.Events.Extra.Mouse.Event
     | MouseUp Html.Events.Extra.Mouse.Event
     | MouseMoved Html.Events.Extra.Mouse.Event
     | MouseLeft Html.Events.Extra.Mouse.Event
