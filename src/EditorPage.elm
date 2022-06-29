@@ -85,6 +85,7 @@ type alias Model =
     , redoHistory : List EditorState
     , viewportHeight : Length
     , meshCache : Dict (Id LayerId) { pathMesh : Mesh Vertex, pathFillMesh : Mesh FontVertex }
+    , placingPoint : Maybe { index : Int, position : Point2d Meters WorldCoordinate }
     }
 
 
@@ -101,7 +102,6 @@ type alias EditorState =
 
 type alias Layer =
     { path : List PathSegment
-    , nextPathSegment : NextPathSegment
     , red : Int
     , green : Int
     , blue : Int
@@ -128,7 +128,7 @@ dictCodec keyCodec valueCodec =
 
 layerCodec : Codec e Layer
 layerCodec =
-    Serialize.record (\a b c d -> Layer a NoPathSegment b c d)
+    Serialize.record (\a b c d -> Layer a b c d)
         |> Serialize.field .path (Serialize.list pathSegmentCodec)
         |> Serialize.field .red Serialize.byte
         |> Serialize.field .green Serialize.byte
@@ -169,16 +169,10 @@ quantity =
 initLayer : Layer
 initLayer =
     { path = []
-    , nextPathSegment = NoPathSegment
     , red = 255
     , green = 0
     , blue = 100
     }
-
-
-type NextPathSegment
-    = NoPathSegment
-    | PlacingHandles (Point2d Meters WorldCoordinate)
 
 
 type alias PathSegment =
@@ -221,6 +215,7 @@ init =
     , redoHistory = []
     , viewportHeight = Length.meters 2000
     , meshCache = Dict.empty
+    , placingPoint = Nothing
     }
 
 
@@ -248,36 +243,46 @@ setLayer layer editorState =
                 { editorState | layers = [ ( Id.fromInt 0, layer ) ] |> Dict.fromList }
 
 
-startPathSegment : Point2d Meters WorldCoordinate -> Model -> Model
-startPathSegment point model =
+nearestPathIndex : Config a -> Point2d Meters WorldCoordinate -> Layer -> Int
+nearestPathIndex config point layer =
+    pathToQuadraticSplines config Nothing layer.path
+        |> List.indexedMap
+            (\index2 splines ->
+                List.map
+                    (\spline ->
+                        ( index2, Geometry.findNearestPoint point spline |> .dist )
+                    )
+                    splines
+            )
+        |> List.concat
+        |> Quantity.minimumBy Tuple.second
+        |> Maybe.map Tuple.first
+        |> Maybe.withDefault 0
+        |> Debug.log "abc"
+
+
+startPathSegment : Config a -> Point2d Meters WorldCoordinate -> Model -> Model
+startPathSegment config point model =
     let
         ( _, layer ) =
             getLayer model.editorState
 
-        editorState =
-            model.editorState
+        index : Int
+        index =
+            nearestPathIndex config point layer
     in
-    case layer.nextPathSegment of
-        NoPathSegment ->
-            addEditorState
-                (setLayer
-                    { layer | nextPathSegment = PlacingHandles point }
-                    { editorState | selectedNode = Just 0 }
-                )
-                model
-
-        PlacingHandles _ ->
-            model
+    { model | placingPoint = Just { index = index + 1, position = point } }
 
 
 fullPath : Config a -> Layer -> Bool -> Model -> List PathSegment
 fullPath config layer isCurrentLayer model =
-    (case layer.nextPathSegment of
-        NoPathSegment ->
-            []
+    case model.placingPoint of
+        Nothing ->
+            layer.path
 
-        PlacingHandles position ->
+        Just { index, position } ->
             let
+                mouseWorld : Vector2d Meters WorldCoordinate
                 mouseWorld =
                     case ( isCurrentLayer, model.mouseDownAt, model.mousePosition ) of
                         ( True, Just mouseDownAt, Just mousePosition ) ->
@@ -286,13 +291,13 @@ fullPath config layer isCurrentLayer model =
                         _ ->
                             Vector2d.zero
             in
-            [ { position = position
-              , handleNext = mouseWorld
-              , handlePrevious = Vector2d.reverse mouseWorld
-              }
-            ]
-    )
-        ++ layer.path
+            List.take index layer.path
+                ++ [ { position = position
+                     , handleNext = mouseWorld
+                     , handlePrevious = Vector2d.reverse mouseWorld
+                     }
+                   ]
+                ++ List.drop index layer.path
 
 
 finishPathSegment : Config a -> Point2d Meters WorldCoordinate -> Model -> Model
@@ -301,25 +306,26 @@ finishPathSegment config point model =
         ( _, layer ) =
             getLayer model.editorState
     in
-    case layer.nextPathSegment of
-        NoPathSegment ->
+    case model.placingPoint of
+        Nothing ->
             model
 
-        PlacingHandles position ->
-            replaceEditorState
+        Just { index, position } ->
+            addEditorState
                 (setLayer
                     { layer
                         | path =
-                            { position = position
-                            , handlePrevious = Vector2d.from position point
-                            , handleNext = Vector2d.from point position
-                            }
-                                :: layer.path
-                        , nextPathSegment = NoPathSegment
+                            List.take index layer.path
+                                ++ [ { position = position
+                                     , handlePrevious = Vector2d.from position point
+                                     , handleNext = Vector2d.from point position
+                                     }
+                                   ]
+                                ++ List.drop index layer.path
                     }
                     model.editorState
                 )
-                model
+                { model | placingPoint = Nothing }
 
 
 addEditorState : EditorState -> Model -> Model
@@ -382,7 +388,7 @@ updateMesh config previousModel model =
                                     || keyReleased config Keyboard.Control
                                     || keyReleased config Keyboard.Meta
                                 )
-                            && (model.mousePosition == previousModel.mousePosition || (maybeDragging == Nothing && layer.nextPathSegment == NoPathSegment && not isCurrentLayer))
+                            && (model.mousePosition == previousModel.mousePosition || (maybeDragging == Nothing && model.placingPoint == Nothing && not isCurrentLayer))
                             && (model.viewportHeight == previousModel.viewportHeight || not isCurrentLayer)
                         )
                     of
@@ -391,12 +397,12 @@ updateMesh config previousModel model =
 
                         _ ->
                             let
-                                _ =
-                                    Debug.log "a" layerId
-
+                                --_ =
+                                --    Debug.log "a" layerId
                                 splines : List (QuadraticSpline2d Meters WorldCoordinate)
                                 splines =
                                     pathToQuadraticSplines config maybeDragging fullPath_
+                                        |> List.concat
                             in
                             { pathFillMesh =
                                 List.map
@@ -460,8 +466,8 @@ updateMesh config previousModel model =
                                         drawSquare segment2.position
                                             ++ drawSquare handlePrevious
                                             ++ drawSquare handleNext
-                                            ++ (case ( maybeMouseWorldPosition, isCurrentLayer ) of
-                                                    ( Just mouseWorldPosition, True ) ->
+                                            ++ (case ( maybeMouseWorldPosition, maybeDragging, ( isCurrentLayer, model.placingPoint ) ) of
+                                                    ( Just mouseWorldPosition, Nothing, ( True, Nothing ) ) ->
                                                         case
                                                             List.map
                                                                 (Geometry.findNearestPoint mouseWorldPosition)
@@ -557,7 +563,7 @@ pathToQuadraticSplines :
     Config a
     -> Maybe Dragging
     -> List PathSegment
-    -> List (QuadraticSpline2d Meters WorldCoordinate)
+    -> List (List (QuadraticSpline2d Meters WorldCoordinate))
 pathToQuadraticSplines config maybeDragging path =
     case path of
         first :: rest ->
@@ -575,7 +581,7 @@ pathToQuadraticSplines config maybeDragging path =
                     , previousPoint = segment2
                     , curves =
                         state.curves
-                            ++ (Geometry.cubicSplineToQuadratic
+                            ++ [ Geometry.cubicSplineToQuadratic
                                     (Length.meters 2)
                                     (CubicSpline2d.fromControlPoints
                                         state.previousPoint.position
@@ -590,7 +596,7 @@ pathToQuadraticSplines config maybeDragging path =
                                         segment2.position
                                     )
                                     |> List.Nonempty.toList
-                               )
+                               ]
                     }
                 )
                 { index = 1, previousPoint = dragSegment config 0 maybeDragging first, curves = [] }
@@ -637,18 +643,17 @@ animationFrame config model =
       else if keyPressed config Keyboard.Delete then
         case editorState.selectedNode of
             Just selectedNode ->
-                addEditorState
-                    (setLayer
-                        (case layer.nextPathSegment of
-                            NoPathSegment ->
-                                { layer | path = List.removeAt selectedNode layer.path }
+                case model.placingPoint of
+                    Just _ ->
+                        { model | placingPoint = Nothing }
 
-                            PlacingHandles _ ->
-                                { layer | nextPathSegment = NoPathSegment }
-                        )
-                        { editorState | selectedNode = Nothing }
-                    )
-                    model
+                    Nothing ->
+                        addEditorState
+                            (setLayer
+                                { layer | path = List.removeAt selectedNode layer.path }
+                                { editorState | selectedNode = Nothing }
+                            )
+                            model
 
             Nothing ->
                 model
@@ -758,7 +763,7 @@ isDragging config model =
                         offset =
                             Vector2d.from mouseDownAt (screenToWorld config model mousePosition)
                     in
-                    [ if centerDistance |> Quantity.lessThan (Length.meters (20 * uiScale_)) then
+                    [ if centerDistance |> Quantity.lessThan (Length.meters (7 * uiScale_)) then
                         { distance = centerDistance
                         , offset = offset
                         , dragType = CenterPoint
@@ -768,7 +773,7 @@ isDragging config model =
 
                       else
                         Nothing
-                    , if nextDistance |> Quantity.lessThan (Length.meters (30 * uiScale_)) then
+                    , if nextDistance |> Quantity.lessThan (Length.meters (10 * uiScale_)) then
                         { distance = nextDistance
                         , offset = offset
                         , dragType = NextHandle
@@ -778,7 +783,7 @@ isDragging config model =
 
                       else
                         Nothing
-                    , if previousDistance |> Quantity.lessThan (Length.meters (30 * uiScale_)) then
+                    , if previousDistance |> Quantity.lessThan (Length.meters (10 * uiScale_)) then
                         { distance = previousDistance
                         , offset = offset
                         , dragType = PreviousHandle
@@ -840,7 +845,7 @@ update config msg model =
                                                 model2
 
                                         Nothing ->
-                                            startPathSegment worldPosition model2
+                                            startPathSegment config worldPosition model2
                                )
 
                 Html.Events.Extra.Mouse.MiddleButton ->
