@@ -3,6 +3,7 @@ module FontRender exposing (FontVertex, drawLayer, fragmentShaderFont, vertexSha
 import Effect.WebGL as WebGL exposing (Mesh, Shader)
 import Math.Matrix4 exposing (Mat4)
 import Math.Vector2 as Vec2 exposing (Vec2)
+import Math.Vector3 exposing (Vec3)
 import Math.Vector4 as Vec4 exposing (Vec4)
 import WebGL.Settings
 import WebGL.Settings.StencilTest
@@ -15,8 +16,8 @@ type alias FontVertex =
     }
 
 
-drawLayer : Vec4 -> WebGL.Mesh FontVertex -> Mat4 -> List WebGL.Entity
-drawLayer color feature viewMatrix =
+drawLayer : Vec3 -> WebGL.Mesh FontVertex -> Mat4 -> Mat4 -> List WebGL.Entity
+drawLayer color feature modelMatrix viewMatrix =
     [ WebGL.entityWith
         [ WebGL.Settings.StencilTest.test
             { ref = 1
@@ -32,7 +33,7 @@ drawLayer color feature viewMatrix =
         vertexShaderFont
         fragmentShaderFont
         feature
-        { color = Vec4.vec4 0 0 0 1, viewMatrix = viewMatrix }
+        { color = Vec4.vec4 0 0 0 1, modelMatrix = modelMatrix, viewMatrix = viewMatrix }
     , WebGL.entityWith
         [ WebGL.Settings.StencilTest.test
             { ref = 0
@@ -47,7 +48,7 @@ drawLayer color feature viewMatrix =
         vertexShader
         fragmentShader
         viewportSquare
-        { color = color, viewMatrix = Math.Matrix4.identity }
+        { color = color }
     ]
 
 
@@ -61,7 +62,7 @@ viewportSquare =
         ]
 
 
-vertexShaderFont : Shader FontVertex { a | viewMatrix : Mat4 } { sVarying : Float, tVarying : Float }
+vertexShaderFont : Shader FontVertex { a | modelMatrix : Mat4, viewMatrix : Mat4 } { sVarying : Float, tVarying : Float }
 vertexShaderFont =
     [glsl|
 
@@ -69,13 +70,14 @@ attribute vec2 position;
 attribute float s;
 attribute float t;
 uniform mat4 viewMatrix;
+uniform mat4 modelMatrix;
 varying float sVarying;
 varying float tVarying;
 
 void main () {
   sVarying = s;
   tVarying = t;
-  gl_Position = viewMatrix * vec4(position, 0.0, 1.0);
+  gl_Position = viewMatrix * modelMatrix * vec4(position, 0.0, 1.0);
 }
 
 |]
@@ -98,27 +100,26 @@ fragmentShaderFont =
     |]
 
 
-vertexShader : Shader { position : Vec2 } { a | viewMatrix : Mat4 } {}
+vertexShader : Shader { position : Vec2 } a {}
 vertexShader =
     [glsl|
 
 attribute vec2 position;
-uniform mat4 viewMatrix;
 
 void main () {
-  gl_Position = viewMatrix * vec4(position, 0.0, 1.0);
+  gl_Position = vec4(position, 0.0, 1.0);
 }
 
 |]
 
 
-fragmentShader : Shader {} { b | color : Vec4 } {}
+fragmentShader : Shader {} { b | color : Vec3 } {}
 fragmentShader =
     [glsl|
         precision mediump float;
-        uniform vec4 color;
+        uniform vec3 color;
         
         void main () {
-            gl_FragColor = color;
+            gl_FragColor = vec4(color, 1.0);
         }
     |]

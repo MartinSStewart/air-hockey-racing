@@ -34,6 +34,7 @@ import Html.Events.Extra.Mouse exposing (Event)
 import Html.Events.Extra.Wheel
 import Id exposing (Id)
 import Keyboard
+import KeyboardExtra as Keyboard
 import Length exposing (Length, Meters)
 import LineSegment2d
 import List.Extra as List
@@ -52,6 +53,7 @@ import QuadraticSpline2d exposing (QuadraticSpline2d)
 import Quantity exposing (Quantity(..), Rate)
 import Rectangle2d
 import Serialize exposing (Codec)
+import Shape exposing (Layer, LayerId, PathSegment)
 import Size exposing (Size)
 import Ui
 import Vector2d exposing (Vector2d)
@@ -93,81 +95,11 @@ type alias Model =
     }
 
 
-type LayerId
-    = LayerId Never
-
-
 type alias EditorState =
     { layers : Dict (Id LayerId) Layer
     , currentLayer : Id LayerId
     , selectedNodes : Set Int
     }
-
-
-type alias Layer =
-    { path : List PathSegment
-    , red : Int
-    , green : Int
-    , blue : Int
-    }
-
-
-editorStateCodec : Codec e EditorState
-editorStateCodec =
-    Serialize.record (\a -> EditorState a (Id.fromInt 0) Set.empty)
-        |> Serialize.field .layers (dictCodec idCodec layerCodec)
-        |> Serialize.finishRecord
-
-
-idCodec : Codec e (Id idType)
-idCodec =
-    Serialize.int |> Serialize.map Id.fromInt Id.toInt
-
-
-dictCodec : Codec e k -> Codec e v -> Codec e (Dict k v)
-dictCodec keyCodec valueCodec =
-    Serialize.list (Serialize.tuple keyCodec valueCodec)
-        |> Serialize.map (List.reverse >> Dict.fromList) Dict.toList
-
-
-layerCodec : Codec e Layer
-layerCodec =
-    Serialize.record (\a b c d -> Layer a b c d)
-        |> Serialize.field .path (Serialize.list pathSegmentCodec)
-        |> Serialize.field .red Serialize.byte
-        |> Serialize.field .green Serialize.byte
-        |> Serialize.field .blue Serialize.byte
-        |> Serialize.finishRecord
-
-
-pathSegmentCodec : Codec e PathSegment
-pathSegmentCodec =
-    Serialize.record PathSegment
-        |> Serialize.field .position point2d
-        |> Serialize.field .handlePrevious vector2d
-        |> Serialize.field .handleNext vector2d
-        |> Serialize.finishRecord
-
-
-point2d : Codec e (Point2d units coordinates)
-point2d =
-    Serialize.record Point2d.xy
-        |> Serialize.field Point2d.xCoordinate quantity
-        |> Serialize.field Point2d.yCoordinate quantity
-        |> Serialize.finishRecord
-
-
-vector2d : Codec e (Vector2d units coordinates)
-vector2d =
-    Serialize.record Vector2d.xy
-        |> Serialize.field Vector2d.xComponent quantity
-        |> Serialize.field Vector2d.yComponent quantity
-        |> Serialize.finishRecord
-
-
-quantity : Codec e (Quantity Float units)
-quantity =
-    Serialize.float |> Serialize.map Quantity.Quantity (\(Quantity.Quantity a) -> a)
 
 
 initLayer : Layer
@@ -176,13 +108,6 @@ initLayer =
     , red = 255
     , green = 0
     , blue = 100
-    }
-
-
-type alias PathSegment =
-    { position : Point2d Meters WorldCoordinate
-    , handlePrevious : Vector2d Meters WorldCoordinate
-    , handleNext : Vector2d Meters WorldCoordinate
     }
 
 
@@ -211,15 +136,18 @@ init =
     , wheelDownAt = Nothing
     , cameraPosition = Point2d.origin
     , undoHistory = []
-    , editorState =
-        { layers = Dict.fromList [ ( Id.fromInt 0, initLayer ) ]
-        , currentLayer = Id.fromInt 0
-        , selectedNodes = Set.empty
-        }
+    , editorState = initEditorState
     , redoHistory = []
     , viewportHeight = Length.meters 2000
     , meshCache = Dict.empty
     , placingPoint = Nothing
+    }
+
+
+initEditorState =
+    { layers = Dict.fromList [ ( Id.fromInt 0, initLayer ) ]
+    , currentLayer = Id.fromInt 0
+    , selectedNodes = Set.empty
     }
 
 
@@ -386,10 +314,10 @@ updateMesh config previousModel model =
                         ( Dict.get layerId model.meshCache
                         , (model.editorState == previousModel.editorState)
                             && not
-                                (keyPressed config Keyboard.Control
-                                    || keyPressed config Keyboard.Meta
-                                    || keyReleased config Keyboard.Control
-                                    || keyReleased config Keyboard.Meta
+                                (Keyboard.keyPressed config Keyboard.Control
+                                    || Keyboard.keyPressed config Keyboard.Meta
+                                    || Keyboard.keyReleased config Keyboard.Control
+                                    || Keyboard.keyReleased config Keyboard.Meta
                                 )
                             && (model.mousePosition == previousModel.mousePosition || (maybeDragging == Nothing && model.placingPoint == Nothing && not isCurrentLayer))
                             && (model.viewportHeight == previousModel.viewportHeight || not isCurrentLayer)
@@ -421,7 +349,7 @@ updateMesh config previousModel model =
                                         }
                                     )
                                     splines
-                                    |> shapeToMesh_
+                                    |> Shape.shapeToMesh_
                             , pathMesh =
                                 List.indexedMap
                                     (\index segment ->
@@ -529,7 +457,7 @@ dragSegment : Config a -> Int -> Maybe Dragging -> Bool -> Set Int -> PathSegmen
 dragSegment config index maybeDragging isCurrentLayer selection pathSegment =
     let
         ctrlDown =
-            keyDown config Keyboard.Control || keyDown config Keyboard.Meta
+            Keyboard.keyDown config Keyboard.Control || Keyboard.keyDown config Keyboard.Meta
     in
     case maybeDragging of
         Just dragging ->
@@ -639,7 +567,7 @@ animationFrame config model =
         editorState =
             model.editorState
     in
-    ( if pressedUndo config then
+    ( if Keyboard.pressedUndo config then
         case model.undoHistory of
             head :: rest ->
                 { model
@@ -651,7 +579,7 @@ animationFrame config model =
             [] ->
                 model
 
-      else if pressedRedo config then
+      else if Keyboard.pressedRedo config then
         case model.redoHistory of
             head :: rest ->
                 { model
@@ -663,7 +591,7 @@ animationFrame config model =
             [] ->
                 model
 
-      else if keyPressed config Keyboard.Delete then
+      else if Keyboard.keyPressed config Keyboard.Delete then
         if Set.isEmpty editorState.selectedNodes then
             model
 
@@ -698,39 +626,6 @@ animationFrame config model =
     , Command.none
     )
         |> Tuple.mapFirst (updateMesh config model)
-
-
-pressedUndo : Config a -> Bool
-pressedUndo config =
-    keyPressed config (Keyboard.Character "Z")
-        && not (keyDown config Keyboard.Shift)
-        && (keyDown config Keyboard.Control || keyDown config Keyboard.Meta)
-
-
-pressedRedo : Config a -> Bool
-pressedRedo config =
-    (keyPressed config (Keyboard.Character "Z")
-        && keyDown config Keyboard.Shift
-        && (keyDown config Keyboard.Control || keyDown config Keyboard.Meta)
-    )
-        || (keyPressed config (Keyboard.Character "Y")
-                && (keyDown config Keyboard.Control || keyDown config Keyboard.Meta)
-           )
-
-
-keyPressed : Config a -> Keyboard.Key -> Bool
-keyPressed config key =
-    List.any ((==) key) config.currentKeys && not (List.any ((==) key) config.previousKeys)
-
-
-keyReleased : Config a -> Keyboard.Key -> Bool
-keyReleased config key =
-    List.any ((==) key) config.previousKeys && not (List.any ((==) key) config.currentKeys)
-
-
-keyDown : Config a -> Keyboard.Key -> Bool
-keyDown config key =
-    List.any ((==) key) config.currentKeys
 
 
 newPoint : Quantity Float units -> Quantity Float units -> Point2d units coordinates
@@ -872,7 +767,7 @@ handleMouseDown config model event =
                                     replaceEditorState
                                         { editorState
                                             | selectedNodes =
-                                                if keyDown config Keyboard.Shift then
+                                                if Keyboard.keyDown config Keyboard.Shift then
                                                     if Set.member dragging.index editorState.selectedNodes then
                                                         Set.remove dragging.index editorState.selectedNodes
 
@@ -1040,7 +935,7 @@ update config msg model =
 
         PressedSave ->
             ( model
-            , Serialize.encodeToString editorStateCodec model.editorState
+            , Serialize.encodeToString Shape.codec { layers = model.editorState.layers }
                 |> Ports.writeToClipboard
             )
 
@@ -1057,9 +952,9 @@ update config msg model =
             ( { model | mousePosition = Nothing }, Command.none )
 
         TypedLoadFromClipboard text ->
-            ( case Serialize.decodeFromString editorStateCodec text of
+            ( case Serialize.decodeFromString Shape.codec text of
                 Ok ok ->
-                    addEditorState ok model
+                    addEditorState { initEditorState | layers = ok.layers } model
 
                 Err _ ->
                     model
@@ -1384,13 +1279,13 @@ canvasView model canvasSize =
                 case Dict.get layerId model.meshCache of
                     Just cache ->
                         FontRender.drawLayer
-                            (Math.Vector4.vec4
+                            (Math.Vector3.vec3
                                 (toFloat layer.red / 255)
                                 (toFloat layer.green / 255)
                                 (toFloat layer.blue / 255)
-                                1
                             )
                             cache.pathFillMesh
+                            Mat4.identity
                             viewMatrix
                             ++ (if layerId == model.editorState.currentLayer then
                                     [ WebGL.entityWith
@@ -1515,60 +1410,3 @@ squareMesh =
 --        , color = Math.Vector4.vec4 1 0 0.5 1
 --        }
 --   ]
-
-
-shapeToMesh_ :
-    List { position : Point2d units coordinates, controlPoint : Point2d units coordinates }
-    -> Mesh FontVertex
-shapeToMesh_ path =
-    (case List.map (.position >> Point2d.toVec2) path of
-        first :: second :: rest ->
-            List.foldl
-                (\point state ->
-                    { first = state.first
-                    , previous = point
-                    , triangles =
-                        ( { position = point, s = 0.2, t = 0.2 }
-                        , { position = state.previous, s = 0.2, t = 0.2 }
-                        , { position = state.first, s = 0.2, t = 0.2 }
-                        )
-                            :: state.triangles
-                    }
-                )
-                { first = first, previous = second, triangles = [] }
-                rest
-                |> .triangles
-
-        _ ->
-            []
-    )
-        ++ (case path of
-                first :: rest ->
-                    List.foldl
-                        (\point state ->
-                            { previous = point
-                            , triangles =
-                                ( { position = Point2d.toVec2 point.position
-                                  , s = 0
-                                  , t = 0
-                                  }
-                                , { position = Point2d.toVec2 state.previous.position
-                                  , s = 0
-                                  , t = 1
-                                  }
-                                , { position = Point2d.toVec2 state.previous.controlPoint
-                                  , s = 1
-                                  , t = 0
-                                  }
-                                )
-                                    :: state.triangles
-                            }
-                        )
-                        { previous = first, triangles = [] }
-                        (rest ++ [ first ])
-                        |> .triangles
-
-                [] ->
-                    []
-           )
-        |> WebGL.triangles

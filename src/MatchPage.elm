@@ -41,6 +41,7 @@ import Dict as RegularDict
 import Direction2d exposing (Direction2d)
 import Direction3d
 import Duration exposing (Duration)
+import Ease exposing (Easing)
 import Effect.Browser.Dom exposing (HtmlId)
 import Effect.Command as Command exposing (Command, FrontendOnly)
 import Effect.Lamdera
@@ -52,6 +53,7 @@ import Element.Background
 import Element.Border
 import Element.Font
 import Element.Input
+import FontRender
 import Geometry
 import Geometry.Interop.LinearAlgebra.Point2d
 import Html.Attributes
@@ -61,11 +63,12 @@ import Id exposing (Id)
 import Json.Decode
 import Keyboard exposing (Key)
 import Keyboard.Arrows
+import KeyboardExtra as Keyboard
 import Length exposing (Length, Meters)
 import LineSegment2d exposing (LineSegment2d)
 import List.Extra as List
 import List.Nonempty exposing (Nonempty)
-import Match exposing (LobbyPreview, Match, MatchActive, MatchState, Place(..), Player, PlayerData, PlayerMode(..), ServerTime(..), TimelineEvent, WorldCoordinate)
+import Match exposing (Emote(..), Input, LobbyPreview, Match, MatchActive, MatchState, Place(..), Player, PlayerData, PlayerMode(..), ServerTime(..), TimelineEvent, WorldCoordinate)
 import MatchName exposing (MatchName)
 import Math.Matrix4 as Mat4 exposing (Mat4)
 import Math.Vector2 exposing (Vec2)
@@ -81,6 +84,7 @@ import Quantity exposing (Quantity(..), Rate)
 import Random
 import Random.List as Random
 import RasterShapes
+import Shape
 import Size exposing (Size)
 import Sounds exposing (Sounds)
 import TextMessage exposing (TextMessage)
@@ -1011,25 +1015,15 @@ canvasViewHelper model matchSetup canvasSize =
                                     { view = viewMatrix
                                     , model = Mat4.identity
                                     }
-                                :: List.filterMap
+                                :: List.concatMap
                                     (\( userId, player ) ->
-                                        case Dict.get userId matchData.userIds of
-                                            Just mesh ->
-                                                WebGL.entityWith
-                                                    [ WebGL.Settings.cullFace WebGL.Settings.back ]
-                                                    vertexShader
-                                                    fragmentShader
-                                                    mesh
-                                                    { view = viewMatrix
-                                                    , model =
-                                                        pointToMatrix player.position
-                                                            |> Mat4.scale3 playerRadius_ playerRadius_ playerRadius_
-                                                            |> Mat4.rotate (Angle.inRadians player.rotation) (Math.Vector3.vec3 0 0 1)
-                                                    }
-                                                    |> Just
-
-                                            Nothing ->
-                                                Nothing
+                                        drawPlayer
+                                            (timeToFrameId model match)
+                                            userId
+                                            matchData
+                                            viewMatrix
+                                            player
+                                            playerRadius_
                                     )
                                     (Dict.toList state.players)
                                 ++ (case ( Dict.get model.userId state.players, input ) of
@@ -1066,6 +1060,69 @@ canvasViewHelper model matchSetup canvasSize =
 
         _ ->
             []
+
+
+drawPlayer : Id FrameId -> Id UserId -> MatchActiveLocal_ -> Mat4 -> Player -> Float -> List WebGL.Entity
+drawPlayer frameId userId matchData viewMatrix player playerRadius_ =
+    case Dict.get userId matchData.userIds of
+        Just mesh ->
+            [ WebGL.entityWith
+                [ WebGL.Settings.cullFace WebGL.Settings.back ]
+                vertexShader
+                fragmentShader
+                mesh
+                { view = viewMatrix
+                , model =
+                    pointToMatrix player.position
+                        |> Mat4.scale3 playerRadius_ playerRadius_ playerRadius_
+                        |> Mat4.rotate (Angle.inRadians player.rotation) (Math.Vector3.vec3 0 0 1)
+                }
+            ]
+                ++ (case player.lastEmote of
+                        Just lastEmote ->
+                            let
+                                timeElapsed : Duration
+                                timeElapsed =
+                                    Quantity.multiplyBy
+                                        (Id.toInt frameId - Id.toInt lastEmote.time |> toFloat)
+                                        Match.frameDuration
+
+                                emojiSize =
+                                    toFrom (Duration.milliseconds 200) timeElapsed Ease.outBack 0 0.15
+                            in
+                            (case lastEmote.emote of
+                                SurpriseEmote ->
+                                    Shape.surprise.layers
+
+                                ImpEmote ->
+                                    Shape.imp.layers
+                            )
+                                |> List.concatMap
+                                    (\layer ->
+                                        FontRender.drawLayer
+                                            layer.color
+                                            layer.mesh
+                                            (pointToMatrix (Point2d.translateBy (Vector2d.meters 40 30) player.position)
+                                                |> Mat4.scale3 emojiSize emojiSize emojiSize
+                                            )
+                                            viewMatrix
+                                    )
+
+                        Nothing ->
+                            []
+                   )
+
+        Nothing ->
+            []
+
+
+toFrom : Duration -> Duration -> Easing -> Float -> Float -> Float
+toFrom duration timeElapsed easingFunction startValue endValue =
+    let
+        t =
+            Quantity.ratio timeElapsed duration |> clamp 0 1
+    in
+    easingFunction t * (endValue - startValue) + startValue
 
 
 wall : Polygon2d Meters WorldCoordinate
@@ -1219,7 +1276,24 @@ gameUpdate frameId inputs model =
         newModel =
             List.foldl
                 (\{ userId, input } model2 ->
-                    { players = Dict.update userId (Maybe.map (\a -> { a | input = input })) model2.players }
+                    { players =
+                        Dict.update userId
+                            (Maybe.map
+                                (\a ->
+                                    { a
+                                        | input = input.movement
+                                        , lastEmote =
+                                            case input.emote of
+                                                Just emote ->
+                                                    Just { time = frameId, emote = emote }
+
+                                                Nothing ->
+                                                    a.lastEmote
+                                    }
+                                )
+                            )
+                            model2.players
+                    }
                 )
                 model
                 inputs
@@ -1356,6 +1430,7 @@ updateVelocities frameId players =
                     , finishTime = checkFinish a
                     , input = a.input
                     , lastCollision = Just frameId
+                    , lastEmote = a.lastEmote
                     }
 
                 Nothing ->
@@ -1366,6 +1441,7 @@ updateVelocities frameId players =
                     , finishTime = checkFinish a
                     , input = a.input
                     , lastCollision = a.lastCollision
+                    , lastEmote = a.lastEmote
                     }
         )
         players
@@ -1758,6 +1834,7 @@ initMatch startTime users =
                       , input = Nothing
                       , finishTime = DidNotFinish
                       , lastCollision = Nothing
+                      , lastEmote = Nothing
                       }
                     )
                 )
@@ -2055,21 +2132,33 @@ getInputDirection windowSize keys maybeTouchPosition =
 
 
 animationFrame : Config a -> Model -> ( Model, Command FrontendOnly ToBackend Msg )
-animationFrame model matchSetupPage =
-    case ( matchSetupPage.matchData, Match.matchActive (getLocalState matchSetupPage) ) of
+animationFrame config model =
+    case ( model.matchData, Match.matchActive (getLocalState model) ) of
         ( MatchActiveLocal matchData, Just match ) ->
             case matchData.timelineCache of
                 Ok cache ->
-                    case Timeline.getStateAt gameUpdate (timeToFrameId model match) cache match.timeline of
+                    case Timeline.getStateAt gameUpdate (timeToFrameId config match) cache match.timeline of
                         Ok ( newCache, matchState ) ->
                             let
-                                previousInput : Maybe (Direction2d WorldCoordinate)
+                                previousInput : Input
                                 previousInput =
-                                    getInputDirection model.windowSize model.previousKeys matchData.previousTouchPosition
+                                    { movement = getInputDirection config.windowSize config.previousKeys matchData.previousTouchPosition
+                                    , emote = Nothing
+                                    }
 
-                                input : Maybe (Direction2d WorldCoordinate)
+                                input : Input
                                 input =
-                                    getInputDirection model.windowSize model.currentKeys matchData.touchPosition
+                                    { movement = getInputDirection config.windowSize config.currentKeys matchData.touchPosition
+                                    , emote =
+                                        if Keyboard.keyPressed config (Keyboard.Character "1") then
+                                            Just SurpriseEmote
+
+                                        else if Keyboard.keyPressed config (Keyboard.Character "2") then
+                                            Just ImpEmote
+
+                                        else
+                                            Nothing
+                                    }
 
                                 inputUnchanged : Bool
                                 inputUnchanged =
@@ -2077,7 +2166,7 @@ animationFrame model matchSetupPage =
 
                                 model3 : Model
                                 model3 =
-                                    { matchSetupPage
+                                    { model
                                         | matchData =
                                             { matchData
                                                 | previousTouchPosition = matchData.touchPosition
@@ -2087,13 +2176,16 @@ animationFrame model matchSetupPage =
                                     }
 
                                 currentFrameId =
-                                    timeToFrameId model match
+                                    timeToFrameId config match
                             in
                             (if inputUnchanged then
                                 ( model3, Command.none )
 
                              else
-                                matchSetupUpdate model.userId (Match.MatchInputRequest (timeToServerTime model) input) model3
+                                matchSetupUpdate
+                                    config.userId
+                                    (Match.MatchInputRequest (timeToServerTime config) input)
+                                    model3
                             )
                                 |> (\( matchSetupPage2, cmd ) ->
                                         case
@@ -2104,7 +2196,7 @@ animationFrame model matchSetupPage =
                                             ( Just timeLeft, Just previousTimeLeft ) ->
                                                 if Quantity.lessThanZero timeLeft && not (Quantity.lessThanZero previousTimeLeft) then
                                                     matchSetupUpdate
-                                                        model.userId
+                                                        config.userId
                                                         (Match.MatchFinished
                                                             (Dict.map
                                                                 (\_ player -> player.finishTime)
@@ -2122,13 +2214,13 @@ animationFrame model matchSetupPage =
                                    )
 
                         Err _ ->
-                            ( matchSetupPage, Command.none )
+                            ( model, Command.none )
 
                 Err _ ->
-                    ( matchSetupPage, Command.none )
+                    ( model, Command.none )
 
         _ ->
-            ( matchSetupPage, Command.none )
+            ( model, Command.none )
 
 
 matchTimeLeft : Id FrameId -> MatchState -> Maybe Duration

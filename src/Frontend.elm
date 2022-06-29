@@ -103,9 +103,7 @@ loadedInit loading time sounds ( userId, lobbyData ) =
       , devicePixelRatio = loading.devicePixelRatio
       , time = time
       , debugTimeOffset = loading.debugTimeOffset
-      , page = EditorPage EditorPage.init
-
-      --MainLobbyPage { lobbies = lobbyData.lobbies, joinLobbyError = Nothing }
+      , page = MainLobbyPage { lobbies = lobbyData.lobbies, joinLobbyError = Nothing }
       , sounds = sounds
       , userId = userId
       , pingStartTime = Nothing

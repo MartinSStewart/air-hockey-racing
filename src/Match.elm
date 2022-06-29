@@ -1,5 +1,7 @@
 module Match exposing
-    ( LobbyPreview
+    ( Emote(..)
+    , Input
+    , LobbyPreview
     , Match
     , MatchActive
     , MatchState
@@ -78,7 +80,7 @@ type Place
 
 
 type alias TimelineEvent =
-    { userId : Id UserId, input : Maybe (Direction2d WorldCoordinate) }
+    { userId : Id UserId, input : Input }
 
 
 type alias MatchState =
@@ -93,6 +95,7 @@ type alias Player =
     , input : Maybe (Direction2d WorldCoordinate)
     , finishTime : Place
     , lastCollision : Maybe (Id FrameId)
+    , lastEmote : Maybe { time : Id FrameId, emote : Emote }
     }
 
 
@@ -108,6 +111,17 @@ type alias MatchActive =
     { startTime : ServerTime, timeline : Timeline TimelineEvent }
 
 
+type Emote
+    = SurpriseEmote
+    | ImpEmote
+
+
+type alias Input =
+    { movement : Maybe (Direction2d WorldCoordinate)
+    , emote : Maybe Emote
+    }
+
+
 type Msg
     = JoinMatchSetup
     | LeaveMatchSetup
@@ -116,7 +130,7 @@ type Msg
     | SetDecal (Maybe Decal)
     | SetPlayerMode PlayerMode
     | StartMatch ServerTime
-    | MatchInputRequest ServerTime (Maybe (Direction2d WorldCoordinate))
+    | MatchInputRequest ServerTime Input
     | SetMatchName MatchName
     | SendTextMessage TextMessage
     | MatchFinished (Dict (Id UserId) Place)
@@ -379,7 +393,7 @@ serverTimeToFrameId time match =
         |> Id.fromInt
 
 
-addInput : Id UserId -> ServerTime -> Maybe (Direction2d WorldCoordinate) -> Match -> Match
+addInput : Id UserId -> ServerTime -> Input -> Match -> Match
 addInput userId serverTime input (Match matchSetup) =
     { matchSetup
         | matchActive =
