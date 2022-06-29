@@ -45,7 +45,7 @@ import Pixels exposing (Pixels)
 import Point2d exposing (Point2d)
 import Point3d
 import Ports
-import QuadraticSpline2d
+import QuadraticSpline2d exposing (QuadraticSpline2d)
 import Quantity exposing (Quantity(..), Rate)
 import Rectangle2d
 import Serialize exposing (Codec)
@@ -364,6 +364,14 @@ updateMesh config previousModel model =
 
                             else
                                 Nothing
+
+                        maybeMouseWorldPosition =
+                            case model.mousePosition of
+                                Just mousePosition ->
+                                    screenToWorld config model mousePosition |> Just
+
+                                Nothing ->
+                                    Nothing
                     in
                     case
                         ( Dict.get layerId model.meshCache
@@ -374,7 +382,7 @@ updateMesh config previousModel model =
                                     || keyReleased config Keyboard.Control
                                     || keyReleased config Keyboard.Meta
                                 )
-                            && (model.mousePosition == previousModel.mousePosition || (maybeDragging == Nothing && layer.nextPathSegment == NoPathSegment))
+                            && (model.mousePosition == previousModel.mousePosition || (maybeDragging == Nothing && layer.nextPathSegment == NoPathSegment && not isCurrentLayer))
                             && (model.viewportHeight == previousModel.viewportHeight || not isCurrentLayer)
                         )
                     of
@@ -385,8 +393,20 @@ updateMesh config previousModel model =
                             let
                                 _ =
                                     Debug.log "a" layerId
+
+                                splines : List (QuadraticSpline2d Meters WorldCoordinate)
+                                splines =
+                                    pathToQuadraticSplines config maybeDragging fullPath_
                             in
-                            { pathFillMesh = pathToFillMesh config maybeDragging fullPath_
+                            { pathFillMesh =
+                                List.map
+                                    (\spline ->
+                                        { position = QuadraticSpline2d.startPoint spline
+                                        , controlPoint = QuadraticSpline2d.secondControlPoint spline
+                                        }
+                                    )
+                                    splines
+                                    |> shapeToMesh_
                             , pathMesh =
                                 List.indexedMap
                                     (\index segment ->
@@ -440,6 +460,23 @@ updateMesh config previousModel model =
                                         drawSquare segment2.position
                                             ++ drawSquare handlePrevious
                                             ++ drawSquare handleNext
+                                            ++ (case ( maybeMouseWorldPosition, isCurrentLayer ) of
+                                                    ( Just mouseWorldPosition, True ) ->
+                                                        case
+                                                            List.map
+                                                                (Geometry.findNearestPoint mouseWorldPosition)
+                                                                splines
+                                                                |> Quantity.minimumBy .dist
+                                                        of
+                                                            Just { pos } ->
+                                                                drawSquare pos
+
+                                                            Nothing ->
+                                                                []
+
+                                                    _ ->
+                                                        []
+                                               )
                                             ++ MatchPage.lineMesh
                                                 (Length.meters uiScale_)
                                                 color
@@ -516,8 +553,12 @@ dragSegment config index maybeDragging pathSegment =
             pathSegment
 
 
-pathToFillMesh : Config a -> Maybe Dragging -> List PathSegment -> Mesh FontVertex
-pathToFillMesh config maybeDragging path =
+pathToQuadraticSplines :
+    Config a
+    -> Maybe Dragging
+    -> List PathSegment
+    -> List (QuadraticSpline2d Meters WorldCoordinate)
+pathToQuadraticSplines config maybeDragging path =
     case path of
         first :: rest ->
             let
@@ -555,16 +596,9 @@ pathToFillMesh config maybeDragging path =
                 { index = 1, previousPoint = dragSegment config 0 maybeDragging first, curves = [] }
                 (rest ++ [ first ])
                 |> .curves
-                |> List.map
-                    (\spline ->
-                        { position = QuadraticSpline2d.startPoint spline
-                        , controlPoint = QuadraticSpline2d.secondControlPoint spline
-                        }
-                    )
-                |> shapeToMesh_
 
         [] ->
-            shapeToMesh_ []
+            []
 
 
 animationFrame : Config a -> Model -> ( Model, Command FrontendOnly ToBackend Msg )
