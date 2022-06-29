@@ -1084,7 +1084,15 @@ drawPlayer frameId userId matchData viewMatrix player playerRadius_ =
                                         Match.frameDuration
 
                                 emojiSize =
-                                    toFrom (Duration.milliseconds 200) timeElapsed Ease.outBack 0 0.15
+                                    toFromAndBack
+                                        (Duration.milliseconds 200)
+                                        (Duration.seconds 2)
+                                        (Duration.milliseconds 200)
+                                        timeElapsed
+                                        Ease.outBack
+                                        Ease.inBack
+                                        0
+                                        0.15
                             in
                             (case lastEmote.emote of
                                 SurpriseEmote ->
@@ -1099,7 +1107,7 @@ drawPlayer frameId userId matchData viewMatrix player playerRadius_ =
                                             layer.color
                                             layer.mesh
                                             (pointToMatrix (Point2d.translateBy (Vector2d.meters 40 30) player.position)
-                                                |> Mat4.scale3 emojiSize emojiSize emojiSize
+                                                |> Mat4.scale3 emojiSize emojiSize 1
                                             )
                                             viewMatrix
                                     )
@@ -1119,6 +1127,23 @@ toFrom duration timeElapsed easingFunction startValue endValue =
             Quantity.ratio timeElapsed duration |> clamp 0 1
     in
     easingFunction t * (endValue - startValue) + startValue
+
+
+toFromAndBack : Duration -> Duration -> Duration -> Duration -> Easing -> Easing -> Float -> Float -> Float
+toFromAndBack startDuration holdDuration endDuration timeElapsed easingIn easingOut startValue endValue =
+    if timeElapsed |> Quantity.lessThan startDuration then
+        toFrom startDuration timeElapsed easingIn startValue endValue
+
+    else if timeElapsed |> Quantity.lessThan (Quantity.plus startDuration holdDuration) then
+        endValue
+
+    else
+        toFrom
+            endDuration
+            (timeElapsed |> Quantity.minus (Quantity.plus startDuration holdDuration))
+            easingOut
+            endValue
+            startValue
 
 
 wall : Polygon2d Meters WorldCoordinate
