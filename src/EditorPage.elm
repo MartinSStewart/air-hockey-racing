@@ -328,9 +328,8 @@ updateMesh config previousModel model =
 
                         _ ->
                             let
-                                _ =
-                                    Debug.log "a" layerId
-
+                                --_ =
+                                --    Debug.log "a" layerId
                                 splines : List (QuadraticSpline2d Meters WorldCoordinate)
                                 splines =
                                     pathToQuadraticSplines
