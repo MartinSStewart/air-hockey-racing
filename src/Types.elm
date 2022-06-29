@@ -25,7 +25,7 @@ import Effect.Lamdera exposing (ClientId, SessionId)
 import Effect.Time as Time
 import Id exposing (Id)
 import Keyboard
-import Match exposing (LobbyPreview, Match, MatchState, PlayerMode, ServerTime)
+import Match exposing (LobbyPreview, Match, ServerTime)
 import MatchPage exposing (MatchId, WorldPixel)
 import PingData exposing (PingData)
 import Pixels exposing (Pixels)

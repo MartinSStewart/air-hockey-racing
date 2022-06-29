@@ -14,13 +14,9 @@ module MatchPage exposing
     , backgroundGrid
     , camera
     , canvasView
-    , canvasViewHelper
     , fragmentShader
     , init
     , lineMesh
-    , lineSegmentMesh
-    , scrollToBottom
-    , squareMesh
     , unnamedMatchText
     , update
     , updateFromBackend

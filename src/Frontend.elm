@@ -1,12 +1,12 @@
 module Frontend exposing (app)
 
-import AssocList as Dict exposing (Dict)
+import AssocList as Dict
 import Audio exposing (Audio, AudioCmd, AudioData)
 import Browser
 import Browser.Navigation
-import Duration exposing (Duration)
+import Duration
 import EditorPage
-import Effect.Browser.Dom exposing (HtmlId)
+import Effect.Browser.Dom
 import Effect.Browser.Events
 import Effect.Browser.Navigation
 import Effect.Command as Command exposing (Command, FrontendOnly)
@@ -20,12 +20,12 @@ import Element.Border
 import Element.Font
 import Html exposing (Html)
 import Id exposing (Id)
-import Keyboard exposing (Key)
+import Keyboard
 import Lamdera
 import List.Extra as List
-import Match exposing (LobbyPreview, Match, MatchActive, MatchState, Place(..), Player, PlayerData, PlayerMode(..), ServerTime(..), TimelineEvent, WorldCoordinate)
+import Match exposing (LobbyPreview)
 import MatchName
-import MatchPage exposing (MatchId, MatchLocalOnly(..), ScreenCoordinate, WorldPixel)
+import MatchPage exposing (MatchId, WorldPixel)
 import Pixels exposing (Pixels)
 import Ports
 import Quantity exposing (Quantity(..), Rate)

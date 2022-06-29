@@ -191,7 +191,7 @@ updateFromFrontendWithTime sessionId clientId msg model time =
                 PingRequest ->
                     ( model, PingResponse time |> Effect.Lamdera.sendToFrontend clientId )
 
-                EditorPageToBackend toBackend ->
+                EditorPageToBackend _ ->
                     ( model, Command.none )
 
         Nothing ->

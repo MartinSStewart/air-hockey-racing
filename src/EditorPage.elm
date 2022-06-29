@@ -25,11 +25,9 @@ import Element.Background
 import Element.Border
 import Element.Font
 import Element.Input
-import Element.Lazy
 import FontRender exposing (FontVertex)
 import Geometry
-import Geometry.Interop.LinearAlgebra.Point2d as Point2d
-import Geometry.Types exposing (Rectangle2d(..))
+import Geometry.Types exposing (Rectangle2d)
 import Html.Events.Extra.Mouse exposing (Event)
 import Html.Events.Extra.Wheel
 import Id exposing (Id)
@@ -38,13 +36,12 @@ import KeyboardExtra as Keyboard
 import Length exposing (Length, Meters)
 import LineSegment2d
 import List.Extra as List
-import List.Nonempty exposing (Nonempty(..))
+import List.Nonempty
 import Match exposing (WorldCoordinate)
 import MatchPage exposing (ScreenCoordinate, Vertex, WorldPixel)
 import Math.Matrix4 as Mat4 exposing (Mat4)
 import Math.Vector2
 import Math.Vector3
-import Math.Vector4
 import Pixels exposing (Pixels)
 import Point2d exposing (Point2d)
 import Point3d
@@ -52,7 +49,7 @@ import Ports
 import QuadraticSpline2d exposing (QuadraticSpline2d)
 import Quantity exposing (Quantity(..), Rate)
 import Rectangle2d
-import Serialize exposing (Codec)
+import Serialize
 import Shape exposing (Layer, LayerId, PathSegment)
 import Size exposing (Size)
 import Ui
@@ -62,8 +59,7 @@ import WebGL.Settings
 
 
 type Msg
-    = NoOp
-    | MouseDown Event
+    = MouseDown Event
     | MouseUp Event
     | MouseMoved Event
     | MouseLeft Event
@@ -792,9 +788,6 @@ handleMouseDown config model event =
 update : Config a -> Msg -> Model -> ( Model, Command FrontendOnly ToBackend Msg )
 update config msg model =
     (case msg of
-        NoOp ->
-            ( model, Command.none )
-
         MouseDown event ->
             ( handleMouseDown config model event, Command.none )
 
@@ -1386,19 +1379,6 @@ canvasView model canvasSize =
 --        ]
 --    )
 --    model.path
-
-
-squareMesh : WebGL.Mesh Vertex
-squareMesh =
-    WebGL.triangleFan
-        [ { position = Math.Vector2.vec2 -1 -1, color = Math.Vector3.vec3 0 0 0 }
-        , { position = Math.Vector2.vec2 1 -1, color = Math.Vector3.vec3 0 0 0 }
-        , { position = Math.Vector2.vec2 1 1, color = Math.Vector3.vec3 0 0 0 }
-        , { position = Math.Vector2.vec2 -1 1, color = Math.Vector3.vec3 0 0 0 }
-        ]
-
-
-
 --++ FontRender.drawLayer (Math.Vector4.vec4 1 0 0.5 1) mesh viewMatrix
 --++ [ WebGL.entityWith
 --        []

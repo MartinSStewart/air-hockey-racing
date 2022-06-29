@@ -9,8 +9,8 @@ module Ui exposing
 import Element exposing (Element)
 import Element.Background
 import Element.Input
-import Pixels exposing (Pixels)
-import Quantity exposing (Quantity)
+import Pixels
+import Quantity
 import Size exposing (Size)
 
 

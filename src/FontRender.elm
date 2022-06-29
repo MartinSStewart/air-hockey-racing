@@ -1,4 +1,4 @@
-module FontRender exposing (FontVertex, drawLayer, fragmentShaderFont, vertexShaderFont)
+module FontRender exposing (FontVertex, drawLayer)
 
 import Effect.WebGL as WebGL exposing (Mesh, Shader)
 import Math.Matrix4 exposing (Mat4)
