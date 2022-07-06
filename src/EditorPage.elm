@@ -680,28 +680,31 @@ animationFrame config model =
                     { model | placingPoint = Nothing }
 
                 Nothing ->
-                    Debug.todo ""
-        --addEditorState
-        --    (setLayer
-        --        { layer
-        --            | paths =
-        --                layer.path
-        --                    |> List.filterMap
-        --                        (\( index, point ) ->
-        --                            if
-        --                                Set.member
-        --                                    { pathIndex = 0, nodeIndex = index }
-        --                                    editorState.selectedNodes
-        --                            then
-        --                                Nothing
-        --
-        --                            else
-        --                                Just point
-        --                        )
-        --        }
-        --        { editorState | selectedNodes = Set.empty }
-        --    )
-        --    model
+                    addEditorState
+                        (setLayer
+                            { layer
+                                | paths =
+                                    List.indexedMap
+                                        (\pathIndex path ->
+                                            List.indexedMap Tuple.pair path
+                                                |> List.filterMap
+                                                    (\( nodeIndex, point ) ->
+                                                        if
+                                                            Set.member
+                                                                { pathIndex = pathIndex, nodeIndex = nodeIndex }
+                                                                editorState.selectedNodes
+                                                        then
+                                                            Nothing
+
+                                                        else
+                                                            Just point
+                                                    )
+                                        )
+                                        layer.paths
+                            }
+                            { editorState | selectedNodes = Set.empty }
+                        )
+                        model
 
       else
         model
@@ -757,7 +760,7 @@ isDragging config model =
             List.indexedMap
                 (\pathIndex path ->
                     List.indexedMap
-                        (\index segment ->
+                        (\nodeIndex segment ->
                             let
                                 centerDistance =
                                     Vector2d.from mouseDownAt segment.position |> Vector2d.length
@@ -781,7 +784,7 @@ isDragging config model =
                                 { distance = centerDistance
                                 , offset = offset
                                 , dragType = CenterPoint
-                                , index = { pathIndex = index, nodeIndex = index }
+                                , index = { pathIndex = pathIndex, nodeIndex = nodeIndex }
                                 }
                                     |> Just
 
@@ -791,7 +794,7 @@ isDragging config model =
                                 { distance = nextDistance
                                 , offset = offset
                                 , dragType = NextHandle
-                                , index = { pathIndex = index, nodeIndex = index }
+                                , index = { pathIndex = pathIndex, nodeIndex = nodeIndex }
                                 }
                                     |> Just
 
@@ -801,7 +804,7 @@ isDragging config model =
                                 { distance = previousDistance
                                 , offset = offset
                                 , dragType = PreviousHandle
-                                , index = { pathIndex = index, nodeIndex = index }
+                                , index = { pathIndex = pathIndex, nodeIndex = nodeIndex }
                                 }
                                     |> Just
 
@@ -906,27 +909,30 @@ update config msg model =
                                 ( _, layer ) =
                                     getLayer model.editorState
                             in
-                            Debug.todo ""
+                            addEditorState
+                                (setLayer
+                                    { layer
+                                        | paths =
+                                            List.indexedMap
+                                                (\pathIndex path ->
+                                                    List.indexedMap
+                                                        (\nodeIndex segment ->
+                                                            dragSegment
+                                                                config
+                                                                { pathIndex = pathIndex, nodeIndex = nodeIndex }
+                                                                (Just dragging)
+                                                                True
+                                                                model.editorState.selectedNodes
+                                                                segment
+                                                        )
+                                                        path
+                                                )
+                                                layer.paths
+                                    }
+                                    model.editorState
+                                )
+                                model2
 
-                        --addEditorState
-                        --    (setLayer
-                        --        { layer
-                        --            | path =
-                        --                List.indexedMap
-                        --                    (\index segment ->
-                        --                        dragSegment
-                        --                            config
-                        --                            index
-                        --                            (Just dragging)
-                        --                            True
-                        --                            model.editorState.selectedNodes
-                        --                            segment
-                        --                    )
-                        --                    layer.path
-                        --        }
-                        --        model.editorState
-                        --    )
-                        --    model2
                         Nothing ->
                             finishPathSegment (screenToWorld config model screenPosition) model2
 
@@ -1047,55 +1053,72 @@ update config msg model =
             )
 
         PressedMirrorX ->
-            Debug.todo ""
-     --let
-     --    ( _, layer ) =
-     --        getLayer model.editorState
-     --
-     --    selectedPoints =
-     --        List.indexedMap Tuple.pair layer.path
-     --            |> List.filterMap
-     --                (\( index, segment ) ->
-     --                    if Set.member index model.editorState.selectedNodes then
-     --                        Vector2d.from Point2d.origin segment.position |> Just
-     --
-     --                    else
-     --                        Nothing
-     --                )
-     --
-     --    centerPoint : Point2d Meters WorldCoordinate
-     --    centerPoint =
-     --        selectedPoints
-     --            |> Vector2d.sum
-     --            |> Vector2d.scaleBy (1 / toFloat (List.length selectedPoints))
-     --            |> (\v -> Point2d.translateBy v Point2d.origin)
-     --in
-     --( addEditorState
-     --    (setLayer
-     --        { layer
-     --            | path =
-     --                List.indexedMap
-     --                    (\index segment ->
-     --                        if Set.member index model.editorState.selectedNodes then
-     --                            let
-     --                                axis =
-     --                                    Axis2d.withDirection Direction2d.y centerPoint
-     --                            in
-     --                            { position = Point2d.mirrorAcross axis segment.position
-     --                            , handlePrevious = Vector2d.mirrorAcross axis segment.handlePrevious
-     --                            , handleNext = Vector2d.mirrorAcross axis segment.handleNext
-     --                            }
-     --
-     --                        else
-     --                            segment
-     --                    )
-     --                    layer.path
-     --        }
-     --        model.editorState
-     --    )
-     --    model
-     --, Command.none
-     --)
+            let
+                ( _, layer ) =
+                    getLayer model.editorState
+
+                selectedPoints : List (Vector2d Meters WorldCoordinate)
+                selectedPoints =
+                    List.indexedMap
+                        (\pathIndex path ->
+                            List.indexedMap Tuple.pair path
+                                |> List.filterMap
+                                    (\( nodeIndex, segment ) ->
+                                        if
+                                            Set.member
+                                                { pathIndex = pathIndex, nodeIndex = nodeIndex }
+                                                model.editorState.selectedNodes
+                                        then
+                                            Vector2d.from Point2d.origin segment.position |> Just
+
+                                        else
+                                            Nothing
+                                    )
+                        )
+                        layer.paths
+                        |> List.concat
+
+                centerPoint : Point2d Meters WorldCoordinate
+                centerPoint =
+                    selectedPoints
+                        |> Vector2d.sum
+                        |> Vector2d.scaleBy (1 / toFloat (List.length selectedPoints))
+                        |> (\v -> Point2d.translateBy v Point2d.origin)
+            in
+            ( addEditorState
+                (setLayer
+                    { layer
+                        | paths =
+                            List.indexedMap
+                                (\pathIndex path ->
+                                    List.indexedMap
+                                        (\nodeIndex segment ->
+                                            if
+                                                Set.member
+                                                    { pathIndex = pathIndex, nodeIndex = nodeIndex }
+                                                    model.editorState.selectedNodes
+                                            then
+                                                let
+                                                    axis =
+                                                        Axis2d.withDirection Direction2d.y centerPoint
+                                                in
+                                                { position = Point2d.mirrorAcross axis segment.position
+                                                , handlePrevious = Vector2d.mirrorAcross axis segment.handlePrevious
+                                                , handleNext = Vector2d.mirrorAcross axis segment.handleNext
+                                                }
+
+                                            else
+                                                segment
+                                        )
+                                        path
+                                )
+                                layer.paths
+                    }
+                    model.editorState
+                )
+                model
+            , Command.none
+            )
     )
         |> Tuple.mapFirst (updateMesh config model)
 
