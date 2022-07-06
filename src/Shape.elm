@@ -31,7 +31,7 @@ type LayerId
 
 
 type alias Layer =
-    { path : List PathSegment
+    { paths : List (List PathSegment)
     , red : Int
     , green : Int
     , blue : Int
@@ -54,14 +54,18 @@ stringToRenderable text =
                     |> List.map
                         (\layer ->
                             { mesh =
-                                pathToQuadraticSplines layer.path
-                                    |> List.concat
-                                    |> List.map
-                                        (\spline ->
-                                            { position = QuadraticSpline2d.startPoint spline
-                                            , controlPoint = QuadraticSpline2d.secondControlPoint spline
-                                            }
-                                        )
+                                List.map
+                                    (\path ->
+                                        pathToQuadraticSplines path
+                                            |> List.concat
+                                            |> List.map
+                                                (\spline ->
+                                                    { position = QuadraticSpline2d.startPoint spline
+                                                    , controlPoint = QuadraticSpline2d.secondControlPoint spline
+                                                    }
+                                                )
+                                    )
+                                    layer.paths
                                     |> shapeToMesh_
                             , color =
                                 Math.Vector3.vec3
@@ -77,59 +81,63 @@ stringToRenderable text =
 
 
 shapeToMesh_ :
-    List { position : Point2d units coordinates, controlPoint : Point2d units coordinates }
+    List (List { position : Point2d units coordinates, controlPoint : Point2d units coordinates })
     -> Mesh FontVertex
-shapeToMesh_ path =
-    (case List.map (.position >> Point2d.toVec2) path of
-        first :: second :: rest ->
-            List.foldl
-                (\point state ->
-                    { first = state.first
-                    , previous = point
-                    , triangles =
-                        ( { position = point, s = 0.2, t = 0.2 }
-                        , { position = state.previous, s = 0.2, t = 0.2 }
-                        , { position = state.first, s = 0.2, t = 0.2 }
-                        )
-                            :: state.triangles
-                    }
-                )
-                { first = first, previous = second, triangles = [] }
-                rest
-                |> .triangles
-
-        _ ->
-            []
-    )
-        ++ (case path of
-                first :: rest ->
+shapeToMesh_ paths =
+    List.concatMap
+        (\path ->
+            (case List.map (.position >> Point2d.toVec2) path of
+                first :: second :: rest ->
                     List.foldl
                         (\point state ->
-                            { previous = point
+                            { first = state.first
+                            , previous = point
                             , triangles =
-                                ( { position = Point2d.toVec2 point.position
-                                  , s = 0
-                                  , t = 0
-                                  }
-                                , { position = Point2d.toVec2 state.previous.position
-                                  , s = 0
-                                  , t = 1
-                                  }
-                                , { position = Point2d.toVec2 state.previous.controlPoint
-                                  , s = 1
-                                  , t = 0
-                                  }
+                                ( { position = point, s = 0.2, t = 0.2 }
+                                , { position = state.previous, s = 0.2, t = 0.2 }
+                                , { position = state.first, s = 0.2, t = 0.2 }
                                 )
                                     :: state.triangles
                             }
                         )
-                        { previous = first, triangles = [] }
-                        (rest ++ [ first ])
+                        { first = first, previous = second, triangles = [] }
+                        rest
                         |> .triangles
 
-                [] ->
+                _ ->
                     []
-           )
+            )
+                ++ (case path of
+                        first :: rest ->
+                            List.foldl
+                                (\point state ->
+                                    { previous = point
+                                    , triangles =
+                                        ( { position = Point2d.toVec2 point.position
+                                          , s = 0
+                                          , t = 0
+                                          }
+                                        , { position = Point2d.toVec2 state.previous.position
+                                          , s = 0
+                                          , t = 1
+                                          }
+                                        , { position = Point2d.toVec2 state.previous.controlPoint
+                                          , s = 1
+                                          , t = 0
+                                          }
+                                        )
+                                            :: state.triangles
+                                    }
+                                )
+                                { previous = first, triangles = [] }
+                                (rest ++ [ first ])
+                                |> .triangles
+
+                        [] ->
+                            []
+                   )
+        )
+        paths
         |> WebGL.triangles
 
 
@@ -190,7 +198,7 @@ dictCodec keyCodec valueCodec =
 layerCodec : Codec e Layer
 layerCodec =
     Serialize.record (\a b c d -> Layer a b c d)
-        |> Serialize.field .path (Serialize.list pathSegmentCodec)
+        |> Serialize.field .paths (Serialize.list pathSegmentCodec |> Serialize.map List.singleton (\a -> Debug.todo ""))
         |> Serialize.field .red Serialize.byte
         |> Serialize.field .green Serialize.byte
         |> Serialize.field .blue Serialize.byte

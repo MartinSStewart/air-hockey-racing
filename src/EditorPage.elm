@@ -87,20 +87,34 @@ type alias Model =
     , redoHistory : List EditorState
     , viewportHeight : Length
     , meshCache : Dict (Id LayerId) { pathMesh : Mesh Vertex, pathFillMesh : Mesh FontVertex }
-    , placingPoint : Maybe { index : Int, position : Point2d Meters WorldCoordinate }
+    , placingPoint : Maybe { index : NodeId, position : Point2d Meters WorldCoordinate }
     }
 
 
 type alias EditorState =
     { layers : Dict (Id LayerId) Layer
     , currentLayer : Id LayerId
-    , selectedNodes : Set Int
+    , selectedNodes : Set NodeId
     }
+
+
+type alias NodeId =
+    { pathIndex : Int, nodeIndex : Int }
 
 
 initLayer : Layer
 initLayer =
-    { path = []
+    { paths =
+        [ [ { position = Point2d.origin
+            , handlePrevious = Vector2d.meters 0 -100
+            , handleNext = Vector2d.meters 0 100
+            }
+          , { position = Point2d.meters 200 0
+            , handlePrevious = Vector2d.meters 0 100
+            , handleNext = Vector2d.meters 0 -100
+            }
+          ]
+        ]
     , red = 255
     , green = 0
     , blue = 100
@@ -171,21 +185,26 @@ setLayer layer editorState =
                 { editorState | layers = [ ( Id.fromInt 0, layer ) ] |> Dict.fromList }
 
 
-nearestPathIndex : Config a -> Point2d Meters WorldCoordinate -> Bool -> Set Int -> Layer -> Int
+nearestPathIndex : Config a -> Point2d Meters WorldCoordinate -> Bool -> Set NodeId -> Layer -> NodeId
 nearestPathIndex config point isSelectedLayer selection layer =
-    pathToQuadraticSplines config Nothing isSelectedLayer selection layer.path
-        |> List.indexedMap
-            (\index2 splines ->
-                List.map
-                    (\spline ->
-                        ( index2, Geometry.findNearestPoint point spline |> .dist )
+    List.indexedMap
+        (\pathIndex path ->
+            pathToQuadraticSplines config Nothing isSelectedLayer selection pathIndex path
+                |> List.indexedMap
+                    (\index2 splines ->
+                        List.map
+                            (\spline ->
+                                ( { pathIndex = pathIndex, nodeIndex = index2 }, Geometry.findNearestPoint point spline |> .dist )
+                            )
+                            splines
                     )
-                    splines
-            )
+        )
+        layer.paths
+        |> List.concat
         |> List.concat
         |> Quantity.minimumBy Tuple.second
         |> Maybe.map Tuple.first
-        |> Maybe.withDefault 0
+        |> Maybe.withDefault { pathIndex = 0, nodeIndex = 0 }
 
 
 startPathSegment : Config a -> Point2d Meters WorldCoordinate -> Model -> Model
@@ -194,37 +213,45 @@ startPathSegment config point model =
         ( _, layer ) =
             getLayer model.editorState
 
-        index : Int
+        index : NodeId
         index =
             nearestPathIndex config point True model.editorState.selectedNodes layer
     in
-    { model | placingPoint = Just { index = index + 1, position = point } }
+    { model | placingPoint = Just { index = { index | nodeIndex = index.nodeIndex + 1 }, position = point } }
 
 
-fullPath : Config a -> Layer -> Bool -> Model -> List PathSegment
-fullPath config layer isCurrentLayer model =
-    case ( model.placingPoint, isCurrentLayer ) of
-        ( Just { index, position }, True ) ->
-            let
-                mouseWorld : Vector2d Meters WorldCoordinate
-                mouseWorld =
-                    case ( model.mouseDownAt, model.mousePosition ) of
-                        ( Just mouseDownAt, Just mousePosition ) ->
-                            Vector2d.from (screenToWorld config model mousePosition) mouseDownAt
+fullPaths : Config a -> Layer -> Bool -> Model -> List (List PathSegment)
+fullPaths config layer isCurrentLayer model =
+    List.indexedMap
+        (\pathIndex path ->
+            case ( model.placingPoint, isCurrentLayer ) of
+                ( Just { index, position }, True ) ->
+                    if index.pathIndex == pathIndex then
+                        let
+                            mouseWorld : Vector2d Meters WorldCoordinate
+                            mouseWorld =
+                                case ( model.mouseDownAt, model.mousePosition ) of
+                                    ( Just mouseDownAt, Just mousePosition ) ->
+                                        Vector2d.from (screenToWorld config model mousePosition) mouseDownAt
 
-                        _ ->
-                            Vector2d.zero
-            in
-            List.take index layer.path
-                ++ [ { position = position
-                     , handleNext = mouseWorld
-                     , handlePrevious = Vector2d.reverse mouseWorld
-                     }
-                   ]
-                ++ List.drop index layer.path
+                                    _ ->
+                                        Vector2d.zero
+                        in
+                        List.take index.nodeIndex path
+                            ++ [ { position = position
+                                 , handleNext = mouseWorld
+                                 , handlePrevious = Vector2d.reverse mouseWorld
+                                 }
+                               ]
+                            ++ List.drop index.nodeIndex path
 
-        _ ->
-            layer.path
+                    else
+                        path
+
+                _ ->
+                    path
+        )
+        layer.paths
 
 
 finishPathSegment : Point2d Meters WorldCoordinate -> Model -> Model
@@ -241,14 +268,19 @@ finishPathSegment point model =
             addEditorState
                 (setLayer
                     { layer
-                        | path =
-                            List.take index layer.path
-                                ++ [ { position = position
-                                     , handlePrevious = Vector2d.from position point
-                                     , handleNext = Vector2d.from point position
-                                     }
-                                   ]
-                                ++ List.drop index layer.path
+                        | paths =
+                            List.updateAt
+                                index.pathIndex
+                                (\path ->
+                                    List.take index.nodeIndex path
+                                        ++ [ { position = position
+                                             , handlePrevious = Vector2d.from position point
+                                             , handleNext = Vector2d.from point position
+                                             }
+                                           ]
+                                        ++ List.drop index.nodeIndex path
+                                )
+                                layer.paths
                     }
                     model.editorState
                 )
@@ -276,18 +308,11 @@ uiScale model =
 
 updateMesh : Config a -> Model -> Model -> Model
 updateMesh config previousModel model =
-    let
-        uiScale_ =
-            uiScale model
-    in
     { model
         | meshCache =
             Dict.map
                 (\layerId layer ->
                     let
-                        fullPath_ =
-                            fullPath config layer isCurrentLayer model
-
                         isCurrentLayer =
                             layerId == model.editorState.currentLayer
 
@@ -297,14 +322,6 @@ updateMesh config previousModel model =
 
                             else
                                 Nothing
-
-                        maybeMouseWorldPosition =
-                            case model.mousePosition of
-                                Just mousePosition ->
-                                    screenToWorld config model mousePosition |> Just
-
-                                Nothing ->
-                                    Nothing
                     in
                     case
                         ( Dict.get layerId model.meshCache
@@ -324,131 +341,166 @@ updateMesh config previousModel model =
 
                         _ ->
                             let
-                                --_ =
-                                --    Debug.log "a" layerId
-                                splines : List (QuadraticSpline2d Meters WorldCoordinate)
+                                fullPaths_ =
+                                    fullPaths config layer isCurrentLayer model
+
+                                maybeMouseWorldPosition : Maybe (Point2d Meters WorldCoordinate)
+                                maybeMouseWorldPosition =
+                                    case model.mousePosition of
+                                        Just mousePosition ->
+                                            screenToWorld config model mousePosition |> Just
+
+                                        Nothing ->
+                                            Nothing
+
+                                splines : List (List (QuadraticSpline2d Meters WorldCoordinate))
                                 splines =
-                                    pathToQuadraticSplines
-                                        config
-                                        maybeDragging
-                                        isCurrentLayer
-                                        model.editorState.selectedNodes
-                                        fullPath_
-                                        |> List.concat
+                                    List.indexedMap
+                                        (\pathIndex path ->
+                                            pathToQuadraticSplines
+                                                config
+                                                maybeDragging
+                                                isCurrentLayer
+                                                model.editorState.selectedNodes
+                                                pathIndex
+                                                path
+                                                |> List.concat
+                                        )
+                                        fullPaths_
                             in
                             { pathFillMesh =
                                 List.map
-                                    (\spline ->
-                                        { position = QuadraticSpline2d.startPoint spline
-                                        , controlPoint = QuadraticSpline2d.secondControlPoint spline
-                                        }
+                                    (\splines_ ->
+                                        List.map
+                                            (\spline ->
+                                                { position = QuadraticSpline2d.startPoint spline
+                                                , controlPoint = QuadraticSpline2d.secondControlPoint spline
+                                                }
+                                            )
+                                            splines_
                                     )
                                     splines
                                     |> Shape.shapeToMesh_
-                            , pathMesh =
-                                List.indexedMap
-                                    (\index segment ->
-                                        let
-                                            color =
-                                                if
-                                                    isCurrentLayer
-                                                        && Set.member index model.editorState.selectedNodes
-                                                then
-                                                    Math.Vector3.vec3 0 0.8 0.1
+                            , pathMesh = WebGL.triangles []
 
-                                                else
-                                                    Math.Vector3.vec3 0 0 0
-
-                                            segment2 =
-                                                dragSegment
-                                                    config
-                                                    index
-                                                    maybeDragging
-                                                    isCurrentLayer
-                                                    model.editorState.selectedNodes
-                                                    segment
-
-                                            handlePrevious =
-                                                Point2d.translateBy segment2.handlePrevious segment2.position
-
-                                            handleNext =
-                                                Point2d.translateBy segment2.handleNext segment2.position
-
-                                            size =
-                                                3 * uiScale_
-
-                                            drawSquare p =
-                                                let
-                                                    { x, y } =
-                                                        Point2d.toMeters p
-                                                in
-                                                [ ( { position = Math.Vector2.vec2 (x - size) (y - size)
-                                                    , color = color
-                                                    }
-                                                  , { position = Math.Vector2.vec2 (x + size) (y - size)
-                                                    , color = color
-                                                    }
-                                                  , { position = Math.Vector2.vec2 (x + size) (y + size)
-                                                    , color = color
-                                                    }
-                                                  )
-                                                , ( { position = Math.Vector2.vec2 (x - size) (y - size)
-                                                    , color = color
-                                                    }
-                                                  , { position = Math.Vector2.vec2 (x + size) (y + size)
-                                                    , color = color
-                                                    }
-                                                  , { position = Math.Vector2.vec2 (x - size) (y + size)
-                                                    , color = color
-                                                    }
-                                                  )
-                                                ]
-                                        in
-                                        drawSquare segment2.position
-                                            ++ drawSquare handlePrevious
-                                            ++ drawSquare handleNext
-                                            ++ (case ( maybeMouseWorldPosition, maybeDragging, ( isCurrentLayer, model.placingPoint ) ) of
-                                                    ( Just mouseWorldPosition, Nothing, ( True, Nothing ) ) ->
-                                                        case
-                                                            List.map
-                                                                (Geometry.findNearestPoint mouseWorldPosition)
-                                                                splines
-                                                                |> Quantity.minimumBy .dist
-                                                        of
-                                                            Just { pos } ->
-                                                                drawSquare pos
-
-                                                            Nothing ->
-                                                                []
-
-                                                    _ ->
-                                                        []
-                                               )
-                                            ++ MatchPage.lineMesh
-                                                (Length.meters uiScale_)
-                                                color
-                                                (LineSegment2d.from
-                                                    segment2.position
-                                                    (Point2d.translateBy segment2.handleNext segment2.position)
-                                                )
-                                            ++ MatchPage.lineMesh
-                                                (Length.meters uiScale_)
-                                                color
-                                                (LineSegment2d.from
-                                                    segment2.position
-                                                    (Point2d.translateBy segment2.handlePrevious segment2.position)
-                                                )
-                                    )
-                                    fullPath_
-                                    |> List.concat
-                                    |> WebGL.triangles
+                            --List.indexedMap
+                            --    (drawSegment config maybeMouseWorldPosition maybeDragging splines isCurrentLayer model)
+                            --    fullPath_
+                            --    |> List.concat
+                            --    |> WebGL.triangles
                             }
                 )
                 model.editorState.layers
     }
 
 
-dragSegment : Config a -> Int -> Maybe Dragging -> Bool -> Set Int -> PathSegment -> PathSegment
+drawSegment :
+    Config a
+    -> Maybe (Point2d Meters WorldCoordinate)
+    -> Maybe Dragging
+    -> List (QuadraticSpline2d Meters WorldCoordinate)
+    -> Bool
+    -> Model
+    -> NodeId
+    -> PathSegment
+    -> List ( Vertex, Vertex, Vertex )
+drawSegment config maybeMouseWorldPosition maybeDragging splines isCurrentLayer model index segment =
+    let
+        uiScale_ =
+            uiScale model
+
+        color =
+            if
+                isCurrentLayer
+                    && Set.member index model.editorState.selectedNodes
+            then
+                Math.Vector3.vec3 0 0.8 0.1
+
+            else
+                Math.Vector3.vec3 0 0 0
+
+        segment2 =
+            dragSegment
+                config
+                index
+                maybeDragging
+                isCurrentLayer
+                model.editorState.selectedNodes
+                segment
+
+        handlePrevious =
+            Point2d.translateBy segment2.handlePrevious segment2.position
+
+        handleNext =
+            Point2d.translateBy segment2.handleNext segment2.position
+
+        size =
+            3 * uiScale_
+
+        drawSquare p =
+            let
+                { x, y } =
+                    Point2d.toMeters p
+            in
+            [ ( { position = Math.Vector2.vec2 (x - size) (y - size)
+                , color = color
+                }
+              , { position = Math.Vector2.vec2 (x + size) (y - size)
+                , color = color
+                }
+              , { position = Math.Vector2.vec2 (x + size) (y + size)
+                , color = color
+                }
+              )
+            , ( { position = Math.Vector2.vec2 (x - size) (y - size)
+                , color = color
+                }
+              , { position = Math.Vector2.vec2 (x + size) (y + size)
+                , color = color
+                }
+              , { position = Math.Vector2.vec2 (x - size) (y + size)
+                , color = color
+                }
+              )
+            ]
+    in
+    drawSquare segment2.position
+        ++ drawSquare handlePrevious
+        ++ drawSquare handleNext
+        ++ (case ( maybeMouseWorldPosition, maybeDragging, ( isCurrentLayer, model.placingPoint ) ) of
+                ( Just mouseWorldPosition, Nothing, ( True, Nothing ) ) ->
+                    case
+                        List.map
+                            (Geometry.findNearestPoint mouseWorldPosition)
+                            splines
+                            |> Quantity.minimumBy .dist
+                    of
+                        Just { pos } ->
+                            drawSquare pos
+
+                        Nothing ->
+                            []
+
+                _ ->
+                    []
+           )
+        ++ MatchPage.lineMesh
+            (Length.meters uiScale_)
+            color
+            (LineSegment2d.from
+                segment2.position
+                (Point2d.translateBy segment2.handleNext segment2.position)
+            )
+        ++ MatchPage.lineMesh
+            (Length.meters uiScale_)
+            color
+            (LineSegment2d.from
+                segment2.position
+                (Point2d.translateBy segment2.handlePrevious segment2.position)
+            )
+
+
+dragSegment : Config a -> NodeId -> Maybe Dragging -> Bool -> Set NodeId -> PathSegment -> PathSegment
 dragSegment config index maybeDragging isCurrentLayer selection pathSegment =
     let
         ctrlDown =
@@ -504,10 +556,11 @@ pathToQuadraticSplines :
     Config a
     -> Maybe Dragging
     -> Bool
-    -> Set Int
+    -> Set NodeId
+    -> Int
     -> List PathSegment
     -> List (List (QuadraticSpline2d Meters WorldCoordinate))
-pathToQuadraticSplines config maybeDragging isSelectedLayer selection path =
+pathToQuadraticSplines config maybeDragging isSelectedLayer selection pathIndex path =
     case path of
         first :: rest ->
             let
@@ -518,9 +571,19 @@ pathToQuadraticSplines config maybeDragging isSelectedLayer selection path =
                 (\segment state ->
                     let
                         segment2 =
-                            dragSegment config (modBy pathLength state.index) maybeDragging isSelectedLayer selection segment
+                            dragSegment config
+                                { pathIndex = state.index.pathIndex
+                                , nodeIndex = modBy pathLength state.index.nodeIndex
+                                }
+                                maybeDragging
+                                isSelectedLayer
+                                selection
+                                segment
                     in
-                    { index = state.index + 1
+                    { index =
+                        { pathIndex = state.index.pathIndex
+                        , nodeIndex = state.index.nodeIndex + 1
+                        }
                     , previousPoint = segment2
                     , curves =
                         state.curves
@@ -542,8 +605,15 @@ pathToQuadraticSplines config maybeDragging isSelectedLayer selection path =
                                ]
                     }
                 )
-                { index = 1
-                , previousPoint = dragSegment config 0 maybeDragging isSelectedLayer selection first
+                { index = { pathIndex = pathIndex, nodeIndex = 1 }
+                , previousPoint =
+                    dragSegment
+                        config
+                        { pathIndex = pathIndex, nodeIndex = 0 }
+                        maybeDragging
+                        isSelectedLayer
+                        selection
+                        first
                 , curves = []
                 }
                 (rest ++ [ first ])
@@ -596,25 +666,28 @@ animationFrame config model =
                     { model | placingPoint = Nothing }
 
                 Nothing ->
-                    addEditorState
-                        (setLayer
-                            { layer
-                                | path =
-                                    List.indexedMap
-                                        Tuple.pair
-                                        layer.path
-                                        |> List.filterMap
-                                            (\( index, point ) ->
-                                                if Set.member index editorState.selectedNodes then
-                                                    Nothing
-
-                                                else
-                                                    Just point
-                                            )
-                            }
-                            { editorState | selectedNodes = Set.empty }
-                        )
-                        model
+                    Debug.todo ""
+        --addEditorState
+        --    (setLayer
+        --        { layer
+        --            | paths =
+        --                layer.path
+        --                    |> List.filterMap
+        --                        (\( index, point ) ->
+        --                            if
+        --                                Set.member
+        --                                    { pathIndex = 0, nodeIndex = index }
+        --                                    editorState.selectedNodes
+        --                            then
+        --                                Nothing
+        --
+        --                            else
+        --                                Just point
+        --                        )
+        --        }
+        --        { editorState | selectedNodes = Set.empty }
+        --    )
+        --    model
 
       else
         model
@@ -653,7 +726,7 @@ type DragType
 
 
 type alias Dragging =
-    { offset : Vector2d Meters WorldCoordinate, dragType : DragType, index : Int }
+    { offset : Vector2d Meters WorldCoordinate, dragType : DragType, index : NodeId }
 
 
 isDragging : Config a -> Model -> Maybe Dragging
@@ -668,60 +741,65 @@ isDragging config model =
                     uiScale model
             in
             List.indexedMap
-                (\index segment ->
-                    let
-                        centerDistance =
-                            Vector2d.from mouseDownAt segment.position |> Vector2d.length
+                (\pathIndex path ->
+                    List.indexedMap
+                        (\index segment ->
+                            let
+                                centerDistance =
+                                    Vector2d.from mouseDownAt segment.position |> Vector2d.length
 
-                        nextDistance =
-                            Vector2d.from
-                                mouseDownAt
-                                (Point2d.translateBy segment.handleNext segment.position)
-                                |> Vector2d.length
+                                nextDistance =
+                                    Vector2d.from
+                                        mouseDownAt
+                                        (Point2d.translateBy segment.handleNext segment.position)
+                                        |> Vector2d.length
 
-                        previousDistance =
-                            Vector2d.from
-                                mouseDownAt
-                                (Point2d.translateBy segment.handlePrevious segment.position)
-                                |> Vector2d.length
+                                previousDistance =
+                                    Vector2d.from
+                                        mouseDownAt
+                                        (Point2d.translateBy segment.handlePrevious segment.position)
+                                        |> Vector2d.length
 
-                        offset =
-                            Vector2d.from mouseDownAt (screenToWorld config model mousePosition)
-                    in
-                    [ if centerDistance |> Quantity.lessThan (Length.meters (7 * uiScale_)) then
-                        { distance = centerDistance
-                        , offset = offset
-                        , dragType = CenterPoint
-                        , index = index
-                        }
-                            |> Just
+                                offset =
+                                    Vector2d.from mouseDownAt (screenToWorld config model mousePosition)
+                            in
+                            [ if centerDistance |> Quantity.lessThan (Length.meters (7 * uiScale_)) then
+                                { distance = centerDistance
+                                , offset = offset
+                                , dragType = CenterPoint
+                                , index = { pathIndex = index, nodeIndex = index }
+                                }
+                                    |> Just
 
-                      else
-                        Nothing
-                    , if nextDistance |> Quantity.lessThan (Length.meters (10 * uiScale_)) then
-                        { distance = nextDistance
-                        , offset = offset
-                        , dragType = NextHandle
-                        , index = index
-                        }
-                            |> Just
+                              else
+                                Nothing
+                            , if nextDistance |> Quantity.lessThan (Length.meters (10 * uiScale_)) then
+                                { distance = nextDistance
+                                , offset = offset
+                                , dragType = NextHandle
+                                , index = { pathIndex = index, nodeIndex = index }
+                                }
+                                    |> Just
 
-                      else
-                        Nothing
-                    , if previousDistance |> Quantity.lessThan (Length.meters (10 * uiScale_)) then
-                        { distance = previousDistance
-                        , offset = offset
-                        , dragType = PreviousHandle
-                        , index = index
-                        }
-                            |> Just
+                              else
+                                Nothing
+                            , if previousDistance |> Quantity.lessThan (Length.meters (10 * uiScale_)) then
+                                { distance = previousDistance
+                                , offset = offset
+                                , dragType = PreviousHandle
+                                , index = { pathIndex = index, nodeIndex = index }
+                                }
+                                    |> Just
 
-                      else
-                        Nothing
-                    ]
-                        |> List.filterMap identity
+                              else
+                                Nothing
+                            ]
+                                |> List.filterMap identity
+                        )
+                        path
                 )
-                layer.path
+                layer.paths
+                |> List.concat
                 |> List.concat
                 |> Quantity.minimumBy .distance
                 |> Maybe.map (\a -> { offset = a.offset, dragType = a.dragType, index = a.index })
@@ -814,26 +892,27 @@ update config msg model =
                                 ( _, layer ) =
                                     getLayer model.editorState
                             in
-                            addEditorState
-                                (setLayer
-                                    { layer
-                                        | path =
-                                            List.indexedMap
-                                                (\index segment ->
-                                                    dragSegment
-                                                        config
-                                                        index
-                                                        (Just dragging)
-                                                        True
-                                                        model.editorState.selectedNodes
-                                                        segment
-                                                )
-                                                layer.path
-                                    }
-                                    model.editorState
-                                )
-                                model2
+                            Debug.todo ""
 
+                        --addEditorState
+                        --    (setLayer
+                        --        { layer
+                        --            | path =
+                        --                List.indexedMap
+                        --                    (\index segment ->
+                        --                        dragSegment
+                        --                            config
+                        --                            index
+                        --                            (Just dragging)
+                        --                            True
+                        --                            model.editorState.selectedNodes
+                        --                            segment
+                        --                    )
+                        --                    layer.path
+                        --        }
+                        --        model.editorState
+                        --    )
+                        --    model2
                         Nothing ->
                             finishPathSegment (screenToWorld config model screenPosition) model2
 
@@ -954,54 +1033,55 @@ update config msg model =
             )
 
         PressedMirrorX ->
-            let
-                ( _, layer ) =
-                    getLayer model.editorState
-
-                selectedPoints =
-                    List.indexedMap Tuple.pair layer.path
-                        |> List.filterMap
-                            (\( index, segment ) ->
-                                if Set.member index model.editorState.selectedNodes then
-                                    Vector2d.from Point2d.origin segment.position |> Just
-
-                                else
-                                    Nothing
-                            )
-
-                centerPoint : Point2d Meters WorldCoordinate
-                centerPoint =
-                    selectedPoints
-                        |> Vector2d.sum
-                        |> Vector2d.scaleBy (1 / toFloat (List.length selectedPoints))
-                        |> (\v -> Point2d.translateBy v Point2d.origin)
-            in
-            ( addEditorState
-                (setLayer
-                    { layer
-                        | path =
-                            List.indexedMap
-                                (\index segment ->
-                                    if Set.member index model.editorState.selectedNodes then
-                                        let
-                                            axis =
-                                                Axis2d.withDirection Direction2d.y centerPoint
-                                        in
-                                        { position = Point2d.mirrorAcross axis segment.position
-                                        , handlePrevious = Vector2d.mirrorAcross axis segment.handlePrevious
-                                        , handleNext = Vector2d.mirrorAcross axis segment.handleNext
-                                        }
-
-                                    else
-                                        segment
-                                )
-                                layer.path
-                    }
-                    model.editorState
-                )
-                model
-            , Command.none
-            )
+            Debug.todo ""
+     --let
+     --    ( _, layer ) =
+     --        getLayer model.editorState
+     --
+     --    selectedPoints =
+     --        List.indexedMap Tuple.pair layer.path
+     --            |> List.filterMap
+     --                (\( index, segment ) ->
+     --                    if Set.member index model.editorState.selectedNodes then
+     --                        Vector2d.from Point2d.origin segment.position |> Just
+     --
+     --                    else
+     --                        Nothing
+     --                )
+     --
+     --    centerPoint : Point2d Meters WorldCoordinate
+     --    centerPoint =
+     --        selectedPoints
+     --            |> Vector2d.sum
+     --            |> Vector2d.scaleBy (1 / toFloat (List.length selectedPoints))
+     --            |> (\v -> Point2d.translateBy v Point2d.origin)
+     --in
+     --( addEditorState
+     --    (setLayer
+     --        { layer
+     --            | path =
+     --                List.indexedMap
+     --                    (\index segment ->
+     --                        if Set.member index model.editorState.selectedNodes then
+     --                            let
+     --                                axis =
+     --                                    Axis2d.withDirection Direction2d.y centerPoint
+     --                            in
+     --                            { position = Point2d.mirrorAcross axis segment.position
+     --                            , handlePrevious = Vector2d.mirrorAcross axis segment.handlePrevious
+     --                            , handleNext = Vector2d.mirrorAcross axis segment.handleNext
+     --                            }
+     --
+     --                        else
+     --                            segment
+     --                    )
+     --                    layer.path
+     --        }
+     --        model.editorState
+     --    )
+     --    model
+     --, Command.none
+     --)
     )
         |> Tuple.mapFirst (updateMesh config model)
 
