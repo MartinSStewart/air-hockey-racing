@@ -381,13 +381,27 @@ updateMesh config previousModel model =
                                     )
                                     splines
                                     |> Shape.shapeToMesh_
-                            , pathMesh = WebGL.triangles []
-
-                            --List.indexedMap
-                            --    (drawSegment config maybeMouseWorldPosition maybeDragging splines isCurrentLayer model)
-                            --    fullPath_
-                            --    |> List.concat
-                            --    |> WebGL.triangles
+                            , pathMesh =
+                                List.indexedMap
+                                    (\pathIndex path ->
+                                        List.indexedMap
+                                            (\nodeIndex segment ->
+                                                drawSegment
+                                                    config
+                                                    maybeMouseWorldPosition
+                                                    maybeDragging
+                                                    splines
+                                                    isCurrentLayer
+                                                    model
+                                                    { pathIndex = pathIndex, nodeIndex = nodeIndex }
+                                                    segment
+                                            )
+                                            path
+                                    )
+                                    fullPaths_
+                                    |> List.concat
+                                    |> List.concat
+                                    |> WebGL.triangles
                             }
                 )
                 model.editorState.layers
@@ -398,7 +412,7 @@ drawSegment :
     Config a
     -> Maybe (Point2d Meters WorldCoordinate)
     -> Maybe Dragging
-    -> List (QuadraticSpline2d Meters WorldCoordinate)
+    -> List (List (QuadraticSpline2d Meters WorldCoordinate))
     -> Bool
     -> Model
     -> NodeId
@@ -470,8 +484,8 @@ drawSegment config maybeMouseWorldPosition maybeDragging splines isCurrentLayer 
         ++ (case ( maybeMouseWorldPosition, maybeDragging, ( isCurrentLayer, model.placingPoint ) ) of
                 ( Just mouseWorldPosition, Nothing, ( True, Nothing ) ) ->
                     case
-                        List.map
-                            (Geometry.findNearestPoint mouseWorldPosition)
+                        List.concatMap
+                            (List.map (Geometry.findNearestPoint mouseWorldPosition))
                             splines
                             |> Quantity.minimumBy .dist
                     of
