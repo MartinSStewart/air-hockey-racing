@@ -713,11 +713,6 @@ animationFrame config model =
         |> Tuple.mapFirst (updateMesh config model)
 
 
-newPoint : Quantity Float units -> Quantity Float units -> Point2d units coordinates
-newPoint (Quantity x) (Quantity y) =
-    Point2d.unsafe { x = x, y = y }
-
-
 screenToWorld : Config a -> Model -> Point2d Pixels ScreenCoordinate -> Point2d Meters WorldCoordinate
 screenToWorld config model screenPosition =
     let
@@ -728,8 +723,8 @@ screenToWorld config model screenPosition =
         screenRectangle : Rectangle2d Pixels ScreenCoordinate
         screenRectangle =
             Rectangle2d.from
-                (newPoint Quantity.zero (Quantity.toFloatQuantity config.windowSize.height))
-                (newPoint (Quantity.toFloatQuantity config.windowSize.width) Quantity.zero)
+                (Point2d.xy Quantity.zero (Quantity.toFloatQuantity config.windowSize.height))
+                (Point2d.xy (Quantity.toFloatQuantity config.windowSize.width) Quantity.zero)
     in
     Camera3d.ray camera screenRectangle screenPosition
         |> Axis3d.originPoint
