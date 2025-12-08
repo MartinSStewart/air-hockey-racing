@@ -20,6 +20,7 @@ import Element.Border
 import Element.Font
 import Html exposing (Html)
 import Id exposing (Id)
+import Json.Decode
 import Keyboard
 import Lamdera
 import List.Extra as List
@@ -27,6 +28,7 @@ import Match exposing (LobbyPreview)
 import MatchName
 import MatchPage exposing (MatchId, WorldPixel)
 import Pixels exposing (Pixels)
+import Point2d
 import Ports
 import Quantity exposing (Quantity(..), Rate)
 import Size exposing (Size)
@@ -99,6 +101,8 @@ loadedInit loading time sounds ( userId, lobbyData ) =
     ( { key = loading.key
       , currentKeys = []
       , previousKeys = []
+      , currentMouse = { position = Point2d.origin, primaryDown = False, secondaryDown = False }
+      , previousMouse = { position = Point2d.origin, primaryDown = False, secondaryDown = False }
       , windowSize = loading.windowSize
       , devicePixelRatio = loading.devicePixelRatio
       , time = time
@@ -238,7 +242,7 @@ updateLoaded msg model =
         AnimationFrame time_ ->
             let
                 model2 =
-                    { model | time = time_, previousKeys = model.currentKeys }
+                    { model | time = time_, previousKeys = model.currentKeys, previousMouse = model.currentMouse }
             in
             case model2.page of
                 MatchPage matchSetupPage ->
@@ -310,6 +314,17 @@ updateLoaded msg model =
 
                 _ ->
                     ( model, Command.none )
+
+        MouseMoved x y ->
+            ( { model
+                | currentMouse =
+                    { position = Point2d.unsafe { x = x, y = y }
+                    , primaryDown = model.currentMouse.primaryDown
+                    , secondaryDown = model.currentMouse.secondaryDown
+                    }
+              }
+            , Command.none
+            )
 
 
 windowResizedUpdate : Size -> { b | windowSize : Size } -> ( { b | windowSize : Size }, Command FrontendOnly toMsg FrontendMsg_ )
@@ -675,5 +690,11 @@ subscriptions _ model =
                 Subscription.batch
                     [ Subscription.map KeyMsg Keyboard.subscriptions
                     , Effect.Browser.Events.onAnimationFrame AnimationFrame
+                    , Effect.Browser.Events.onMouseMove
+                        (Json.Decode.map2
+                            MouseMoved
+                            (Json.Decode.field "clientX" Json.Decode.float)
+                            (Json.Decode.field "clientY" Json.Decode.float)
+                        )
                     ]
         ]

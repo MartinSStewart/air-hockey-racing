@@ -89,10 +89,9 @@ type alias MatchState =
 
 type alias Player =
     { position : Point2d Meters WorldCoordinate
+    , targetPosition : Point2d Meters WorldCoordinate
     , velocity : Vector2d Meters WorldCoordinate
-    , rotationalVelocity : Angle
     , rotation : Angle
-    , input : Maybe (Direction2d WorldCoordinate)
     , finishTime : Place
     , lastCollision : Maybe (Id FrameId)
     , lastEmote : Maybe { time : Id FrameId, emote : Emote }
@@ -117,7 +116,7 @@ type Emote
 
 
 type alias Input =
-    { movement : Maybe (Direction2d WorldCoordinate)
+    { movement : Maybe (Point2d Meters WorldCoordinate)
     , emote : Maybe Emote
     }
 

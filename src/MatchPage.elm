@@ -2,6 +2,7 @@ module MatchPage exposing
     ( MatchId
     , MatchLocalOnly
     , Model
+    , Mouse
     , Msg
     , ScreenCoordinate
     , ToBackend(..)
@@ -449,7 +450,16 @@ type alias Config a =
         , sounds : Sounds
         , previousKeys : List Key
         , currentKeys : List Key
+        , previousMouse : Mouse
+        , currentMouse : Mouse
         , devicePixelRatio : Quantity Float (Rate WorldPixel Pixels)
+    }
+
+
+type alias Mouse =
+    { position : Point2d Meters WorldCoordinate
+    , primaryDown : Bool
+    , secondaryDown : Bool
     }
 
 
@@ -986,9 +996,9 @@ canvasViewHelper model matchSetup canvasSize =
                                 playerRadius_ =
                                     Length.inMeters playerRadius
 
-                                input : Maybe (Direction2d WorldCoordinate)
+                                input : Maybe (Point2d Meters WorldCoordinate)
                                 input =
-                                    getInputDirection model.windowSize model.currentKeys matchData.touchPosition
+                                    getInputDirection model
                             in
                             backgroundGrid cameraPosition zoom canvasSize
                                 :: WebGL.entityWith
@@ -1036,11 +1046,8 @@ canvasViewHelper model matchSetup canvasSize =
                                                         arrow
                                                         { view = viewMatrix
                                                         , model =
-                                                            pointToMatrix player.position
+                                                            pointToMatrix player.targetPosition
                                                                 |> Mat4.scale3 30 30 30
-                                                                |> Mat4.rotate
-                                                                    (Direction2d.toAngle direction |> Angle.inRadians |> (+) (pi / 2))
-                                                                    (Math.Vector3.vec3 0 0 1)
                                                         }
                                                     ]
 
@@ -1302,7 +1309,7 @@ gameUpdate frameId inputs model =
                             (Maybe.map
                                 (\a ->
                                     { a
-                                        | input = input.movement
+                                        | targetPosition = Maybe.withDefault a.targetPosition input.movement
                                         , lastEmote =
                                             case input.emote of
                                                 Just emote ->
@@ -1412,9 +1419,10 @@ updateVelocities frameId players =
 
                 newVelocity : Vector2d Meters WorldCoordinate
                 newVelocity =
-                    (case ( a.finishTime, a.input, elapsed |> Quantity.lessThan countdownDelay ) of
-                        ( DidNotFinish, Just input, False ) ->
-                            Direction2d.toVector input
+                    (case ( a.finishTime, elapsed |> Quantity.lessThan countdownDelay ) of
+                        ( DidNotFinish, False ) ->
+                            Vector2d.from a.position a.targetPosition
+                                |> Vector2d.normalize
                                 |> Vector2d.scaleBy 0.2
                                 |> Vector2d.unwrap
                                 |> Vector2d.unsafe
@@ -1427,40 +1435,21 @@ updateVelocities frameId players =
             in
             case nearestCollision of
                 Just { collisionVelocity, collisionPosition } ->
-                    let
-                        angleChange : Angle
-                        angleChange =
-                            Maybe.map2 Direction2d.angleFrom
-                                (Vector2d.direction collisionVelocity)
-                                (Vector2d.direction a.velocity)
-                                |> Maybe.withDefault (Angle.turns 0.5)
-                    in
                     { position = collisionPosition
+                    , targetPosition = a.targetPosition
                     , velocity = collisionVelocity
-                    , rotation = Quantity.plus a.rotation a.rotationalVelocity
-                    , rotationalVelocity =
-                        Angle.turns 0.5
-                            |> Quantity.minus (Quantity.abs angleChange)
-                            |> Quantity.multiplyBy
-                                (if Quantity.lessThanZero angleChange then
-                                    -0.01 * Length.inMeters (Vector2d.length collisionVelocity)
-
-                                 else
-                                    0.01 * Length.inMeters (Vector2d.length collisionVelocity)
-                                )
+                    , rotation = a.rotation
                     , finishTime = checkFinish a
-                    , input = a.input
                     , lastCollision = Just frameId
                     , lastEmote = a.lastEmote
                     }
 
                 Nothing ->
                     { position = Point2d.translateBy a.velocity a.position
+                    , targetPosition = a.targetPosition
                     , velocity = newVelocity
-                    , rotation = Quantity.plus a.rotation a.rotationalVelocity
-                    , rotationalVelocity = Quantity.multiplyBy 0.995 a.rotationalVelocity
+                    , rotation = a.rotation
                     , finishTime = checkFinish a
-                    , input = a.input
                     , lastCollision = a.lastCollision
                     , lastEmote = a.lastEmote
                     }
@@ -1843,16 +1832,17 @@ initMatch startTime users =
 
                         y =
                             index // playersPerRow
-                    in
-                    ( userId
-                    , { position =
+
+                        position =
                             Point2d.translateBy
                                 (Vector2d.fromMeters { x = toFloat x * spacing, y = toFloat y * spacing })
                                 playerStart
+                    in
+                    ( userId
+                    , { position = position
+                      , targetPosition = position
                       , velocity = Vector2d.zero
-                      , rotationalVelocity = Quantity.zero
                       , rotation = Quantity.zero
-                      , input = Nothing
                       , finishTime = DidNotFinish
                       , lastCollision = Nothing
                       , lastEmote = Nothing
@@ -2117,39 +2107,13 @@ colorSelector onSelect currentColor =
         |> Element.wrappedRow []
 
 
-getInputDirection : Size -> List Key -> Maybe (Point2d Pixels ScreenCoordinate) -> Maybe (Direction2d WorldCoordinate)
-getInputDirection windowSize keys maybeTouchPosition =
-    let
-        input : Keyboard.Arrows.Direction
-        input =
-            Keyboard.Arrows.arrowsDirection keys
-    in
-    if input == Keyboard.Arrows.NoDirection then
-        case maybeTouchPosition of
-            Just touchPosition ->
-                Direction2d.from
-                    ({ x = toFloat (Pixels.inPixels windowSize.width) / 2
-                     , y = toFloat (Pixels.inPixels windowSize.height) / 2
-                     }
-                        |> Point2d.fromPixels
-                    )
-                    touchPosition
-                    |> Maybe.map
-                        (Direction2d.mirrorAcross Axis2d.y
-                            >> Direction2d.toAngle
-                            >> Angle.inDegrees
-                            >> (*) (1 / 10)
-                            >> round
-                            >> (*) 10
-                            >> toFloat
-                            >> Direction2d.degrees
-                        )
-
-            Nothing ->
-                Nothing
+getInputDirection : Config a -> Maybe (Point2d Meters WorldCoordinate)
+getInputDirection model =
+    if model.currentMouse.primaryDown && not model.previousMouse.primaryDown then
+        Just model.currentMouse.position
 
     else
-        directionToOffset input
+        Nothing
 
 
 animationFrame : Config a -> Model -> ( Model, Command FrontendOnly ToBackend Msg )
@@ -2163,13 +2127,13 @@ animationFrame config model =
                             let
                                 previousInput : Input
                                 previousInput =
-                                    { movement = getInputDirection config.windowSize config.previousKeys matchData.previousTouchPosition
+                                    { movement = getInputDirection config
                                     , emote = Nothing
                                     }
 
                                 input : Input
                                 input =
-                                    { movement = getInputDirection config.windowSize config.currentKeys matchData.touchPosition
+                                    { movement = getInputDirection config
                                     , emote =
                                         if Keyboard.keyPressed config (Keyboard.Character "1") then
                                             Just SurpriseEmote

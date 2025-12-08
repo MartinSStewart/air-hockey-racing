@@ -26,7 +26,7 @@ import Effect.Time as Time
 import Id exposing (Id)
 import Keyboard
 import Match exposing (LobbyPreview, Match, ServerTime)
-import MatchPage exposing (MatchId, WorldPixel)
+import MatchPage exposing (MatchId, Mouse, WorldPixel)
 import PingData exposing (PingData)
 import Pixels exposing (Pixels)
 import Quantity exposing (Quantity, Rate)
@@ -64,6 +64,8 @@ type alias FrontendLoaded =
     , windowSize : Size
     , currentKeys : List Keyboard.Key
     , previousKeys : List Keyboard.Key
+    , currentMouse : Mouse
+    , previousMouse : Mouse
     , devicePixelRatio : Quantity Float (Rate WorldPixel Pixels)
     , time : Time.Posix
     , debugTimeOffset : Duration
@@ -119,6 +121,7 @@ type FrontendMsg_
     | GotTime Time.Posix
     | RandomInput Time.Posix
     | EditorPageMsg EditorPage.Msg
+    | MouseMoved Float Float
 
 
 type ToBackend
