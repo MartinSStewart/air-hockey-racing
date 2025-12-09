@@ -33,8 +33,6 @@ module Match exposing
     )
 
 import Angle exposing (Angle)
-import AssocList as Dict exposing (Dict)
-import AssocSet as Set
 import ColorIndex exposing (ColorIndex(..))
 import Decal exposing (Decal)
 import Direction2d exposing (Direction2d)
@@ -47,6 +45,8 @@ import MatchName exposing (MatchName)
 import Point2d exposing (Point2d)
 import Quantity
 import Random
+import SeqDict exposing (SeqDict)
+import SeqSet
 import TextMessage exposing (TextMessage)
 import Time
 import Timeline exposing (FrameId, Timeline)
@@ -66,10 +66,10 @@ type alias Match_ =
     { name : MatchName
     , owner : Id UserId
     , ownerPlayerData : PlayerData
-    , users : Dict (Id UserId) PlayerData
+    , users : SeqDict (Id UserId) PlayerData
     , matchActive : Maybe MatchActive
     , messages : List { userId : Id UserId, message : TextMessage }
-    , previousMatch : Maybe (Dict (Id UserId) Place)
+    , previousMatch : Maybe (SeqDict (Id UserId) Place)
     , maxPlayers : Int
     }
 
@@ -84,7 +84,7 @@ type alias TimelineEvent =
 
 
 type alias MatchState =
-    { players : Dict (Id UserId) Player }
+    { players : SeqDict (Id UserId) Player }
 
 
 type alias Player =
@@ -116,7 +116,7 @@ type Emote
 
 
 type alias Input =
-    { movement : Maybe (Point2d Meters WorldCoordinate)
+    { targetPosition : Maybe (Point2d Meters WorldCoordinate)
     , emote : Maybe Emote
     }
 
@@ -132,7 +132,7 @@ type Msg
     | MatchInputRequest ServerTime Input
     | SetMatchName MatchName
     | SendTextMessage TextMessage
-    | MatchFinished (Dict (Id UserId) Place)
+    | MatchFinished (SeqDict (Id UserId) Place)
     | SetMaxPlayers Int
 
 
@@ -140,7 +140,7 @@ type ServerTime
     = ServerTime Time.Posix
 
 
-previousMatchFinishTimes : Match -> Maybe (Dict (Id UserId) Place)
+previousMatchFinishTimes : Match -> Maybe (SeqDict (Id UserId) Place)
 previousMatchFinishTimes (Match matchSetup) =
     matchSetup.previousMatch
 
@@ -180,7 +180,7 @@ init owner =
     { name = MatchName.empty
     , owner = owner
     , ownerPlayerData = initPlayerData owner
-    , users = Dict.empty
+    , users = SeqDict.empty
     , matchActive = Nothing
     , messages = []
     , previousMatch = Nothing
@@ -225,7 +225,7 @@ joinUser userId (Match lobby) =
         lobby
 
      else
-        { lobby | users = Dict.insert userId (initPlayerData userId) lobby.users }
+        { lobby | users = SeqDict.insert userId (initPlayerData userId) lobby.users }
     )
         |> Match
 
@@ -235,14 +235,14 @@ leaveUser userId (Match lobby) =
     if userId == lobby.owner then
         let
             users =
-                Dict.toList lobby.users
+                SeqDict.toList lobby.users
         in
         case users of
             ( newOwner, newOwnerPlayerData ) :: _ ->
                 { lobby
                     | owner = newOwner
                     , ownerPlayerData = newOwnerPlayerData
-                    , users = List.drop 1 users |> Dict.fromList
+                    , users = List.drop 1 users |> SeqDict.fromList
                 }
                     |> Match
                     |> Just
@@ -251,7 +251,7 @@ leaveUser userId (Match lobby) =
                 Nothing
 
     else
-        { lobby | users = Dict.remove userId lobby.users } |> Match |> Just
+        { lobby | users = SeqDict.remove userId lobby.users } |> Match |> Just
 
 
 matchActive : Match -> Maybe { startTime : ServerTime, timeline : Timeline TimelineEvent }
@@ -271,17 +271,17 @@ isOwner userId (Match lobby) =
 
 preview : Match -> LobbyPreview
 preview (Match lobby) =
-    { name = lobby.name, userCount = Dict.size lobby.users + 1, maxUserCount = lobby.maxPlayers }
+    { name = lobby.name, userCount = SeqDict.size lobby.users + 1, maxUserCount = lobby.maxPlayers }
 
 
 allUsers : Match -> Nonempty ( Id UserId, PlayerData )
 allUsers (Match lobby) =
-    Nonempty ( lobby.owner, lobby.ownerPlayerData ) (Dict.toList lobby.users)
+    Nonempty ( lobby.owner, lobby.ownerPlayerData ) (SeqDict.toList lobby.users)
 
 
-allUsers_ : Match -> Dict (Id UserId) PlayerData
+allUsers_ : Match -> SeqDict (Id UserId) PlayerData
 allUsers_ (Match lobby) =
-    Dict.insert lobby.owner lobby.ownerPlayerData lobby.users
+    SeqDict.insert lobby.owner lobby.ownerPlayerData lobby.users
 
 
 messagesOldestToNewest : Match -> List { userId : Id UserId, message : TextMessage }
@@ -338,7 +338,7 @@ setMaxPlayers maxPlayerCount (Match matchSetup) =
     Match { matchSetup | maxPlayers = maxPlayerCount }
 
 
-matchFinished : Dict (Id UserId) Place -> Match -> Match
+matchFinished : SeqDict (Id UserId) Place -> Match -> Match
 matchFinished placements (Match matchSetup) =
     (case matchSetup.matchActive of
         Just _ ->
@@ -365,7 +365,7 @@ startMatch time userId (Match matchSetup) =
                 |> List.count (\( _, player ) -> player.mode == PlayerMode)
     in
     if matchSetup.owner == userId && totalPlayers > 0 then
-        { matchSetup | matchActive = Just { startTime = time, timeline = Set.empty } }
+        { matchSetup | matchActive = Just { startTime = time, timeline = SeqSet.empty } }
             |> Match
 
     else
@@ -396,7 +396,7 @@ addInput : Id UserId -> ServerTime -> Input -> Match -> Match
 addInput userId serverTime input (Match matchSetup) =
     { matchSetup
         | matchActive =
-            case ( allUsers_ (Match matchSetup) |> Dict.get userId, matchSetup.matchActive ) of
+            case ( allUsers_ (Match matchSetup) |> SeqDict.get userId, matchSetup.matchActive ) of
                 ( Just playerData, Just match ) ->
                     case playerData.mode of
                         PlayerMode ->
@@ -407,10 +407,10 @@ addInput userId serverTime input (Match matchSetup) =
                             Just
                                 { match
                                     | timeline =
-                                        Set.insert
+                                        SeqSet.insert
                                             ( newFrameId, { userId = userId, input = input } )
                                             match.timeline
-                                            |> Set.filter
+                                            |> SeqSet.filter
                                                 (\( frameId_, _ ) ->
                                                     Id.toInt newFrameId - Timeline.maxCacheSize < Id.toInt frameId_
                                                 )
@@ -431,6 +431,6 @@ updatePlayerData userId updateFunc (Match matchSetup) =
         { matchSetup | ownerPlayerData = updateFunc matchSetup.ownerPlayerData }
 
      else
-        { matchSetup | users = Dict.update userId (Maybe.map updateFunc) matchSetup.users }
+        { matchSetup | users = SeqDict.update userId (Maybe.map updateFunc) matchSetup.users }
     )
         |> Match

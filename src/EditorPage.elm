@@ -11,8 +11,6 @@ module EditorPage exposing
     , view
     )
 
-import AssocList as Dict exposing (Dict)
-import AssocSet as Set exposing (Set)
 import Axis2d
 import Axis3d
 import Camera3d exposing (Camera3d)
@@ -49,6 +47,8 @@ import Ports
 import QuadraticSpline2d exposing (QuadraticSpline2d)
 import Quantity exposing (Quantity(..), Rate)
 import Rectangle2d
+import SeqDict exposing (SeqDict)
+import SeqSet exposing (SeqSet)
 import Serialize
 import Shape exposing (Layer, LayerId, PathSegment)
 import Size exposing (Size)
@@ -86,15 +86,15 @@ type alias Model =
     , undoHistory : List EditorState
     , redoHistory : List EditorState
     , viewportHeight : Length
-    , meshCache : Dict (Id LayerId) { pathMesh : Mesh Vertex, pathFillMesh : Mesh FontVertex }
+    , meshCache : SeqDict (Id LayerId) { pathMesh : Mesh Vertex, pathFillMesh : Mesh FontVertex }
     , placingPoint : Maybe { index : NodeId, position : Point2d Meters WorldCoordinate }
     }
 
 
 type alias EditorState =
-    { layers : Dict (Id LayerId) Layer
+    { layers : SeqDict (Id LayerId) Layer
     , currentLayer : Id LayerId
-    , selectedNodes : Set NodeId
+    , selectedNodes : SeqSet NodeId
     }
 
 
@@ -149,43 +149,43 @@ init =
     , editorState = initEditorState
     , redoHistory = []
     , viewportHeight = Length.meters 2000
-    , meshCache = Dict.empty
+    , meshCache = SeqDict.empty
     , placingPoint = Nothing
     }
 
 
 initEditorState =
-    { layers = Dict.fromList [ ( Id.fromInt 0, initLayer ) ]
+    { layers = SeqDict.fromList [ ( Id.fromInt 0, initLayer ) ]
     , currentLayer = Id.fromInt 0
-    , selectedNodes = Set.empty
+    , selectedNodes = SeqSet.empty
     }
 
 
 getLayer : EditorState -> ( Id LayerId, Layer )
 getLayer editorState =
-    case Dict.get editorState.currentLayer editorState.layers of
+    case SeqDict.get editorState.currentLayer editorState.layers of
         Just layer ->
             ( editorState.currentLayer, layer )
 
         Nothing ->
-            Dict.toList editorState.layers |> List.head |> Maybe.withDefault ( Id.fromInt 0, initLayer )
+            SeqDict.toList editorState.layers |> List.head |> Maybe.withDefault ( Id.fromInt 0, initLayer )
 
 
 setLayer : Layer -> EditorState -> EditorState
 setLayer layer editorState =
-    if Dict.member editorState.currentLayer editorState.layers then
-        { editorState | layers = Dict.update editorState.currentLayer (\_ -> Just layer) editorState.layers }
+    if SeqDict.member editorState.currentLayer editorState.layers then
+        { editorState | layers = SeqDict.update editorState.currentLayer (\_ -> Just layer) editorState.layers }
 
     else
-        case Dict.toList editorState.layers of
+        case SeqDict.toList editorState.layers of
             ( id, _ ) :: rest ->
-                { editorState | layers = ( id, layer ) :: rest |> Dict.fromList }
+                { editorState | layers = ( id, layer ) :: rest |> SeqDict.fromList }
 
             [] ->
-                { editorState | layers = [ ( Id.fromInt 0, layer ) ] |> Dict.fromList }
+                { editorState | layers = [ ( Id.fromInt 0, layer ) ] |> SeqDict.fromList }
 
 
-nearestPathIndex : Config a -> Point2d Meters WorldCoordinate -> Bool -> Set NodeId -> Layer -> NodeId
+nearestPathIndex : Config a -> Point2d Meters WorldCoordinate -> Bool -> SeqSet NodeId -> Layer -> NodeId
 nearestPathIndex config point isSelectedLayer selection layer =
     List.indexedMap
         (\pathIndex path ->
@@ -310,7 +310,7 @@ updateMesh : Config a -> Model -> Model -> Model
 updateMesh config previousModel model =
     { model
         | meshCache =
-            Dict.map
+            SeqDict.map
                 (\layerId layer ->
                     let
                         isCurrentLayer =
@@ -324,7 +324,7 @@ updateMesh config previousModel model =
                                 Nothing
                     in
                     case
-                        ( Dict.get layerId model.meshCache
+                        ( SeqDict.get layerId model.meshCache
                         , (model.editorState == previousModel.editorState)
                             && not
                                 (Keyboard.keyPressed config Keyboard.Control
@@ -424,10 +424,7 @@ drawSegment config maybeMouseWorldPosition maybeDragging splines isCurrentLayer 
             uiScale model
 
         color =
-            if
-                isCurrentLayer
-                    && Set.member index model.editorState.selectedNodes
-            then
+            if isCurrentLayer && SeqSet.member index model.editorState.selectedNodes then
                 Math.Vector3.vec3 0 0.8 0.1
 
             else
@@ -514,7 +511,7 @@ drawSegment config maybeMouseWorldPosition maybeDragging splines isCurrentLayer 
             )
 
 
-dragSegment : Config a -> NodeId -> Maybe Dragging -> Bool -> Set NodeId -> PathSegment -> PathSegment
+dragSegment : Config a -> NodeId -> Maybe Dragging -> Bool -> SeqSet NodeId -> PathSegment -> PathSegment
 dragSegment config index maybeDragging isCurrentLayer selection pathSegment =
     let
         ctrlDown =
@@ -522,7 +519,7 @@ dragSegment config index maybeDragging isCurrentLayer selection pathSegment =
     in
     case maybeDragging of
         Just dragging ->
-            if isCurrentLayer && Set.member index selection then
+            if isCurrentLayer && SeqSet.member index selection then
                 case dragging.dragType of
                     CenterPoint ->
                         { pathSegment
@@ -570,7 +567,7 @@ pathToQuadraticSplines :
     Config a
     -> Maybe Dragging
     -> Bool
-    -> Set NodeId
+    -> SeqSet NodeId
     -> Int
     -> List PathSegment
     -> List (List (QuadraticSpline2d Meters WorldCoordinate))
@@ -671,7 +668,7 @@ animationFrame config model =
                 model
 
       else if Keyboard.keyPressed config Keyboard.Delete then
-        if Set.isEmpty editorState.selectedNodes then
+        if SeqSet.isEmpty editorState.selectedNodes then
             model
 
         else
@@ -690,7 +687,7 @@ animationFrame config model =
                                                 |> List.filterMap
                                                     (\( nodeIndex, point ) ->
                                                         if
-                                                            Set.member
+                                                            SeqSet.member
                                                                 { pathIndex = pathIndex, nodeIndex = nodeIndex }
                                                                 editorState.selectedNodes
                                                         then
@@ -702,7 +699,7 @@ animationFrame config model =
                                         )
                                         layer.paths
                             }
-                            { editorState | selectedNodes = Set.empty }
+                            { editorState | selectedNodes = SeqSet.empty }
                         )
                         model
 
@@ -853,14 +850,14 @@ handleMouseDown config model event =
                                         { editorState
                                             | selectedNodes =
                                                 if Keyboard.keyDown config Keyboard.Shift then
-                                                    if Set.member dragging.index editorState.selectedNodes then
-                                                        Set.remove dragging.index editorState.selectedNodes
+                                                    if SeqSet.member dragging.index editorState.selectedNodes then
+                                                        SeqSet.remove dragging.index editorState.selectedNodes
 
                                                     else
-                                                        Set.insert dragging.index editorState.selectedNodes
+                                                        SeqSet.insert dragging.index editorState.selectedNodes
 
                                                 else
-                                                    Set.singleton dragging.index
+                                                    SeqSet.singleton dragging.index
                                         }
                                         model2
 
@@ -991,7 +988,7 @@ update config msg model =
                     model.editorState
             in
             ( replaceEditorState
-                { editorState | currentLayer = layerId, selectedNodes = Set.empty }
+                { editorState | currentLayer = layerId, selectedNodes = SeqSet.empty }
                 model
             , Command.none
             )
@@ -1004,7 +1001,7 @@ update config msg model =
                 editorState =
                     model.editorState
             in
-            ( addEditorState { editorState | layers = Dict.remove layerId editorState.layers } model
+            ( addEditorState { editorState | layers = SeqDict.remove layerId editorState.layers } model
             , Command.none
             )
 
@@ -1060,7 +1057,7 @@ update config msg model =
                                 |> List.filterMap
                                     (\( nodeIndex, segment ) ->
                                         if
-                                            Set.member
+                                            SeqSet.member
                                                 { pathIndex = pathIndex, nodeIndex = nodeIndex }
                                                 model.editorState.selectedNodes
                                         then
@@ -1089,7 +1086,7 @@ update config msg model =
                                     List.indexedMap
                                         (\nodeIndex segment ->
                                             if
-                                                Set.member
+                                                SeqSet.member
                                                     { pathIndex = pathIndex, nodeIndex = nodeIndex }
                                                     model.editorState.selectedNodes
                                             then
@@ -1125,16 +1122,16 @@ addLayer layer model =
             model.editorState
 
         layerId =
-            Dict.keys model.editorState.layers
+            SeqDict.keys model.editorState.layers
                 |> List.maximumBy Id.toInt
                 |> Maybe.withDefault (Id.fromInt 0)
                 |> Id.increment
     in
     addEditorState
         { editorState
-            | layers = Dict.insert layerId layer editorState.layers
+            | layers = SeqDict.insert layerId layer editorState.layers
             , currentLayer = layerId
-            , selectedNodes = Set.empty
+            , selectedNodes = SeqSet.empty
         }
         model
 
@@ -1145,12 +1142,12 @@ moveLayers moveUp layerId model =
         editorState =
             model.editorState
     in
-    case Dict.toList editorState.layers |> List.findIndex (Tuple.first >> (==) layerId) of
+    case SeqDict.toList editorState.layers |> List.findIndex (Tuple.first >> (==) layerId) of
         Just index ->
             addEditorState
                 { editorState
                     | layers =
-                        Dict.toList editorState.layers
+                        SeqDict.toList editorState.layers
                             |> List.swapAt
                                 index
                                 (if moveUp then
@@ -1160,7 +1157,7 @@ moveLayers moveUp layerId model =
                                     index + 1
                                 )
                             |> List.reverse
-                            |> Dict.fromList
+                            |> SeqDict.fromList
                 }
                 model
 
@@ -1291,7 +1288,7 @@ buttonAttributes =
     ]
 
 
-layersView : Id LayerId -> Dict (Id LayerId) Layer -> Element Msg
+layersView : Id LayerId -> SeqDict (Id LayerId) Layer -> Element Msg
 layersView currentLayer layers =
     List.map
         (\( layerId, _ ) ->
@@ -1339,7 +1336,7 @@ layersView currentLayer layers =
                     }
                 ]
         )
-        (Dict.toList layers)
+        (SeqDict.toList layers)
         ++ [ Ui.button
                 buttonAttributes
                 { onPress = PressedAddLayer
@@ -1380,7 +1377,7 @@ canvasView model canvasSize =
     [ MatchPage.backgroundGrid model.cameraPosition (1 / Length.inMeters model.viewportHeight) canvasSize ]
         ++ List.concatMap
             (\( layerId, layer ) ->
-                case Dict.get layerId model.meshCache of
+                case SeqDict.get layerId model.meshCache of
                     Just cache ->
                         FontRender.drawLayer
                             (Math.Vector3.vec3
@@ -1409,7 +1406,7 @@ canvasView model canvasSize =
                     Nothing ->
                         []
             )
-            (Dict.toList model.editorState.layers)
+            (SeqDict.toList model.editorState.layers)
 
 
 

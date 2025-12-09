@@ -1,6 +1,5 @@
 module Backend exposing (app)
 
-import AssocList as Dict exposing (Dict)
 import Effect.Command as Command exposing (BackendOnly, Command)
 import Effect.Lamdera exposing (ClientId, SessionId)
 import Effect.Subscription as Subscription exposing (Subscription)
@@ -12,6 +11,7 @@ import List.Nonempty
 import Match exposing (Match, Msg(..), ServerTime(..))
 import MatchPage exposing (MatchId)
 import NetworkModel exposing (EventId)
+import SeqDict exposing (SeqDict)
 import Types exposing (..)
 import User exposing (UserId)
 
@@ -37,9 +37,9 @@ subscriptions _ =
 
 init : BackendModel
 init =
-    { userSessions = Dict.empty
-    , users = Dict.empty
-    , lobbies = Dict.empty
+    { userSessions = SeqDict.empty
+    , users = SeqDict.empty
+    , lobbies = SeqDict.empty
     , dummyChange = 0
     , counter = 0
     }
@@ -51,17 +51,17 @@ update msg model =
         ClientConnected sessionId clientId ->
             let
                 { clientIds, userId } =
-                    Dict.get sessionId model.userSessions
+                    SeqDict.get sessionId model.userSessions
                         |> Maybe.withDefault
-                            { userId = Dict.size model.users |> Id.fromInt, clientIds = Dict.empty }
+                            { userId = SeqDict.size model.users |> Id.fromInt, clientIds = SeqDict.empty }
             in
             ( { model
                 | userSessions =
-                    Dict.insert
+                    SeqDict.insert
                         sessionId
-                        { clientIds = Dict.insert clientId () clientIds, userId = userId }
+                        { clientIds = SeqDict.insert clientId () clientIds, userId = userId }
                         model.userSessions
-                , users = Dict.insert userId { name = "TempName" } model.users
+                , users = SeqDict.insert userId { name = "TempName" } model.users
               }
             , ClientInit userId (getLobbyData model)
                 |> Effect.Lamdera.sendToFrontend clientId
@@ -76,10 +76,10 @@ update msg model =
                     let
                         matchIds : List (Id MatchId)
                         matchIds =
-                            Dict.toList model.lobbies
+                            SeqDict.toList model.lobbies
                                 |> List.filterMap
                                     (\( lobbyId, match ) ->
-                                        if Match.allUsers_ match |> Dict.member userId then
+                                        if Match.allUsers_ match |> SeqDict.member userId then
                                             Just lobbyId
 
                                         else
@@ -93,12 +93,12 @@ update msg model =
                         )
                         ( { model
                             | userSessions =
-                                Dict.update
+                                SeqDict.update
                                     sessionId
                                     (Maybe.map
                                         (\userSession ->
                                             { userSession
-                                                | clientIds = Dict.remove clientId userSession.clientIds
+                                                | clientIds = SeqDict.remove clientId userSession.clientIds
                                             }
                                         )
                                     )
@@ -115,21 +115,21 @@ update msg model =
             updateFromFrontendWithTime sessionId clientId toBackend model time
 
 
-getLobbyData : BackendModel -> { lobbies : Dict (Id MatchId) Match.LobbyPreview }
+getLobbyData : BackendModel -> { lobbies : SeqDict (Id MatchId) Match.LobbyPreview }
 getLobbyData model =
     { lobbies =
-        Dict.filter
+        SeqDict.filter
             (\_ lobby -> Match.matchActive lobby == Nothing)
             model.lobbies
-            |> Dict.map (\_ lobby -> Match.preview lobby)
+            |> SeqDict.map (\_ lobby -> Match.preview lobby)
     }
 
 
 getUserFromSessionId : SessionId -> BackendModel -> Maybe ( Id UserId, BackendUserData )
 getUserFromSessionId sessionId model =
-    case Dict.get sessionId model.userSessions of
+    case SeqDict.get sessionId model.userSessions of
         Just { userId } ->
-            case Dict.get userId model.users of
+            case SeqDict.get userId model.users of
                 Just user ->
                     Just ( userId, user )
 
@@ -158,7 +158,7 @@ updateFromFrontendWithTime :
     -> ServerTime
     -> ( BackendModel, Command BackendOnly ToFrontend BackendMsg )
 updateFromFrontendWithTime sessionId clientId msg model time =
-    case Dict.get sessionId model.userSessions of
+    case SeqDict.get sessionId model.userSessions of
         Just { userId } ->
             case msg of
                 CreateMatchRequest ->
@@ -172,10 +172,10 @@ updateFromFrontendWithTime sessionId clientId msg model time =
                         lobbyPreview =
                             Match.preview lobby
                     in
-                    ( { model2 | lobbies = Dict.insert lobbyId lobby model2.lobbies }
+                    ( { model2 | lobbies = SeqDict.insert lobbyId lobby model2.lobbies }
                     , Command.batch
                         [ CreateLobbyResponse lobbyId lobby |> Effect.Lamdera.sendToFrontend clientId
-                        , Dict.keys model2.userSessions
+                        , SeqDict.keys model2.userSessions
                             |> List.map
                                 (\userSessionId ->
                                     CreateLobbyBroadcast lobbyId lobbyPreview
@@ -208,7 +208,7 @@ matchSetupRequest :
     -> BackendModel
     -> ( BackendModel, Command BackendOnly ToFrontend BackendMsg )
 matchSetupRequest currentTime lobbyId userId eventId clientId matchSetupMsg model =
-    case Dict.get lobbyId model.lobbies of
+    case SeqDict.get lobbyId model.lobbies of
         Just matchSetup ->
             let
                 matchSetup2 : Match
@@ -217,7 +217,7 @@ matchSetupRequest currentTime lobbyId userId eventId clientId matchSetupMsg mode
 
                 model2 : BackendModel
                 model2 =
-                    { model | lobbies = Dict.update lobbyId (\_ -> Just matchSetup2) model.lobbies }
+                    { model | lobbies = SeqDict.update lobbyId (\_ -> Just matchSetup2) model.lobbies }
 
                 matchSetupMsg2 : Msg
                 matchSetupMsg2 =
@@ -289,7 +289,7 @@ matchSetupRequest currentTime lobbyId userId eventId clientId matchSetupMsg mode
                         Nothing ->
                             let
                                 model3 =
-                                    { model | lobbies = Dict.remove lobbyId model.lobbies }
+                                    { model | lobbies = SeqDict.remove lobbyId model.lobbies }
                             in
                             ( model3
                             , Command.batch
@@ -325,7 +325,7 @@ getId model =
 
 getSessionIdsFromUserId : Id UserId -> BackendModel -> List SessionId
 getSessionIdsFromUserId userId model =
-    Dict.toList model.userSessions
+    SeqDict.toList model.userSessions
         |> List.filterMap
             (\( sessionId, data ) ->
                 if userId == data.userId then

@@ -10,12 +10,12 @@ module Types exposing
     , FrontendMsg_(..)
     , JoinLobbyError(..)
     , MainLobbyInitData
+    , MouseButton(..)
     , Page(..)
     , ToBackend(..)
     , ToFrontend(..)
     )
 
-import AssocList exposing (Dict)
 import Audio
 import Browser
 import Duration exposing (Duration)
@@ -26,10 +26,12 @@ import Effect.Time as Time
 import Id exposing (Id)
 import Keyboard
 import Match exposing (LobbyPreview, Match, ServerTime)
-import MatchPage exposing (MatchId, Mouse, WorldPixel)
+import MatchPage exposing (MatchId, Mouse, ScreenCoordinate, WorldPixel)
 import PingData exposing (PingData)
 import Pixels exposing (Pixels)
+import Point2d exposing (Point2d)
 import Quantity exposing (Quantity, Rate)
+import SeqDict exposing (SeqDict)
 import Size exposing (Size)
 import Sounds exposing (Sounds)
 import User exposing (UserId)
@@ -55,7 +57,7 @@ type alias FrontendLoading =
     , time : Maybe Time.Posix
     , debugTimeOffset : Duration
     , initData : Maybe ( Id UserId, MainLobbyInitData )
-    , sounds : Dict String (Result Audio.LoadError Audio.Source)
+    , sounds : SeqDict String (Result Audio.LoadError Audio.Source)
     }
 
 
@@ -84,19 +86,19 @@ type Page
 
 
 type alias MainLobbyPage_ =
-    { lobbies : Dict (Id MatchId) LobbyPreview
+    { lobbies : SeqDict (Id MatchId) LobbyPreview
     , joinLobbyError : Maybe JoinLobbyError
     }
 
 
 type alias MainLobbyInitData =
-    { lobbies : Dict (Id MatchId) LobbyPreview }
+    { lobbies : SeqDict (Id MatchId) LobbyPreview }
 
 
 type alias BackendModel =
-    { userSessions : Dict SessionId { clientIds : Dict ClientId (), userId : Id UserId }
-    , users : Dict (Id UserId) BackendUserData
-    , lobbies : Dict (Id MatchId) Match
+    { userSessions : SeqDict SessionId { clientIds : SeqDict ClientId (), userId : Id UserId }
+    , users : SeqDict (Id UserId) BackendUserData
+    , lobbies : SeqDict (Id MatchId) Match
     , dummyChange : Float
     , counter : Int
     }
@@ -121,7 +123,11 @@ type FrontendMsg_
     | GotTime Time.Posix
     | RandomInput Time.Posix
     | EditorPageMsg EditorPage.Msg
-    | MouseMoved Float Float
+
+
+type MouseButton
+    = PrimaryButton
+    | SecondaryButton
 
 
 type ToBackend

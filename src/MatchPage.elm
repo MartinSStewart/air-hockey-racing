@@ -26,15 +26,13 @@ module MatchPage exposing
     )
 
 import Angle exposing (Angle)
-import AssocList as Dict exposing (Dict)
-import AssocSet as Set exposing (Set)
 import Audio
 import Axis2d
 import BoundingBox2d exposing (BoundingBox2d)
 import Camera3d exposing (Camera3d)
 import ColorIndex exposing (ColorIndex)
 import Decal exposing (Decal)
-import Dict as RegularDict
+import Dict exposing (Dict)
 import Direction2d exposing (Direction2d)
 import Direction3d
 import Duration exposing (Duration)
@@ -51,10 +49,12 @@ import Element.Border
 import Element.Font
 import Element.Input
 import FontRender
+import Frame2d
 import Geometry
 import Geometry.Interop.LinearAlgebra.Point2d
 import Html.Attributes
 import Html.Events
+import Html.Events.Extra.Pointer
 import Html.Events.Extra.Touch
 import Id exposing (Id)
 import Json.Decode
@@ -81,6 +81,8 @@ import Quantity exposing (Quantity(..), Rate)
 import Random
 import Random.List as Random
 import RasterShapes
+import SeqDict exposing (SeqDict)
+import SeqSet exposing (SeqSet)
 import Shape
 import Size exposing (Size)
 import Sounds exposing (Sounds)
@@ -110,9 +112,10 @@ type Msg
     | PressedSaveMaxPlayers Int
     | PressedResetMaxPlayers
     | ScrolledToBottom
-    | PointerDown Html.Events.Extra.Touch.Event
-    | PointerUp
-    | PointerMoved Html.Events.Extra.Touch.Event
+    | PointerDown Html.Events.Extra.Pointer.Event
+    | PointerUp Html.Events.Extra.Pointer.Event
+    | PointerLeave Html.Events.Extra.Pointer.Event
+    | PointerMoved Html.Events.Extra.Pointer.Event
 
 
 type MatchId
@@ -164,10 +167,12 @@ type ScreenCoordinate
 
 type alias MatchActiveLocal_ =
     { timelineCache : Result Timeline.Error (TimelineCache MatchState)
-    , userIds : Dict (Id UserId) (Mesh Vertex)
+    , userIds : SeqDict (Id UserId) (Mesh Vertex)
     , wallMesh : Mesh Vertex
-    , touchPosition : Maybe (Point2d Pixels ScreenCoordinate)
-    , previousTouchPosition : Maybe (Point2d Pixels ScreenCoordinate)
+    , touchPosition : Maybe (Point2d WorldPixel ScreenCoordinate)
+    , previousTouchPosition : Maybe (Point2d WorldPixel ScreenCoordinate)
+    , primaryDown : Bool
+    , previousPrimaryDown : Bool
     }
 
 
@@ -302,16 +307,19 @@ update config msg model =
                 | matchData =
                     case model.matchData of
                         MatchActiveLocal matchData ->
-                            { matchData
-                                | touchPosition =
-                                    case event.targetTouches ++ event.changedTouches ++ event.touches of
-                                        head :: _ ->
-                                            Point2d.fromTuple Pixels.pixels head.clientPos |> Just
+                            if event.isPrimary then
+                                { matchData
+                                    | touchPosition =
+                                        Point2d.fromTuple
+                                            (\pixel -> Quantity.for (Pixels.pixels pixel) config.devicePixelRatio)
+                                            event.pointer.clientPos
+                                            |> Just
+                                    , primaryDown = True
+                                }
+                                    |> MatchActiveLocal
 
-                                        _ ->
-                                            matchData.touchPosition
-                            }
-                                |> MatchActiveLocal
+                            else
+                                model.matchData
 
                         MatchSetupLocal _ ->
                             model.matchData
@@ -319,12 +327,41 @@ update config msg model =
             , Command.none
             )
 
-        PointerUp ->
+        PointerUp event ->
             ( { model
                 | matchData =
                     case model.matchData of
                         MatchActiveLocal matchData ->
-                            MatchActiveLocal { matchData | touchPosition = Nothing }
+                            if event.isPrimary then
+                                { matchData
+                                    | touchPosition =
+                                        Point2d.fromTuple
+                                            (\pixel -> Quantity.for (Pixels.pixels pixel) config.devicePixelRatio)
+                                            event.pointer.clientPos
+                                            |> Just
+                                    , primaryDown = False
+                                }
+                                    |> MatchActiveLocal
+
+                            else
+                                model.matchData
+
+                        MatchSetupLocal _ ->
+                            model.matchData
+              }
+            , Command.none
+            )
+
+        PointerLeave event ->
+            ( { model
+                | matchData =
+                    case model.matchData of
+                        MatchActiveLocal matchData ->
+                            if event.isPrimary then
+                                { matchData | touchPosition = Nothing } |> MatchActiveLocal
+
+                            else
+                                model.matchData
 
                         MatchSetupLocal _ ->
                             model.matchData
@@ -337,16 +374,18 @@ update config msg model =
                 | matchData =
                     case model.matchData of
                         MatchActiveLocal matchData ->
-                            { matchData
-                                | touchPosition =
-                                    case event.targetTouches ++ event.changedTouches ++ event.touches of
-                                        head :: _ ->
-                                            Point2d.fromTuple Pixels.pixels head.clientPos |> Just
+                            if event.isPrimary then
+                                { matchData
+                                    | touchPosition =
+                                        Point2d.fromTuple
+                                            (\pixel -> Quantity.for (Pixels.pixels pixel) (Debug.log "d" config.devicePixelRatio))
+                                            event.pointer.clientPos
+                                            |> Just
+                                }
+                                    |> MatchActiveLocal
 
-                                        _ ->
-                                            matchData.touchPosition
-                            }
-                                |> MatchActiveLocal
+                            else
+                                model.matchData
 
                         MatchSetupLocal _ ->
                             model.matchData
@@ -457,7 +496,7 @@ type alias Config a =
 
 
 type alias Mouse =
-    { position : Point2d Meters WorldCoordinate
+    { position : Point2d Pixels ScreenCoordinate
     , primaryDown : Bool
     , secondaryDown : Bool
     }
@@ -474,7 +513,7 @@ view config model =
         lobby =
             getLocalState model
     in
-    case ( Match.matchActive lobby, model.matchData, Match.allUsers_ lobby |> Dict.get config.userId ) of
+    case ( Match.matchActive lobby, model.matchData, Match.allUsers_ lobby |> SeqDict.get config.userId ) of
         ( Just match, MatchActiveLocal matchData, _ ) ->
             case matchData.timelineCache of
                 Ok cache ->
@@ -483,9 +522,9 @@ view config model =
                             Element.el
                                 (Element.width Element.fill
                                     :: Element.height Element.fill
-                                    :: Element.htmlAttribute (Html.Events.Extra.Touch.onStart PointerDown)
-                                    :: Element.htmlAttribute (Html.Events.Extra.Touch.onCancel (\_ -> PointerUp))
-                                    :: Element.htmlAttribute (Html.Events.Extra.Touch.onEnd (\_ -> PointerUp))
+                                    :: Element.htmlAttribute (Html.Events.Extra.Pointer.onDown PointerDown)
+                                    :: Element.htmlAttribute (Html.Events.Extra.Pointer.onUp PointerUp)
+                                    :: Element.htmlAttribute (Html.Events.Extra.Pointer.onLeave PointerLeave)
                                     :: Element.inFront (countdown config match)
                                     :: Element.behindContent
                                         (canvasView
@@ -495,7 +534,7 @@ view config model =
                                         )
                                     :: (case matchData.touchPosition of
                                             Just _ ->
-                                                [ Element.htmlAttribute (Html.Events.Extra.Touch.onMove PointerMoved) ]
+                                                [ Element.htmlAttribute (Html.Events.Extra.Pointer.onMove PointerMoved) ]
 
                                             Nothing ->
                                                 []
@@ -529,11 +568,11 @@ matchSetupView config lobby matchSetupData currentPlayerData =
         users =
             Match.allUsers lobby |> List.Nonempty.toList
 
-        places : Dict (Id UserId) Int
+        places : SeqDict (Id UserId) Int
         places =
             Match.previousMatchFinishTimes lobby
-                |> Maybe.withDefault Dict.empty
-                |> Dict.toList
+                |> Maybe.withDefault SeqDict.empty
+                |> SeqDict.toList
                 |> List.filterMap
                     (\( userId, place ) ->
                         case place of
@@ -545,7 +584,7 @@ matchSetupView config lobby matchSetupData currentPlayerData =
                     )
                 |> List.sortBy Tuple.second
                 |> List.indexedMap (\index ( userId, _ ) -> ( userId, index + 1 ))
-                |> Dict.fromList
+                |> SeqDict.fromList
 
         preview =
             Match.preview lobby
@@ -556,7 +595,7 @@ matchSetupView config lobby matchSetupData currentPlayerData =
         , Element.width (Element.maximum 800 Element.fill)
         , Element.height Element.fill
         ]
-        [ case Dict.get config.userId places of
+        [ case SeqDict.get config.userId places of
             Just place ->
                 placementText place
 
@@ -712,7 +751,7 @@ matchSetupView config lobby matchSetupData currentPlayerData =
                                         SpectatorMode ->
                                             " (spectator)"
                                    )
-                                ++ (case Dict.get userId places of
+                                ++ (case SeqDict.get userId places of
                                         Just place ->
                                             " (" ++ placeToText place ++ ")"
 
@@ -934,14 +973,14 @@ canvasViewHelper model matchSetup canvasSize =
                                     Pixels.inPixels canvasSize.height
 
                                 ( cameraPosition, zoomFactor ) =
-                                    case Dict.get model.userId state.players of
+                                    case SeqDict.get model.userId state.players of
                                         Just player ->
                                             ( player.position, 1 )
 
                                         Nothing ->
                                             let
                                                 vectorAndDistance =
-                                                    Dict.values state.players
+                                                    SeqDict.values state.players
                                                         |> List.map
                                                             (\player ->
                                                                 { vector = Vector2d.from Point2d.origin player.position
@@ -995,10 +1034,6 @@ canvasViewHelper model matchSetup canvasSize =
                                 playerRadius_ : Float
                                 playerRadius_ =
                                     Length.inMeters playerRadius
-
-                                input : Maybe (Point2d Meters WorldCoordinate)
-                                input =
-                                    getInputDirection model
                             in
                             backgroundGrid cameraPosition zoom canvasSize
                                 :: WebGL.entityWith
@@ -1031,9 +1066,9 @@ canvasViewHelper model matchSetup canvasSize =
                                             player
                                             playerRadius_
                                     )
-                                    (Dict.toList state.players)
-                                ++ (case ( Dict.get model.userId state.players, input ) of
-                                        ( Just player, Just direction ) ->
+                                    (SeqDict.toList state.players)
+                                ++ (case SeqDict.get model.userId state.players of
+                                        Just player ->
                                             case player.finishTime of
                                                 Finished _ ->
                                                     []
@@ -1067,7 +1102,7 @@ canvasViewHelper model matchSetup canvasSize =
 
 drawPlayer : Id FrameId -> Id UserId -> MatchActiveLocal_ -> Mat4 -> Player -> Float -> List WebGL.Entity
 drawPlayer frameId userId matchData viewMatrix player playerRadius_ =
-    case Dict.get userId matchData.userIds of
+    case SeqDict.get userId matchData.userIds of
         Just mesh ->
             [ WebGL.entityWith
                 [ WebGL.Settings.cullFace WebGL.Settings.back ]
@@ -1214,7 +1249,7 @@ pointToGrid point =
     { x = floor x, y = floor y }
 
 
-wallLookUp : RegularDict.Dict ( Int, Int ) (Set (LineSegment2d Meters WorldCoordinate))
+wallLookUp : Dict ( Int, Int ) (SeqSet (LineSegment2d Meters WorldCoordinate))
 wallLookUp =
     List.foldl
         (\segment dict ->
@@ -1223,7 +1258,7 @@ wallLookUp =
                     LineSegment2d.endpoints segment
 
                 addPoint x y =
-                    RegularDict.update ( x, y ) (Maybe.withDefault Set.empty >> Set.insert segment >> Just)
+                    Dict.update ( x, y ) (Maybe.withDefault SeqSet.empty >> SeqSet.insert segment >> Just)
             in
             RasterShapes.line (pointToGrid start) (pointToGrid end)
                 |> List.foldl
@@ -1241,13 +1276,13 @@ wallLookUp =
                     )
                     dict
         )
-        RegularDict.empty
+        Dict.empty
         wallSegments
 
 
-getCollisionCandidates : Point2d Meters coordinates -> Set (LineSegment2d Meters WorldCoordinate)
+getCollisionCandidates : Point2d Meters coordinates -> SeqSet (LineSegment2d Meters WorldCoordinate)
 getCollisionCandidates point =
-    RegularDict.get (pointToGrid point |> (\{ x, y } -> ( x, y ))) wallLookUp |> Maybe.withDefault Set.empty
+    Dict.get (pointToGrid point |> (\{ x, y } -> ( x, y ))) wallLookUp |> Maybe.withDefault SeqSet.empty
 
 
 lineSegmentMesh : Vec3 -> List (LineSegment2d Meters WorldCoordinate) -> Mesh Vertex
@@ -1300,16 +1335,16 @@ pointToVec point2d =
 gameUpdate : Id FrameId -> List TimelineEvent -> MatchState -> MatchState
 gameUpdate frameId inputs model =
     let
-        newModel : { players : Dict (Id UserId) Player }
+        newModel : { players : SeqDict (Id UserId) Player }
         newModel =
             List.foldl
                 (\{ userId, input } model2 ->
                     { players =
-                        Dict.update userId
+                        SeqDict.update userId
                             (Maybe.map
                                 (\a ->
                                     { a
-                                        | targetPosition = Maybe.withDefault a.targetPosition input.movement
+                                        | targetPosition = Maybe.withDefault a.targetPosition input.targetPosition
                                         , lastEmote =
                                             case input.emote of
                                                 Just emote ->
@@ -1326,22 +1361,22 @@ gameUpdate frameId inputs model =
                 model
                 inputs
 
-        updatedVelocities_ : Dict (Id UserId) Player
+        updatedVelocities_ : SeqDict (Id UserId) Player
         updatedVelocities_ =
             updateVelocities frameId newModel.players
     in
     { players =
-        Dict.map
+        SeqDict.map
             (\id player ->
-                Dict.remove id updatedVelocities_
-                    |> Dict.values
+                SeqDict.remove id updatedVelocities_
+                    |> SeqDict.values
                     |> List.foldl (\a b -> handleCollision frameId b a |> Tuple.first) player
             )
             updatedVelocities_
     }
 
 
-updateVelocities : Id FrameId -> Dict (Id UserId) Player -> Dict (Id UserId) Player
+updateVelocities : Id FrameId -> SeqDict (Id UserId) Player -> SeqDict (Id UserId) Player
 updateVelocities frameId players =
     let
         checkFinish : Player -> Place
@@ -1360,7 +1395,7 @@ updateVelocities frameId players =
         elapsed =
             Quantity.multiplyBy (Id.toInt frameId |> toFloat) Match.frameDuration
     in
-    Dict.map
+    SeqDict.map
         (\_ a ->
             let
                 nearestCollision :
@@ -1370,7 +1405,7 @@ updateVelocities frameId players =
                         }
                 nearestCollision =
                     getCollisionCandidates a.position
-                        |> Set.toList
+                        |> SeqSet.toList
                         |> List.filterMap
                             (\line ->
                                 let
@@ -1758,10 +1793,12 @@ updateMatchData newMsg newNetworkModel oldNetworkModel oldMatchData =
                                 SpectatorMode ->
                                     Nothing
                         )
-                    |> Dict.fromList
+                    |> SeqDict.fromList
             , wallMesh = lineSegmentMesh (Math.Vector3.vec3 1 0 0) wallSegments
             , touchPosition = Nothing
             , previousTouchPosition = Nothing
+            , primaryDown = False
+            , previousPrimaryDown = False
             }
                 |> MatchActiveLocal
     in
@@ -1849,7 +1886,7 @@ initMatch startTime users =
                       }
                     )
                 )
-            |> Dict.fromList
+            |> SeqDict.fromList
     }
 
 
@@ -1874,7 +1911,7 @@ matchEndText match matchState model =
     let
         maybeFinish : Maybe { place : Int, userId : Id UserId, finishTime : Id FrameId }
         maybeFinish =
-            Dict.toList matchState.players
+            SeqDict.toList matchState.players
                 |> List.filterMap
                     (\( userId, player ) ->
                         case player.finishTime of
@@ -2107,13 +2144,23 @@ colorSelector onSelect currentColor =
         |> Element.wrappedRow []
 
 
-getInputDirection : Config a -> Maybe (Point2d Meters WorldCoordinate)
-getInputDirection model =
-    if model.currentMouse.primaryDown && not model.previousMouse.primaryDown then
-        Just model.currentMouse.position
+getTargetPosition : MatchActiveLocal_ -> Maybe (Point2d Meters WorldCoordinate)
+getTargetPosition model =
+    if model.primaryDown && not model.previousPrimaryDown then
+        case model.touchPosition of
+            Just position ->
+                Point2d.unwrap position |> Point2d.unsafe |> Just
+
+            Nothing ->
+                Nothing
 
     else
         Nothing
+
+
+noInput : Input
+noInput =
+    { targetPosition = Nothing, emote = Nothing }
 
 
 animationFrame : Config a -> Model -> ( Model, Command FrontendOnly ToBackend Msg )
@@ -2125,15 +2172,17 @@ animationFrame config model =
                     case Timeline.getStateAt gameUpdate (timeToFrameId config match) cache match.timeline of
                         Ok ( newCache, matchState ) ->
                             let
-                                previousInput : Input
-                                previousInput =
-                                    { movement = getInputDirection config
-                                    , emote = Nothing
-                                    }
+                                worldFrame =
+                                    case SeqDict.get config.userId matchState.players of
+                                        Just currentPlayer ->
+                                            currentPlayer.position
+
+                                        Nothing ->
+                                            0
 
                                 input : Input
                                 input =
-                                    { movement = getInputDirection config
+                                    { targetPosition = getTargetPosition matchData
                                     , emote =
                                         if Keyboard.keyPressed config (Keyboard.Character "1") then
                                             Just SurpriseEmote
@@ -2144,10 +2193,6 @@ animationFrame config model =
                                         else
                                             Nothing
                                     }
-
-                                inputUnchanged : Bool
-                                inputUnchanged =
-                                    previousInput == input
 
                                 model3 : Model
                                 model3 =
@@ -2163,7 +2208,7 @@ animationFrame config model =
                                 currentFrameId =
                                     timeToFrameId config match
                             in
-                            (if inputUnchanged then
+                            (if noInput == input then
                                 ( model3, Command.none )
 
                              else
@@ -2183,7 +2228,7 @@ animationFrame config model =
                                                     matchSetupUpdate
                                                         config.userId
                                                         (Match.MatchFinished
-                                                            (Dict.map
+                                                            (SeqDict.map
                                                                 (\_ player -> player.finishTime)
                                                                 matchState.players
                                                             )
@@ -2213,7 +2258,7 @@ matchTimeLeft currentFrameId matchState =
     let
         finishes : List Duration
         finishes =
-            Dict.toList matchState.players
+            SeqDict.toList matchState.players
                 |> List.filterMap
                     (\( _, player ) ->
                         case player.finishTime of
@@ -2234,7 +2279,7 @@ matchTimeLeft currentFrameId matchState =
             Quantity.minimum finishes |> Maybe.withDefault Quantity.zero
 
         allFinished =
-            Dict.size matchState.players == List.length finishes
+            SeqDict.size matchState.players == List.length finishes
 
         allFinishedTimeLeft =
             Duration.seconds 3 |> Quantity.minus latestFinish
@@ -2270,10 +2315,10 @@ audio loaded matchPage =
                 Ok cache ->
                     case Timeline.getStateAt gameUpdate (timeToFrameId loaded match) cache match.timeline of
                         Ok ( _, state ) ->
-                            Dict.values state.players
+                            SeqDict.values state.players
                                 |> List.filterMap .lastCollision
-                                |> Set.fromList
-                                |> Set.toList
+                                |> SeqSet.fromList
+                                |> SeqSet.toList
                                 |> List.map
                                     (\frameId ->
                                         let

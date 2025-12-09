@@ -1,9 +1,9 @@
 module Timeline exposing (Error(..), FrameId, Timeline, TimelineCache, addInput, getStateAt, init, maxCacheSize)
 
-import AssocSet as Set exposing (Set)
 import Id exposing (Id)
 import List.Extra as List
 import List.Nonempty exposing (Nonempty(..))
+import SeqSet exposing (SeqSet)
 
 
 type FrameId
@@ -15,7 +15,7 @@ type alias TimelineCache state =
 
 
 type alias Timeline input =
-    Set ( Id FrameId, input )
+    SeqSet ( Id FrameId, input )
 
 
 init : state -> TimelineCache state
@@ -67,7 +67,7 @@ getStateAt updateFunc frame timelineCache timeline =
                         |> List.map
                             (\frameId ->
                                 ( frameId
-                                , Set.toList timeline
+                                , SeqSet.toList timeline
                                     |> List.filter (Tuple.first >> Id.toInt >> (==) frameId)
                                     |> List.map Tuple.second
                                 )

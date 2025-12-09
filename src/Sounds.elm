@@ -1,7 +1,7 @@
 module Sounds exposing (Sounds, loadingFinished, requestSounds)
 
-import AssocList as Dict exposing (Dict)
 import Audio exposing (AudioCmd)
+import SeqDict exposing (SeqDict)
 
 
 type alias Sounds =
@@ -18,14 +18,14 @@ requestSounds loadedSound =
     List.map (\url -> Audio.loadAudio (loadedSound url) url) soundUrls |> Audio.cmdBatch
 
 
-loadingFinished : Dict String (Result Audio.LoadError Audio.Source) -> Maybe Sounds
+loadingFinished : SeqDict String (Result Audio.LoadError Audio.Source) -> Maybe Sounds
 loadingFinished sounds =
     let
         loadSound : ( List String, Maybe (Audio.Source -> b) ) -> ( List String, Maybe b )
         loadSound ( urlsLeft, soundsFinished ) =
             case ( urlsLeft, soundsFinished ) of
                 ( head :: rest, Just soundsFinished_ ) ->
-                    case Dict.get head sounds of
+                    case SeqDict.get head sounds of
                         Just (Ok source) ->
                             ( rest, soundsFinished_ source |> Just )
 

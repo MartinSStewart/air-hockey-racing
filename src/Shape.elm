@@ -1,6 +1,5 @@
 module Shape exposing (Layer, LayerId, PathSegment, Shape, codec, imp, shapeToMesh_, surprise)
 
-import AssocList as Dict exposing (Dict)
 import CubicSpline2d
 import Effect.WebGL as WebGL exposing (Mesh)
 import FontRender exposing (FontVertex)
@@ -14,12 +13,13 @@ import Math.Vector3 exposing (Vec3)
 import Point2d exposing (Point2d)
 import QuadraticSpline2d exposing (QuadraticSpline2d)
 import Quantity exposing (Quantity)
+import SeqDict exposing (SeqDict)
 import Serialize exposing (Codec)
 import Vector2d exposing (Vector2d)
 
 
 type alias Shape =
-    { layers : Dict (Id LayerId) Layer }
+    { layers : SeqDict (Id LayerId) Layer }
 
 
 type alias RenderableShape =
@@ -50,7 +50,7 @@ stringToRenderable text =
     case Serialize.decodeFromString codec text of
         Ok { layers } ->
             { layers =
-                Dict.values layers
+                SeqDict.values layers
                     |> List.map
                         (\layer ->
                             { mesh =
@@ -189,10 +189,10 @@ idCodec =
     Serialize.int |> Serialize.map Id.fromInt Id.toInt
 
 
-dictCodec : Codec e k -> Codec e v -> Codec e (Dict k v)
+dictCodec : Codec e k -> Codec e v -> Codec e (SeqDict k v)
 dictCodec keyCodec valueCodec =
     Serialize.list (Serialize.tuple keyCodec valueCodec)
-        |> Serialize.map (List.reverse >> Dict.fromList) Dict.toList
+        |> Serialize.map (List.reverse >> SeqDict.fromList) SeqDict.toList
 
 
 layerCodec : Codec e Layer

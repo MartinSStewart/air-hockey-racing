@@ -1,6 +1,5 @@
 module Frontend exposing (app)
 
-import AssocList as Dict
 import Audio exposing (Audio, AudioCmd, AudioData)
 import Browser
 import Browser.Navigation
@@ -31,6 +30,7 @@ import Pixels exposing (Pixels)
 import Point2d
 import Ports
 import Quantity exposing (Quantity(..), Rate)
+import SeqDict
 import Size exposing (Size)
 import Sounds exposing (Sounds)
 import Time
@@ -152,7 +152,7 @@ init url key =
         , devicePixelRatio = Quantity 1
         , time = Nothing
         , initData = Nothing
-        , sounds = Dict.empty
+        , sounds = SeqDict.empty
         , debugTimeOffset = offset
         }
     , Command.batch
@@ -183,7 +183,7 @@ update _ msg model =
                         |> (\( a, b ) -> ( Loading a, b, Audio.cmdNone ))
 
                 SoundLoaded url result ->
-                    { loadingModel | sounds = Dict.insert url result loadingModel.sounds }
+                    { loadingModel | sounds = SeqDict.insert url result loadingModel.sounds }
                         |> tryLoadedInit
 
                 GotTime time ->
@@ -315,17 +315,6 @@ updateLoaded msg model =
                 _ ->
                     ( model, Command.none )
 
-        MouseMoved x y ->
-            ( { model
-                | currentMouse =
-                    { position = Point2d.unsafe { x = x, y = y }
-                    , primaryDown = model.currentMouse.primaryDown
-                    , secondaryDown = model.currentMouse.secondaryDown
-                    }
-              }
-            , Command.none
-            )
-
 
 windowResizedUpdate : Size -> { b | windowSize : Size } -> ( { b | windowSize : Size }, Command FrontendOnly toMsg FrontendMsg_ )
 windowResizedUpdate windowSize model =
@@ -397,7 +386,7 @@ updateLoadedFromBackend msg model =
                     { model
                         | page =
                             MainLobbyPage
-                                { lobbyData | lobbies = Dict.insert lobbyId lobbyPreview lobbyData.lobbies }
+                                { lobbyData | lobbies = SeqDict.insert lobbyId lobbyPreview lobbyData.lobbies }
                     }
 
                 _ ->
@@ -473,7 +462,7 @@ updateLoadedFromBackend msg model =
         RemoveLobbyBroadcast lobbyId ->
             ( case model.page of
                 MainLobbyPage lobbyData ->
-                    { model | page = MainLobbyPage { lobbyData | lobbies = Dict.remove lobbyId lobbyData.lobbies } }
+                    { model | page = MainLobbyPage { lobbyData | lobbies = SeqDict.remove lobbyId lobbyData.lobbies } }
 
                 MatchPage _ ->
                     model
@@ -488,7 +477,7 @@ updateLoadedFromBackend msg model =
                 MainLobbyPage lobbyPage ->
                     { model
                         | page =
-                            { lobbyPage | lobbies = Dict.update lobbyId (\_ -> Just lobbyPreview) lobbyPage.lobbies }
+                            { lobbyPage | lobbies = SeqDict.update lobbyId (\_ -> Just lobbyPreview) lobbyPage.lobbies }
                                 |> MainLobbyPage
                     }
 
@@ -539,7 +528,7 @@ view _ model =
                     , Element.height Element.fill
                     , Element.padding 16
                     ]
-                    (if Dict.values loading.sounds |> List.any isErr then
+                    (if SeqDict.values loading.sounds |> List.any isErr then
                         Element.text "Loading failed"
 
                      else
@@ -600,7 +589,7 @@ loadedView model =
                                 Element.el
                                     [ Element.Font.color (Element.rgb 1 0 0) ]
                                     (Element.text "Lobby is full!")
-                        , if Dict.isEmpty lobbyData.lobbies then
+                        , if SeqDict.isEmpty lobbyData.lobbies then
                             Element.paragraph
                                 [ Element.Font.center, Element.centerY ]
                                 [ Element.text "There are currently no existing matches" ]
@@ -611,7 +600,7 @@ loadedView model =
                                     ]
 
                           else
-                            Dict.toList lobbyData.lobbies
+                            SeqDict.toList lobbyData.lobbies
                                 |> List.indexedMap (\index lobby -> lobbyRowView (modBy 2 index == 0) lobby)
                                 |> Element.column
                                     [ Element.width (Element.maximum 800 Element.fill)
@@ -690,11 +679,5 @@ subscriptions _ model =
                 Subscription.batch
                     [ Subscription.map KeyMsg Keyboard.subscriptions
                     , Effect.Browser.Events.onAnimationFrame AnimationFrame
-                    , Effect.Browser.Events.onMouseMove
-                        (Json.Decode.map2
-                            MouseMoved
-                            (Json.Decode.field "clientX" Json.Decode.float)
-                            (Json.Decode.field "clientY" Json.Decode.float)
-                        )
                     ]
         ]
