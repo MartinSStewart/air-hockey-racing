@@ -1398,6 +1398,7 @@ updateVelocities frameId players =
                     else
                         player.finishTime
 
+        elapsed : Duration
         elapsed =
             Quantity.multiplyBy (Id.toInt frameId |> toFloat) Match.frameDuration
     in
@@ -1462,17 +1463,25 @@ updateVelocities frameId players =
                 newVelocity =
                     (case ( a.finishTime, elapsed |> Quantity.lessThan countdownDelay ) of
                         ( DidNotFinish, False ) ->
-                            Vector2d.from a.position a.targetPosition
-                                |> Vector2d.normalize
-                                |> Vector2d.scaleBy 0.2
-                                |> Vector2d.unwrap
-                                |> Vector2d.unsafe
+                            let
+                                distance =
+                                    Vector2d.from a.position a.targetPosition
+                            in
+                            if Vector2d.length distance |> Quantity.lessThan (Length.meters 10) then
+                                Vector2d.zero
+
+                            else
+                                distance
+                                    |> Vector2d.normalize
+                                    |> Vector2d.scaleBy 0.8
+                                    |> Vector2d.unwrap
+                                    |> Vector2d.unsafe
 
                         _ ->
                             Vector2d.zero
                     )
                         |> Vector2d.plus a.velocity
-                        |> Vector2d.scaleBy 0.99
+                        |> Vector2d.scaleBy 0.8
             in
             case nearestCollision of
                 Just { collisionVelocity, collisionPosition } ->
@@ -2210,6 +2219,7 @@ animationFrame config model =
                                         | matchData =
                                             { matchData
                                                 | previousTouchPosition = matchData.touchPosition
+                                                , previousPrimaryDown = matchData.primaryDown
                                                 , timelineCache = Ok newCache
                                             }
                                                 |> MatchActiveLocal
