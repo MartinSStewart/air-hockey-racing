@@ -2166,7 +2166,7 @@ viewportHeight =
 
 getTargetPosition : Config a -> MatchState -> MatchActiveLocal_ -> Maybe (Point2d Meters WorldCoordinate)
 getTargetPosition config matchState model =
-    if model.primaryDown && not model.previousPrimaryDown then
+    if not model.primaryDown && model.previousPrimaryDown then
         case ( model.touchPosition, SeqDict.get config.userId matchState.players ) of
             ( Just position, Just currentPlayer ) ->
                 screenToWorld config.windowSize currentPlayer.position viewportHeight position |> Just
