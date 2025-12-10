@@ -18,6 +18,7 @@ module MatchPage exposing
     , fragmentShader
     , init
     , lineMesh
+    , screenToWorld
     , unnamedMatchText
     , update
     , updateFromBackend
@@ -28,6 +29,7 @@ module MatchPage exposing
 import Angle exposing (Angle)
 import Audio
 import Axis2d
+import Axis3d
 import BoundingBox2d exposing (BoundingBox2d)
 import Camera3d exposing (Camera3d)
 import ColorIndex exposing (ColorIndex)
@@ -81,6 +83,7 @@ import Quantity exposing (Quantity(..), Rate)
 import Random
 import Random.List as Random
 import RasterShapes
+import Rectangle2d exposing (Rectangle2d)
 import SeqDict exposing (SeqDict)
 import SeqSet exposing (SeqSet)
 import Shape
@@ -169,8 +172,8 @@ type alias MatchActiveLocal_ =
     { timelineCache : Result Timeline.Error (TimelineCache MatchState)
     , userIds : SeqDict (Id UserId) (Mesh Vertex)
     , wallMesh : Mesh Vertex
-    , touchPosition : Maybe (Point2d WorldPixel ScreenCoordinate)
-    , previousTouchPosition : Maybe (Point2d WorldPixel ScreenCoordinate)
+    , touchPosition : Maybe (Point2d Pixels ScreenCoordinate)
+    , previousTouchPosition : Maybe (Point2d Pixels ScreenCoordinate)
     , primaryDown : Bool
     , previousPrimaryDown : Bool
     }
@@ -309,11 +312,7 @@ update config msg model =
                         MatchActiveLocal matchData ->
                             if event.isPrimary then
                                 { matchData
-                                    | touchPosition =
-                                        Point2d.fromTuple
-                                            (\pixel -> Quantity.for (Pixels.pixels pixel) config.devicePixelRatio)
-                                            event.pointer.clientPos
-                                            |> Just
+                                    | touchPosition = Point2d.fromTuple Pixels.pixels event.pointer.clientPos |> Just
                                     , primaryDown = True
                                 }
                                     |> MatchActiveLocal
@@ -334,11 +333,7 @@ update config msg model =
                         MatchActiveLocal matchData ->
                             if event.isPrimary then
                                 { matchData
-                                    | touchPosition =
-                                        Point2d.fromTuple
-                                            (\pixel -> Quantity.for (Pixels.pixels pixel) config.devicePixelRatio)
-                                            event.pointer.clientPos
-                                            |> Just
+                                    | touchPosition = Point2d.fromTuple Pixels.pixels event.pointer.clientPos |> Just
                                     , primaryDown = False
                                 }
                                     |> MatchActiveLocal
@@ -376,11 +371,7 @@ update config msg model =
                         MatchActiveLocal matchData ->
                             if event.isPrimary then
                                 { matchData
-                                    | touchPosition =
-                                        Point2d.fromTuple
-                                            (\pixel -> Quantity.for (Pixels.pixels pixel) (Debug.log "d" config.devicePixelRatio))
-                                            event.pointer.clientPos
-                                            |> Just
+                                    | touchPosition = Point2d.fromTuple Pixels.pixels event.pointer.clientPos |> Just
                                 }
                                     |> MatchActiveLocal
 
@@ -918,7 +909,7 @@ placementText place =
 
 
 camera : Point2d Meters WorldCoordinate -> Length -> Camera3d Meters WorldCoordinate
-camera position viewportHeight =
+camera position viewportHeight2 =
     let
         { x, y } =
             Point2d.toMeters position
@@ -930,8 +921,22 @@ camera position viewportHeight =
                 , eyePoint = Point3d.fromMeters { x = x, y = y, z = 1 }
                 , upDirection = Direction3d.y
                 }
-        , viewportHeight = viewportHeight
+        , viewportHeight = viewportHeight2
         }
+
+
+screenToWorld : Size -> Point2d Meters WorldCoordinate -> Length -> Point2d Pixels ScreenCoordinate -> Point2d Meters WorldCoordinate
+screenToWorld windowSize cameraPosition viewportHeight2 screenPosition =
+    let
+        screenRectangle : Rectangle2d Pixels ScreenCoordinate
+        screenRectangle =
+            Rectangle2d.from
+                (Point2d.xy Quantity.zero (Quantity.toFloatQuantity windowSize.height))
+                (Point2d.xy (Quantity.toFloatQuantity windowSize.width) Quantity.zero)
+    in
+    Camera3d.ray (camera cameraPosition viewportHeight2) screenRectangle screenPosition
+        |> Axis3d.originPoint
+        |> (\p -> Point3d.toMeters p |> (\a -> Point2d.meters a.x a.y))
 
 
 backgroundGrid : Point2d units coordinates -> Float -> Size -> WebGL.Entity
@@ -1015,10 +1020,11 @@ canvasViewHelper model matchSetup canvasSize =
 
                                 zoom : Float
                                 zoom =
-                                    zoomFactor
-                                        * toFloat (max canvasWidth canvasHeight)
-                                        / (toFloat canvasHeight * 2000)
+                                    1 / Length.inMeters viewportHeight
 
+                                --zoomFactor
+                                --    * toFloat (max canvasWidth canvasHeight)
+                                --    / (toFloat canvasHeight * 2000)
                                 viewMatrix : Mat4
                                 viewMatrix =
                                     WebGL.Matrices.viewProjectionMatrix
@@ -2144,14 +2150,19 @@ colorSelector onSelect currentColor =
         |> Element.wrappedRow []
 
 
-getTargetPosition : MatchActiveLocal_ -> Maybe (Point2d Meters WorldCoordinate)
-getTargetPosition model =
-    if model.primaryDown && not model.previousPrimaryDown then
-        case model.touchPosition of
-            Just position ->
-                Point2d.unwrap position |> Point2d.unsafe |> Just
+viewportHeight : Length
+viewportHeight =
+    Length.meters 2000
 
-            Nothing ->
+
+getTargetPosition : Config a -> MatchState -> MatchActiveLocal_ -> Maybe (Point2d Meters WorldCoordinate)
+getTargetPosition config matchState model =
+    if model.primaryDown && not model.previousPrimaryDown then
+        case ( model.touchPosition, SeqDict.get config.userId matchState.players ) of
+            ( Just position, Just currentPlayer ) ->
+                screenToWorld config.windowSize currentPlayer.position viewportHeight position |> Just
+
+            _ ->
                 Nothing
 
     else
@@ -2172,17 +2183,16 @@ animationFrame config model =
                     case Timeline.getStateAt gameUpdate (timeToFrameId config match) cache match.timeline of
                         Ok ( newCache, matchState ) ->
                             let
-                                worldFrame =
-                                    case SeqDict.get config.userId matchState.players of
-                                        Just currentPlayer ->
-                                            Frame2d.atPoint currentPlayer.position
-
-                                        Nothing ->
-                                            Debug.todo ""
-
+                                --worldFrame =
+                                --    case SeqDict.get config.userId matchState.players of
+                                --        Just currentPlayer ->
+                                --            Frame2d.atPoint currentPlayer.position
+                                --
+                                --        Nothing ->
+                                --            Debug.todo ""
                                 input : Input
                                 input =
-                                    { targetPosition = getTargetPosition matchData
+                                    { targetPosition = getTargetPosition config matchState matchData
                                     , emote =
                                         if Keyboard.keyPressed config (Keyboard.Character "1") then
                                             Just SurpriseEmote

@@ -36,7 +36,7 @@ import LineSegment2d
 import List.Extra as List
 import List.Nonempty
 import Match exposing (WorldCoordinate)
-import MatchPage exposing (ScreenCoordinate, Vertex, WorldPixel)
+import MatchPage exposing (Mouse, ScreenCoordinate, Vertex, WorldPixel)
 import Math.Matrix4 as Mat4 exposing (Mat4)
 import Math.Vector2
 import Math.Vector3
@@ -232,7 +232,7 @@ fullPaths config layer isCurrentLayer model =
                             mouseWorld =
                                 case ( model.mouseDownAt, model.mousePosition ) of
                                     ( Just mouseDownAt, Just mousePosition ) ->
-                                        Vector2d.from (screenToWorld config model mousePosition) mouseDownAt
+                                        Vector2d.from (MatchPage.screenToWorld config.windowSize model.cameraPosition model.viewportHeight mousePosition) mouseDownAt
 
                                     _ ->
                                         Vector2d.zero
@@ -348,7 +348,7 @@ updateMesh config previousModel model =
                                 maybeMouseWorldPosition =
                                     case model.mousePosition of
                                         Just mousePosition ->
-                                            screenToWorld config model mousePosition |> Just
+                                            MatchPage.screenToWorld config.windowSize model.cameraPosition model.viewportHeight mousePosition |> Just
 
                                         Nothing ->
                                             Nothing
@@ -710,24 +710,6 @@ animationFrame config model =
         |> Tuple.mapFirst (updateMesh config model)
 
 
-screenToWorld : Config a -> Model -> Point2d Pixels ScreenCoordinate -> Point2d Meters WorldCoordinate
-screenToWorld config model screenPosition =
-    let
-        camera : Camera3d Meters WorldCoordinate
-        camera =
-            MatchPage.camera model.cameraPosition model.viewportHeight
-
-        screenRectangle : Rectangle2d Pixels ScreenCoordinate
-        screenRectangle =
-            Rectangle2d.from
-                (Point2d.xy Quantity.zero (Quantity.toFloatQuantity config.windowSize.height))
-                (Point2d.xy (Quantity.toFloatQuantity config.windowSize.width) Quantity.zero)
-    in
-    Camera3d.ray camera screenRectangle screenPosition
-        |> Axis3d.originPoint
-        |> (\p -> Point3d.toMeters p |> (\a -> Point2d.meters a.x a.y))
-
-
 type DragType
     = CenterPoint
     | NextHandle
@@ -770,7 +752,9 @@ isDragging config model =
                                         |> Vector2d.length
 
                                 offset =
-                                    Vector2d.from mouseDownAt (screenToWorld config model mousePosition)
+                                    Vector2d.from
+                                        mouseDownAt
+                                        (MatchPage.screenToWorld config.windowSize model.cameraPosition model.viewportHeight mousePosition)
                             in
                             [ if centerDistance |> Quantity.lessThan (Length.meters (7 * uiScale_)) then
                                 { distance = centerDistance
@@ -827,7 +811,7 @@ handleMouseDown config model event =
             Point2d.pixels x y
 
         worldPosition =
-            screenToWorld config model screenPosition
+            MatchPage.screenToWorld config.windowSize model.cameraPosition model.viewportHeight screenPosition
     in
     case event.button of
         Html.Events.Extra.Mouse.MainButton ->
@@ -926,7 +910,7 @@ update config msg model =
                                 model2
 
                         Nothing ->
-                            finishPathSegment (screenToWorld config model screenPosition) model2
+                            finishPathSegment (MatchPage.screenToWorld config.windowSize model.cameraPosition model.viewportHeight screenPosition) model2
 
                 Html.Events.Extra.Mouse.MiddleButton ->
                     { model
@@ -953,8 +937,8 @@ update config msg model =
                             ( Just mousePosition, Just mousePositionPrevious, Just _ ) ->
                                 Point2d.translateBy
                                     (Vector2d.from
-                                        (screenToWorld config model mousePosition)
-                                        (screenToWorld config model mousePositionPrevious)
+                                        (MatchPage.screenToWorld config.windowSize model.cameraPosition model.viewportHeight mousePosition)
+                                        (MatchPage.screenToWorld config.windowSize model.cameraPosition model.viewportHeight mousePositionPrevious)
                                     )
                                     model.cameraPosition
 
@@ -1268,7 +1252,7 @@ toolView config model =
             Just mousePosition ->
                 let
                     { x, y } =
-                        screenToWorld config model mousePosition |> Point2d.toMeters
+                        MatchPage.screenToWorld config.windowSize model.cameraPosition model.viewportHeight mousePosition |> Point2d.toMeters
                 in
                 String.fromInt (round x)
                     ++ ","
