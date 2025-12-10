@@ -67,7 +67,7 @@ import Length exposing (Length, Meters)
 import LineSegment2d exposing (LineSegment2d)
 import List.Extra as List
 import List.Nonempty exposing (Nonempty)
-import Match exposing (Emote(..), Input, LobbyPreview, Match, MatchActive, MatchState, Place(..), Player, PlayerData, PlayerMode(..), ServerTime(..), Snowball, TimelineEvent, WorldCoordinate)
+import Match exposing (Action(..), Emote(..), Input, LobbyPreview, Match, MatchActive, MatchState, Place(..), Player, PlayerData, PlayerMode(..), ServerTime(..), Snowball, TimelineEvent, WorldCoordinate)
 import MatchName exposing (MatchName)
 import Math.Matrix4 as Mat4 exposing (Mat4)
 import Math.Vector2 exposing (Vec2)
@@ -313,8 +313,7 @@ update config msg model =
                             if event.isPrimary then
                                 { matchData
                                     | touchPosition = Point2d.fromTuple Pixels.pixels event.pointer.clientPos |> Just
-                                    , primaryDown = True
-                                    , clickStartTime = Just (actualTime config)
+                                    , primaryDown = Just (actualTime config)
                                 }
                                     |> MatchActiveLocal
 
@@ -335,8 +334,7 @@ update config msg model =
                             if event.isPrimary then
                                 { matchData
                                     | touchPosition = Point2d.fromTuple Pixels.pixels event.pointer.clientPos |> Just
-                                    , primaryDown = False
-                                    , clickStartTime = Nothing
+                                    , primaryDown = Nothing
                                 }
                                     |> MatchActiveLocal
 
@@ -1353,7 +1351,16 @@ gameUpdate frameId inputs model =
                                 (Maybe.map
                                     (\a ->
                                         { a
-                                            | targetPosition = Maybe.withDefault a.targetPosition input.targetPosition
+                                            | targetPosition =
+                                                case input.targetPosition of
+                                                    ClickStart point ->
+                                                        point
+
+                                                    ClickRelease point ->
+                                                        point
+
+                                                    NoAction ->
+                                                        a.targetPosition
                                             , lastEmote =
                                                 case input.emote of
                                                     Just emote ->
@@ -2179,7 +2186,7 @@ getInput config matchState model =
                         screenToWorld config.windowSize currentPlayer.position viewportHeight position |> ClickStart
 
                     _ ->
-                        Nothing
+                        NoAction
 
             ( Nothing, Just _ ) ->
                 case ( model.touchPosition, SeqDict.get config.userId matchState.players ) of
@@ -2187,10 +2194,10 @@ getInput config matchState model =
                         screenToWorld config.windowSize currentPlayer.position viewportHeight position |> ClickRelease
 
                     _ ->
-                        Nothing
+                        NoAction
 
             _ ->
-                Nothing
+                NoAction
     , emote =
         if Keyboard.keyPressed config (Keyboard.Character "1") then
             Just SurpriseEmote
@@ -2205,7 +2212,7 @@ getInput config matchState model =
 
 noInput : Input
 noInput =
-    { targetPosition = Nothing, emote = Nothing }
+    { targetPosition = NoAction, emote = Nothing }
 
 
 animationFrame : Config a -> Model -> ( Model, Command FrontendOnly ToBackend Msg )
