@@ -67,7 +67,7 @@ import Length exposing (Length, Meters)
 import LineSegment2d exposing (LineSegment2d)
 import List.Extra as List
 import List.Nonempty exposing (Nonempty)
-import Match exposing (Emote(..), Input, LobbyPreview, Match, MatchActive, MatchState, Place(..), Player, PlayerData, PlayerMode(..), ServerTime(..), TimelineEvent, WorldCoordinate)
+import Match exposing (Emote(..), Input, LobbyPreview, Match, MatchActive, MatchState, Place(..), Player, PlayerData, PlayerMode(..), ServerTime(..), Snowball, TimelineEvent, WorldCoordinate)
 import MatchName exposing (MatchName)
 import Math.Matrix4 as Mat4 exposing (Mat4)
 import Math.Vector2 exposing (Vec2)
@@ -176,6 +176,7 @@ type alias MatchActiveLocal_ =
     , previousTouchPosition : Maybe (Point2d Pixels ScreenCoordinate)
     , primaryDown : Bool
     , previousPrimaryDown : Bool
+    , clickStartTime : Maybe Time.Posix
     }
 
 
@@ -314,6 +315,7 @@ update config msg model =
                                 { matchData
                                     | touchPosition = Point2d.fromTuple Pixels.pixels event.pointer.clientPos |> Just
                                     , primaryDown = True
+                                    , clickStartTime = Just (actualTime config)
                                 }
                                     |> MatchActiveLocal
 
@@ -335,6 +337,7 @@ update config msg model =
                                 { matchData
                                     | touchPosition = Point2d.fromTuple Pixels.pixels event.pointer.clientPos |> Just
                                     , primaryDown = False
+                                    , clickStartTime = Nothing
                                 }
                                     |> MatchActiveLocal
 
@@ -1341,27 +1344,28 @@ pointToVec point2d =
 gameUpdate : Id FrameId -> List TimelineEvent -> MatchState -> MatchState
 gameUpdate frameId inputs model =
     let
-        newModel : { players : SeqDict (Id UserId) Player }
+        newModel : MatchState
         newModel =
             List.foldl
                 (\{ userId, input } model2 ->
-                    { players =
-                        SeqDict.update userId
-                            (Maybe.map
-                                (\a ->
-                                    { a
-                                        | targetPosition = Maybe.withDefault a.targetPosition input.targetPosition
-                                        , lastEmote =
-                                            case input.emote of
-                                                Just emote ->
-                                                    Just { time = frameId, emote = emote }
+                    { model2
+                        | players =
+                            SeqDict.update userId
+                                (Maybe.map
+                                    (\a ->
+                                        { a
+                                            | targetPosition = Maybe.withDefault a.targetPosition input.targetPosition
+                                            , lastEmote =
+                                                case input.emote of
+                                                    Just emote ->
+                                                        Just { time = frameId, emote = emote }
 
-                                                Nothing ->
-                                                    a.lastEmote
-                                    }
+                                                    Nothing ->
+                                                        a.lastEmote
+                                        }
+                                    )
                                 )
-                            )
-                            model2.players
+                                model2.players
                     }
                 )
                 model
@@ -1379,6 +1383,7 @@ gameUpdate frameId inputs model =
                     |> List.foldl (\a b -> handleCollision frameId b a |> Tuple.first) player
             )
             updatedVelocities_
+    , snowballs = model.snowballs
     }
 
 
@@ -1814,6 +1819,7 @@ updateMatchData newMsg newNetworkModel oldNetworkModel oldMatchData =
             , previousTouchPosition = Nothing
             , primaryDown = False
             , previousPrimaryDown = False
+            , clickStartTime = Nothing
             }
                 |> MatchActiveLocal
     in
@@ -1902,6 +1908,7 @@ initMatch startTime users =
                     )
                 )
             |> SeqDict.fromList
+    , snowballs = []
     }
 
 

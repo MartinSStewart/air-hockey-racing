@@ -11,6 +11,7 @@ module Match exposing
     , PlayerData
     , PlayerMode(..)
     , ServerTime(..)
+    , Snowball
     , TimelineEvent
     , WorldCoordinate
     , allUsers
@@ -84,7 +85,16 @@ type alias TimelineEvent =
 
 
 type alias MatchState =
-    { players : SeqDict (Id UserId) Player }
+    { players : SeqDict (Id UserId) Player
+    , snowballs : List Snowball
+    }
+
+
+type alias Snowball =
+    { position : Point2d Meters WorldCoordinate
+    , velocity : Vector2d Meters WorldCoordinate
+    , thrownBy : Id UserId
+    }
 
 
 type alias Player =
