@@ -2175,10 +2175,10 @@ animationFrame config model =
                                 worldFrame =
                                     case SeqDict.get config.userId matchState.players of
                                         Just currentPlayer ->
-                                            currentPlayer.position
+                                            Frame2d.atPoint currentPlayer.position
 
                                         Nothing ->
-                                            0
+                                            Debug.todo ""
 
                                 input : Input
                                 input =
