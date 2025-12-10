@@ -174,9 +174,8 @@ type alias MatchActiveLocal_ =
     , wallMesh : Mesh Vertex
     , touchPosition : Maybe (Point2d Pixels ScreenCoordinate)
     , previousTouchPosition : Maybe (Point2d Pixels ScreenCoordinate)
-    , primaryDown : Bool
-    , previousPrimaryDown : Bool
-    , clickStartTime : Maybe Time.Posix
+    , primaryDown : Maybe Time.Posix
+    , previousPrimaryDown : Maybe Time.Posix
     }
 
 
@@ -1817,9 +1816,8 @@ updateMatchData newMsg newNetworkModel oldNetworkModel oldMatchData =
             , wallMesh = lineSegmentMesh (Math.Vector3.vec3 1 0 0) wallSegments
             , touchPosition = Nothing
             , previousTouchPosition = Nothing
-            , primaryDown = False
-            , previousPrimaryDown = False
-            , clickStartTime = Nothing
+            , primaryDown = Nothing
+            , previousPrimaryDown = Nothing
             }
                 |> MatchActiveLocal
     in
@@ -2171,18 +2169,38 @@ viewportHeight =
     Length.meters 2000
 
 
-getTargetPosition : Config a -> MatchState -> MatchActiveLocal_ -> Maybe (Point2d Meters WorldCoordinate)
-getTargetPosition config matchState model =
-    if not model.primaryDown && model.previousPrimaryDown then
-        case ( model.touchPosition, SeqDict.get config.userId matchState.players ) of
-            ( Just position, Just currentPlayer ) ->
-                screenToWorld config.windowSize currentPlayer.position viewportHeight position |> Just
+getInput : Config a -> MatchState -> MatchActiveLocal_ -> Input
+getInput config matchState model =
+    { targetPosition =
+        case ( model.primaryDown, model.previousPrimaryDown ) of
+            ( Just _, Nothing ) ->
+                case ( model.touchPosition, SeqDict.get config.userId matchState.players ) of
+                    ( Just position, Just currentPlayer ) ->
+                        screenToWorld config.windowSize currentPlayer.position viewportHeight position |> ClickStart
+
+                    _ ->
+                        Nothing
+
+            ( Nothing, Just _ ) ->
+                case ( model.touchPosition, SeqDict.get config.userId matchState.players ) of
+                    ( Just position, Just currentPlayer ) ->
+                        screenToWorld config.windowSize currentPlayer.position viewportHeight position |> ClickRelease
+
+                    _ ->
+                        Nothing
 
             _ ->
                 Nothing
+    , emote =
+        if Keyboard.keyPressed config (Keyboard.Character "1") then
+            Just SurpriseEmote
 
-    else
-        Nothing
+        else if Keyboard.keyPressed config (Keyboard.Character "2") then
+            Just ImpEmote
+
+        else
+            Nothing
+    }
 
 
 noInput : Input
@@ -2199,26 +2217,9 @@ animationFrame config model =
                     case Timeline.getStateAt gameUpdate (timeToFrameId config match) cache match.timeline of
                         Ok ( newCache, matchState ) ->
                             let
-                                --worldFrame =
-                                --    case SeqDict.get config.userId matchState.players of
-                                --        Just currentPlayer ->
-                                --            Frame2d.atPoint currentPlayer.position
-                                --
-                                --        Nothing ->
-                                --            Debug.todo ""
                                 input : Input
                                 input =
-                                    { targetPosition = getTargetPosition config matchState matchData
-                                    , emote =
-                                        if Keyboard.keyPressed config (Keyboard.Character "1") then
-                                            Just SurpriseEmote
-
-                                        else if Keyboard.keyPressed config (Keyboard.Character "2") then
-                                            Just ImpEmote
-
-                                        else
-                                            Nothing
-                                    }
+                                    getInput config matchState matchData
 
                                 model3 : Model
                                 model3 =

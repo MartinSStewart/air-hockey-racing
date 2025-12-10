@@ -1,5 +1,6 @@
 module Match exposing
-    ( Emote(..)
+    ( Action(..)
+    , Emote(..)
     , Input
     , LobbyPreview
     , Match
@@ -126,9 +127,15 @@ type Emote
 
 
 type alias Input =
-    { targetPosition : Maybe (Point2d Meters WorldCoordinate)
+    { targetPosition : Action
     , emote : Maybe Emote
     }
+
+
+type Action
+    = ClickStart (Point2d Meters WorldCoordinate)
+    | ClickRelease (Point2d Meters WorldCoordinate)
+    | NoAction
 
 
 type Msg
