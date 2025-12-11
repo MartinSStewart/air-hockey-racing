@@ -192,7 +192,7 @@ updateFromFrontendWithTime sessionId clientId msg model time =
                 MatchPageToBackend (MatchPage.MatchSetupRequest lobbyId eventId matchSetupMsg) ->
                     matchSetupRequest time lobbyId userId eventId clientId matchSetupMsg model
 
-                MatchPageToBackend (MatchPage.PlayerPositionsRequest lobbyId frameId positions) ->
+                MatchPageToBackend (MatchPage.DesyncCheckRequest lobbyId frameId positions) ->
                     case SeqDict.get lobbyId model.lobbies of
                         Just match ->
                             let
@@ -207,7 +207,7 @@ updateFromFrontendWithTime sessionId clientId msg model time =
 
                                     else
                                         ( model
-                                        , broadcastToMatch match (MatchPage.DesyncNotification lobbyId frameId) model
+                                        , broadcastToMatch match (MatchPage.DesyncBroadcast lobbyId frameId) model
                                         )
 
                                 Nothing ->
@@ -216,7 +216,7 @@ updateFromFrontendWithTime sessionId clientId msg model time =
                                             SeqDict.insert
                                                 lobbyId
                                                 (SeqDict.insert frameId positions playerPositions
-                                                    |> SeqDict.remove (Id.toInt frameId - 60 |> Id.fromInt)
+                                                    |> SeqDict.remove (Id.toInt frameId - 30 |> Id.fromInt)
                                                 )
                                                 model.playerPositions
                                       }

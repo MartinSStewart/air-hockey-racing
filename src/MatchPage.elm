@@ -183,13 +183,13 @@ type alias MatchActiveLocal_ =
 
 type ToBackend
     = MatchSetupRequest (Id MatchId) (Id EventId) Match.Msg
-    | PlayerPositionsRequest (Id MatchId) (Id Timeline.FrameId) (SeqDict (Id UserId) (Point2d Meters WorldCoordinate))
+    | DesyncCheckRequest (Id MatchId) (Id Timeline.FrameId) (SeqDict (Id UserId) (Point2d Meters WorldCoordinate))
 
 
 type ToFrontend
     = MatchSetupBroadcast (Id MatchId) (Id UserId) Match.Msg
     | MatchSetupResponse (Id MatchId) (Id UserId) Match.Msg (Id EventId)
-    | DesyncNotification (Id MatchId) (Id FrameId)
+    | DesyncBroadcast (Id MatchId) (Id FrameId)
 
 
 update : Config a -> Msg -> Model -> ( Model, Command FrontendOnly ToBackend Msg )
@@ -476,7 +476,7 @@ updateFromBackend msg matchSetup =
             , Command.none
             )
 
-        DesyncNotification lobbyId frameId ->
+        DesyncBroadcast lobbyId frameId ->
             ( if lobbyId == matchSetup.lobbyId then
                 { matchSetup
                     | matchData =
@@ -2339,12 +2339,17 @@ animationFrame config model =
                                 ( oldestFrameId, oldestState ) =
                                     getOldestCachedState newCache
 
+                                playerPositionsCmd : Command FrontendOnly ToBackend msg
                                 playerPositionsCmd =
-                                    PlayerPositionsRequest
-                                        model.lobbyId
-                                        oldestFrameId
-                                        (SeqDict.map (\_ player -> player.position) oldestState.players)
-                                        |> Effect.Lamdera.sendToBackend
+                                    if modBy 2 (Id.toInt oldestFrameId) == 0 then
+                                        DesyncCheckRequest
+                                            model.lobbyId
+                                            oldestFrameId
+                                            (SeqDict.map (\_ player -> player.position) oldestState.players)
+                                            |> Effect.Lamdera.sendToBackend
+
+                                    else
+                                        Command.none
                             in
                             (if noInput == input then
                                 ( model3, playerPositionsCmd )
