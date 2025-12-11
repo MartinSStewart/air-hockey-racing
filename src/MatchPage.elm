@@ -187,7 +187,7 @@ type ToBackend
 type ToFrontend
     = MatchSetupBroadcast (Id MatchId) (Id UserId) Match.Msg
     | MatchSetupResponse (Id MatchId) (Id UserId) Match.Msg (Id EventId)
-    | DesyncNotification (Id MatchId)
+    | DesyncNotification (Id MatchId) (Id FrameId)
 
 
 update : Config a -> Msg -> Model -> ( Model, Command FrontendOnly ToBackend Msg )
@@ -471,7 +471,7 @@ updateFromBackend msg matchSetup =
             , Command.none
             )
 
-        DesyncNotification lobbyId ->
+        DesyncNotification lobbyId frameId ->
             -- TODO: Handle desync notification (e.g., show warning to user, request resync)
             ( matchSetup, Command.none )
 

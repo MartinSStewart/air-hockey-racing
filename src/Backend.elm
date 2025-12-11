@@ -7,11 +7,14 @@ import Effect.Task as Task
 import Effect.Time
 import Id exposing (Id)
 import Lamdera
+import Length exposing (Meters)
 import List.Nonempty
-import Match exposing (Match, Msg(..), ServerTime(..))
+import Match exposing (Match, Msg(..), ServerTime(..), WorldCoordinate)
 import MatchPage exposing (MatchId)
 import NetworkModel exposing (EventId)
+import Point2d exposing (Point2d)
 import SeqDict exposing (SeqDict)
+import Timeline exposing (FrameId)
 import Types exposing (..)
 import User exposing (UserId)
 
@@ -190,61 +193,94 @@ updateFromFrontendWithTime sessionId clientId msg model time =
                     matchSetupRequest time lobbyId userId eventId clientId matchSetupMsg model
 
                 MatchPageToBackend (MatchPage.PlayerPositionsRequest lobbyId frameId positions) ->
-                    let
-                        matchPositions =
-                            SeqDict.get lobbyId model.playerPositions
-                                |> Maybe.withDefault SeqDict.empty
+                    case SeqDict.get lobbyId model.lobbies of
+                        Just match ->
+                            let
+                                playerPositions : SeqDict (Id FrameId) (SeqDict (Id UserId) (Point2d Meters WorldCoordinate))
+                                playerPositions =
+                                    SeqDict.get lobbyId model.playerPositions |> Maybe.withDefault SeqDict.empty
+                            in
+                            case SeqDict.get frameId playerPositions of
+                                Just playerPositions2 ->
+                                    if playerPositions2 == positions then
+                                        ( model, Command.none )
 
-                        updatedMatchPositions =
-                            SeqDict.insert
-                                userId
-                                { frameId = frameId, positions = positions }
-                                matchPositions
-
-                        newModel =
-                            { model
-                                | playerPositions =
-                                    SeqDict.insert lobbyId updatedMatchPositions model.playerPositions
-                            }
-
-                        -- Find users reporting at the same frame
-                        usersAtSameFrame =
-                            SeqDict.toList updatedMatchPositions
-                                |> List.filter (\( _, report ) -> report.frameId == frameId)
-
-                        -- Check for desyncs by comparing positions
-                        desyncedUsers =
-                            case usersAtSameFrame of
-                                ( firstUserId, firstReport ) :: rest ->
-                                    List.filterMap
-                                        (\( otherUserId, otherReport ) ->
-                                            if otherReport.positions /= firstReport.positions then
-                                                Just otherUserId
-
-                                            else
-                                                Nothing
+                                    else
+                                        ( model
+                                        , broadcastToMatch match (MatchPage.DesyncNotification lobbyId frameId) model
                                         )
-                                        rest
 
-                                [] ->
-                                    []
-
-                        desyncCmd =
-                            desyncedUsers
-                                |> List.concatMap
-                                    (\desyncedUserId ->
-                                        getSessionIdsFromUserId desyncedUserId newModel
-                                            |> List.map
-                                                (\desyncedSessionId ->
-                                                    MatchPage.DesyncNotification lobbyId
-                                                        |> MatchPageToFrontend
-                                                        |> Effect.Lamdera.sendToFrontends desyncedSessionId
-                                                )
+                                Nothing ->
+                                    ( { model
+                                        | playerPositions =
+                                            SeqDict.insert
+                                                lobbyId
+                                                (SeqDict.insert frameId positions playerPositions)
+                                                model.playerPositions
+                                      }
+                                    , Command.none
                                     )
-                                |> Command.batch
-                    in
-                    ( newModel, desyncCmd )
 
+                        Nothing ->
+                            ( model, Command.none )
+
+                --let
+                --    matchPositions : SeqDict (Id FrameId) (SeqDict (Id UserId) (Point2d Meters WorldCoordinate))
+                --    matchPositions =
+                --        SeqDict.get lobbyId model.playerPositions
+                --            |> Maybe.withDefault SeqDict.empty
+                --
+                --    updatedMatchPositions : SeqDict (Id UserId) SyncCheckData
+                --    updatedMatchPositions =
+                --        SeqDict.insert
+                --            userId
+                --            { frameId = frameId, positions = positions }
+                --            matchPositions
+                --
+                --    newModel : BackendModel
+                --    newModel =
+                --        { model
+                --            | playerPositions =
+                --                SeqDict.insert lobbyId updatedMatchPositions model.playerPositions
+                --        }
+                --
+                --    -- Find users reporting at the same frame
+                --    usersAtSameFrame : List ( Id UserId, SyncCheckData )
+                --    usersAtSameFrame =
+                --        SeqDict.toList updatedMatchPositions
+                --            |> List.filter (\( _, report ) -> report.frameId == frameId)
+                --
+                --    -- Check for desyncs by comparing positions
+                --    desyncedUsers =
+                --        case usersAtSameFrame of
+                --            ( firstUserId, firstReport ) :: rest ->
+                --                List.filterMap
+                --                    (\( otherUserId, otherReport ) ->
+                --                        if otherReport.positions /= firstReport.positions then
+                --                            Just otherUserId
+                --
+                --                        else
+                --                            Nothing
+                --                    )
+                --                    rest
+                --
+                --            [] ->
+                --                []
+                --in
+                --( newModel
+                --, List.concatMap
+                --    (\desyncedUserId ->
+                --        getSessionIdsFromUserId desyncedUserId newModel
+                --            |> List.map
+                --                (\desyncedSessionId ->
+                --                    MatchPage.DesyncNotification lobbyId
+                --                        |> MatchPageToFrontend
+                --                        |> Effect.Lamdera.sendToFrontends desyncedSessionId
+                --                )
+                --    )
+                --    desyncedUsers
+                --    |> Command.batch
+                --)
                 PingRequest ->
                     ( model, PingResponse time |> Effect.Lamdera.sendToFrontend clientId )
 
@@ -253,6 +289,21 @@ updateFromFrontendWithTime sessionId clientId msg model time =
 
         Nothing ->
             ( model, Command.none )
+
+
+broadcastToMatch : Match -> MatchPage.ToFrontend -> BackendModel -> Command BackendOnly ToFrontend BackendMsg
+broadcastToMatch match toFrontend model =
+    Match.allUsers match
+        |> List.Nonempty.toList
+        |> List.concatMap
+            (\( lobbyUserId, _ ) ->
+                getSessionIdsFromUserId lobbyUserId model
+                    |> List.map
+                        (\lobbyUserSessionId ->
+                            Effect.Lamdera.sendToFrontends lobbyUserSessionId (MatchPageToFrontend toFrontend)
+                        )
+            )
+        |> Command.batch
 
 
 matchSetupRequest :

@@ -28,14 +28,15 @@ import Keyboard
 import Length exposing (Meters)
 import Match exposing (LobbyPreview, Match, ServerTime, WorldCoordinate)
 import MatchPage exposing (MatchId, Mouse, ScreenCoordinate, WorldPixel)
-import Timeline
 import PingData exposing (PingData)
 import Pixels exposing (Pixels)
 import Point2d exposing (Point2d)
 import Quantity exposing (Quantity, Rate)
 import SeqDict exposing (SeqDict)
+import SeqSet exposing (SeqSet)
 import Size exposing (Size)
 import Sounds exposing (Sounds)
+import Timeline exposing (FrameId)
 import User exposing (UserId)
 
 
@@ -103,15 +104,7 @@ type alias BackendModel =
     , lobbies : SeqDict (Id MatchId) Match
     , dummyChange : Float
     , counter : Int
-    , playerPositions :
-        SeqDict
-            (Id MatchId)
-            (SeqDict
-                (Id UserId)
-                { frameId : Id Timeline.FrameId
-                , positions : SeqDict (Id UserId) (Point2d Meters WorldCoordinate)
-                }
-            )
+    , playerPositions : SeqDict (Id MatchId) (SeqDict (Id FrameId) (SeqDict (Id UserId) (Point2d Meters WorldCoordinate)))
     }
 
 
