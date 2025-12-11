@@ -100,7 +100,7 @@ type alias Snowball =
 
 type alias Player =
     { position : Point2d Meters WorldCoordinate
-    , targetPosition : Point2d Meters WorldCoordinate
+    , targetPosition : Maybe (Point2d Meters WorldCoordinate)
     , velocity : Vector2d Meters WorldCoordinate
     , rotation : Angle
     , finishTime : Place

@@ -1098,11 +1098,8 @@ canvasViewHelper model matchSetup canvasSize =
                                     (SeqDict.toList state.players)
                                 ++ (case SeqDict.get model.userId state.players of
                                         Just player ->
-                                            case player.finishTime of
-                                                Finished _ ->
-                                                    []
-
-                                                DidNotFinish ->
+                                            case ( player.finishTime, player.targetPosition ) of
+                                                ( DidNotFinish, Just targetPos ) ->
                                                     [ WebGL.entityWith
                                                         [ WebGL.Settings.cullFace WebGL.Settings.back ]
                                                         vertexShader
@@ -1110,10 +1107,13 @@ canvasViewHelper model matchSetup canvasSize =
                                                         arrow
                                                         { view = viewMatrix
                                                         , model =
-                                                            pointToMatrix player.targetPosition
+                                                            pointToMatrix targetPos
                                                                 |> Mat4.scale3 30 30 30
                                                         }
                                                     ]
+
+                                                _ ->
+                                                    []
 
                                         _ ->
                                             []
@@ -1378,7 +1378,7 @@ gameUpdate frameId inputs model =
                                                 case ( a.clickStart, input.action ) of
                                                     ( Just clickStart, ClickRelease point ) ->
                                                         if frameTimeElapsed clickStart.time frameId |> Quantity.lessThan (Duration.seconds 0.5) then
-                                                            point
+                                                            Just point
 
                                                         else
                                                             a.targetPosition
@@ -1501,13 +1501,22 @@ updateVelocities frameId players =
                         |> Quantity.sortBy (.collisionPosition >> Point2d.distanceFrom a.position)
                         |> List.head
 
+                reachedTarget : Bool
+                reachedTarget =
+                    case a.targetPosition of
+                        Just targetPos ->
+                            Point2d.distanceFrom a.position targetPos |> Quantity.lessThan (Length.meters 10)
+
+                        Nothing ->
+                            False
+
                 newVelocity : Vector2d Meters WorldCoordinate
                 newVelocity =
-                    (case ( a.finishTime, elapsed |> Quantity.lessThan countdownDelay ) of
-                        ( DidNotFinish, False ) ->
+                    (case ( a.finishTime, elapsed |> Quantity.lessThan countdownDelay, a.targetPosition ) of
+                        ( DidNotFinish, False, Just targetPos ) ->
                             let
                                 distance =
-                                    Vector2d.from a.position a.targetPosition
+                                    Vector2d.from a.position targetPos
                             in
                             if Vector2d.length distance |> Quantity.lessThan (Length.meters 10) then
                                 Vector2d.zero
@@ -1524,11 +1533,19 @@ updateVelocities frameId players =
                     )
                         |> Vector2d.plus a.velocity
                         |> Vector2d.scaleBy 0.8
+
+                newTargetPosition : Maybe (Point2d Meters WorldCoordinate)
+                newTargetPosition =
+                    if reachedTarget then
+                        Nothing
+
+                    else
+                        a.targetPosition
             in
             case nearestCollision of
                 Just { collisionVelocity, collisionPosition } ->
                     { position = collisionPosition
-                    , targetPosition = a.targetPosition
+                    , targetPosition = newTargetPosition
                     , velocity = collisionVelocity
                     , rotation = a.rotation
                     , finishTime = checkFinish a
@@ -1539,7 +1556,7 @@ updateVelocities frameId players =
 
                 Nothing ->
                     { position = Point2d.translateBy a.velocity a.position
-                    , targetPosition = a.targetPosition
+                    , targetPosition = newTargetPosition
                     , velocity = newVelocity
                     , rotation = a.rotation
                     , finishTime = checkFinish a
@@ -1945,7 +1962,7 @@ initMatch startTime users =
 initPlayer : Point2d Meters WorldCoordinate -> Player
 initPlayer position =
     { position = position
-    , targetPosition = position
+    , targetPosition = Nothing
     , velocity = Vector2d.zero
     , rotation = Quantity.zero
     , finishTime = DidNotFinish
