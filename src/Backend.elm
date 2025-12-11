@@ -215,7 +215,9 @@ updateFromFrontendWithTime sessionId clientId msg model time =
                                         | playerPositions =
                                             SeqDict.insert
                                                 lobbyId
-                                                (SeqDict.insert frameId positions playerPositions)
+                                                (SeqDict.insert frameId positions playerPositions
+                                                    |> SeqDict.remove (Id.toInt frameId - 60 |> Id.fromInt)
+                                                )
                                                 model.playerPositions
                                       }
                                     , Command.none
@@ -224,63 +226,6 @@ updateFromFrontendWithTime sessionId clientId msg model time =
                         Nothing ->
                             ( model, Command.none )
 
-                --let
-                --    matchPositions : SeqDict (Id FrameId) (SeqDict (Id UserId) (Point2d Meters WorldCoordinate))
-                --    matchPositions =
-                --        SeqDict.get lobbyId model.playerPositions
-                --            |> Maybe.withDefault SeqDict.empty
-                --
-                --    updatedMatchPositions : SeqDict (Id UserId) SyncCheckData
-                --    updatedMatchPositions =
-                --        SeqDict.insert
-                --            userId
-                --            { frameId = frameId, positions = positions }
-                --            matchPositions
-                --
-                --    newModel : BackendModel
-                --    newModel =
-                --        { model
-                --            | playerPositions =
-                --                SeqDict.insert lobbyId updatedMatchPositions model.playerPositions
-                --        }
-                --
-                --    -- Find users reporting at the same frame
-                --    usersAtSameFrame : List ( Id UserId, SyncCheckData )
-                --    usersAtSameFrame =
-                --        SeqDict.toList updatedMatchPositions
-                --            |> List.filter (\( _, report ) -> report.frameId == frameId)
-                --
-                --    -- Check for desyncs by comparing positions
-                --    desyncedUsers =
-                --        case usersAtSameFrame of
-                --            ( firstUserId, firstReport ) :: rest ->
-                --                List.filterMap
-                --                    (\( otherUserId, otherReport ) ->
-                --                        if otherReport.positions /= firstReport.positions then
-                --                            Just otherUserId
-                --
-                --                        else
-                --                            Nothing
-                --                    )
-                --                    rest
-                --
-                --            [] ->
-                --                []
-                --in
-                --( newModel
-                --, List.concatMap
-                --    (\desyncedUserId ->
-                --        getSessionIdsFromUserId desyncedUserId newModel
-                --            |> List.map
-                --                (\desyncedSessionId ->
-                --                    MatchPage.DesyncNotification lobbyId
-                --                        |> MatchPageToFrontend
-                --                        |> Effect.Lamdera.sendToFrontends desyncedSessionId
-                --                )
-                --    )
-                --    desyncedUsers
-                --    |> Command.batch
-                --)
                 PingRequest ->
                     ( model, PingResponse time |> Effect.Lamdera.sendToFrontend clientId )
 

@@ -2180,7 +2180,7 @@ countdown model match =
 desyncWarning : Maybe (Id FrameId) -> Element msg
 desyncWarning maybeDesyncFrame =
     case maybeDesyncFrame of
-        Just frameId ->
+        Just _ ->
             Element.column
                 [ Element.alignTop
                 , Element.centerX
@@ -2203,7 +2203,7 @@ desyncWarning maybeDesyncFrame =
                     , Element.Font.color (Element.rgb 1 1 1)
                     , Element.centerX
                     ]
-                    (Element.text ("Players have different game states at frame " ++ String.fromInt (Id.toInt frameId)))
+                    (Element.text "One or more players have desynced")
                 ]
 
         Nothing ->
