@@ -176,6 +176,7 @@ type alias MatchActiveLocal_ =
     , previousTouchPosition : Maybe (Point2d Pixels ScreenCoordinate)
     , primaryDown : Maybe Time.Posix
     , previousPrimaryDown : Maybe Time.Posix
+    , desyncedAtFrame : Maybe (Id FrameId)
     }
 
 
@@ -472,8 +473,22 @@ updateFromBackend msg matchSetup =
             )
 
         DesyncNotification lobbyId frameId ->
-            -- TODO: Handle desync notification (e.g., show warning to user, request resync)
-            ( matchSetup, Command.none )
+            ( if lobbyId == matchSetup.lobbyId then
+                { matchSetup
+                    | matchData =
+                        case matchSetup.matchData of
+                            MatchActiveLocal matchData ->
+                                { matchData | desyncedAtFrame = Just frameId }
+                                    |> MatchActiveLocal
+
+                            MatchSetupLocal _ ->
+                                matchSetup.matchData
+                }
+
+              else
+                matchSetup
+            , Command.none
+            )
 
 
 type alias Config a =
@@ -523,6 +538,7 @@ view config model =
                                     :: Element.htmlAttribute (Html.Events.Extra.Pointer.onUp PointerUp)
                                     :: Element.htmlAttribute (Html.Events.Extra.Pointer.onLeave PointerLeave)
                                     :: Element.inFront (countdown config match)
+                                    :: Element.inFront (desyncWarning matchData.desyncedAtFrame)
                                     :: Element.behindContent
                                         (canvasView
                                             config.windowSize
@@ -1841,6 +1857,7 @@ updateMatchData newMsg newNetworkModel oldNetworkModel oldMatchData =
             , previousTouchPosition = Nothing
             , primaryDown = Nothing
             , previousPrimaryDown = Nothing
+            , desyncedAtFrame = Nothing
             }
                 |> MatchActiveLocal
     in
@@ -2135,6 +2152,39 @@ countdown model match =
 
     else
         Element.none
+
+
+desyncWarning : Maybe (Id FrameId) -> Element msg
+desyncWarning maybeDesyncFrame =
+    case maybeDesyncFrame of
+        Just frameId ->
+            Element.column
+                [ Element.alignTop
+                , Element.centerX
+                , Element.padding 16
+                , Element.spacing 8
+                , Element.Background.color (Element.rgba 0.8 0 0 0.9)
+                , Element.Border.rounded 8
+                , Element.moveDown 60
+                , noPointerEvents
+                ]
+                [ Element.el
+                    [ Element.Font.size 20
+                    , Element.Font.bold
+                    , Element.Font.color (Element.rgb 1 1 1)
+                    , Element.centerX
+                    ]
+                    (Element.text "Desync Detected!")
+                , Element.el
+                    [ Element.Font.size 14
+                    , Element.Font.color (Element.rgb 1 1 1)
+                    , Element.centerX
+                    ]
+                    (Element.text ("Players have different game states at frame " ++ String.fromInt (Id.toInt frameId)))
+                ]
+
+        Nothing ->
+            Element.none
 
 
 timestamp_ : Duration -> String
