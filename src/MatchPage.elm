@@ -1453,7 +1453,7 @@ gameUpdate frameId inputs model =
                                                 elapsed =
                                                     frameTimeElapsed clickStart.time frameId
                                             in
-                                            if elapsed |> Quantity.lessThan clickMoveMaxDelay then
+                                            if elapsed |> Quantity.greaterThanOrEqualTo clickMoveMaxDelay then
                                                 let
                                                     direction : Direction2d WorldCoordinate
                                                     direction =
@@ -1462,9 +1462,9 @@ gameUpdate frameId inputs model =
 
                                                     charge : Float
                                                     charge =
-                                                        elapsed
-                                                            |> Quantity.minus clickMoveMaxDelay
-                                                            |> Quantity.ratio chargeMaxDelay
+                                                        Quantity.ratio
+                                                            (elapsed |> Quantity.minus clickMoveMaxDelay)
+                                                            chargeMaxDelay
                                                 in
                                                 { thrownBy = userId
                                                 , thrownAt = frameId
@@ -1501,7 +1501,7 @@ gameUpdate frameId inputs model =
             updatedVelocities_
     , snowballs =
         List.filter
-            (\snowball -> frameTimeElapsed snowball.thrownAt frameId |> Quantity.lessThan Duration.second)
+            (\snowball -> frameTimeElapsed snowball.thrownAt frameId |> Quantity.lessThan (Duration.seconds 10))
             model3.snowballs
     }
 
@@ -1785,15 +1785,8 @@ snowballRadius =
 
 snowballPosition : Id Timeline.FrameId -> Match.Snowball -> Point2d Meters WorldCoordinate
 snowballPosition currentFrameId snowball =
-    let
-        elapsedFrames =
-            Id.toInt currentFrameId - Id.toInt snowball.thrownAt
-
-        elapsedTime =
-            Quantity.multiplyBy (toFloat elapsedFrames) Match.frameDuration
-    in
     Point2d.translateBy
-        (Vector2d.for elapsedTime snowball.startVelocity)
+        (Vector2d.for (frameTimeElapsed snowball.thrownAt currentFrameId) snowball.startVelocity)
         snowball.startPosition
 
 
