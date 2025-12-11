@@ -1501,15 +1501,6 @@ updateVelocities frameId players =
                         |> Quantity.sortBy (.collisionPosition >> Point2d.distanceFrom a.position)
                         |> List.head
 
-                reachedTarget : Bool
-                reachedTarget =
-                    case a.targetPosition of
-                        Just targetPos ->
-                            Point2d.distanceFrom a.position targetPos |> Quantity.lessThan (Length.meters 10)
-
-                        Nothing ->
-                            False
-
                 newVelocity : Vector2d Meters WorldCoordinate
                 newVelocity =
                     (case ( a.finishTime, elapsed |> Quantity.lessThan countdownDelay, a.targetPosition ) of
@@ -1536,11 +1527,16 @@ updateVelocities frameId players =
 
                 newTargetPosition : Maybe (Point2d Meters WorldCoordinate)
                 newTargetPosition =
-                    if reachedTarget then
-                        Nothing
+                    case a.targetPosition of
+                        Just targetPos ->
+                            if Point2d.distanceFrom a.position targetPos |> Quantity.lessThan (Length.meters 10) then
+                                Nothing
 
-                    else
-                        a.targetPosition
+                            else
+                                a.targetPosition
+
+                        Nothing ->
+                            Nothing
             in
             case nearestCollision of
                 Just { collisionVelocity, collisionPosition } ->
