@@ -49,6 +49,7 @@ import Quantity
 import Random
 import SeqDict exposing (SeqDict)
 import SeqSet
+import Speed exposing (MetersPerSecond, Speed)
 import TextMessage exposing (TextMessage)
 import Time
 import Timeline exposing (FrameId, Timeline)
@@ -92,9 +93,10 @@ type alias MatchState =
 
 
 type alias Snowball =
-    { targetPosition : Point2d Meters WorldCoordinate
+    { startVelocity : Vector2d MetersPerSecond WorldCoordinate
     , startPosition : Point2d Meters WorldCoordinate
     , thrownBy : Id UserId
+    , thrownAt : Id FrameId
     }
 
 

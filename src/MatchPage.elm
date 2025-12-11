@@ -89,6 +89,7 @@ import SeqSet exposing (SeqSet)
 import Shape
 import Size exposing (Size)
 import Sounds exposing (Sounds)
+import Speed
 import TextMessage exposing (TextMessage)
 import Timeline exposing (FrameId, TimelineCache, getOldestCachedState)
 import Ui
@@ -1370,15 +1371,21 @@ pointToVec point2d =
     Math.Vector2.vec2 x y
 
 
+clickMoveMaxDelay : Duration
 clickMoveMaxDelay =
     Duration.seconds 0.5
+
+
+chargeMaxDelay : Duration
+chargeMaxDelay =
+    Duration.seconds 2
 
 
 gameUpdate : Id FrameId -> List TimelineEvent -> MatchState -> MatchState
 gameUpdate frameId inputs model =
     let
-        newModel : MatchState
-        newModel =
+        model3 : MatchState
+        model3 =
             List.foldl
                 (\{ userId, input } model2 ->
                     case SeqDict.get userId model2.players of
@@ -1417,9 +1424,28 @@ gameUpdate frameId inputs model =
                                 , snowballs =
                                     case ( player.clickStart, input.action ) of
                                         ( Just clickStart, ClickRelease point ) ->
-                                            if frameTimeElapsed clickStart.time frameId |> Quantity.lessThan clickMoveMaxDelay then
+                                            let
+                                                elapsed : Duration
+                                                elapsed =
+                                                    frameTimeElapsed clickStart.time frameId
+                                            in
+                                            if elapsed |> Quantity.lessThan clickMoveMaxDelay then
+                                                let
+                                                    direction : Direction2d WorldCoordinate
+                                                    direction =
+                                                        Direction2d.from player.position clickStart.position
+                                                            |> Maybe.withDefault Direction2d.x
+
+                                                    charge : Float
+                                                    charge =
+                                                        elapsed
+                                                            |> Quantity.minus clickMoveMaxDelay
+                                                            |> Quantity.ratio chargeMaxDelay
+                                                in
                                                 { thrownBy = userId
-                                                , targetPosition = clickStart.position
+                                                , thrownAt = frameId
+                                                , startVelocity =
+                                                    Vector2d.withLength (Speed.metersPerSecond (charge * 10)) direction
                                                 , startPosition = player.position
                                                 }
                                                     :: model2.snowballs
@@ -1439,7 +1465,7 @@ gameUpdate frameId inputs model =
 
         updatedVelocities_ : SeqDict (Id UserId) Player
         updatedVelocities_ =
-            updateVelocities frameId newModel.players
+            updateVelocities frameId model3.players
     in
     { players =
         SeqDict.map
@@ -1449,7 +1475,10 @@ gameUpdate frameId inputs model =
                     |> List.foldl (\a b -> handleCollision frameId b a |> Tuple.first) player
             )
             updatedVelocities_
-    , snowballs = model.snowballs
+    , snowballs =
+        List.filter
+            (\snowball -> frameTimeElapsed snowball.thrownAt frameId |> Quantity.lessThan Duration.second)
+            model3.snowballs
     }
 
 
@@ -1996,6 +2025,7 @@ initPlayer position =
     , lastCollision = Nothing
     , lastEmote = Nothing
     , clickStart = Nothing
+    , isDead = Nothing
     }
 
 
