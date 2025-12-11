@@ -106,9 +106,12 @@ type alias BackendModel =
     , playerPositions :
         SeqDict
             (Id MatchId)
-            { oldestCachedFrameId : Id Timeline.FrameId
-            , positions : SeqDict (Id UserId) (Point2d Meters WorldCoordinate)
-            }
+            (SeqDict
+                (Id UserId)
+                { frameId : Id Timeline.FrameId
+                , positions : SeqDict (Id UserId) (Point2d Meters WorldCoordinate)
+                }
+            )
     }
 
 
