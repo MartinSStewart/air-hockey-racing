@@ -568,6 +568,7 @@ view config model =
             Element.text "Loading..."
 
 
+matchSetupView : Config a -> Match -> MatchSetupLocal_ -> PlayerData -> Element Msg
 matchSetupView config lobby matchSetupData currentPlayerData =
     let
         displayType =
