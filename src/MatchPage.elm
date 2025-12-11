@@ -1577,6 +1577,7 @@ updateVelocities frameId players =
                     , lastCollision = Just frameId
                     , lastEmote = a.lastEmote
                     , clickStart = a.clickStart
+                    , isDead = a.isDead
                     }
 
                 Nothing ->
@@ -1588,6 +1589,7 @@ updateVelocities frameId players =
                     , lastCollision = a.lastCollision
                     , lastEmote = a.lastEmote
                     , clickStart = a.clickStart
+                    , isDead = a.isDead
                     }
         )
         players
