@@ -1370,6 +1370,10 @@ pointToVec point2d =
     Math.Vector2.vec2 x y
 
 
+clickMoveMaxDelay =
+    Duration.seconds 0.5
+
+
 gameUpdate : Id FrameId -> List TimelineEvent -> MatchState -> MatchState
 gameUpdate frameId inputs model =
     let
@@ -1377,42 +1381,58 @@ gameUpdate frameId inputs model =
         newModel =
             List.foldl
                 (\{ userId, input } model2 ->
-                    { model2
-                        | players =
-                            SeqDict.update userId
-                                (Maybe.map
-                                    (\a ->
-                                        { a
+                    case SeqDict.get userId model2.players of
+                        Just player ->
+                            { model2
+                                | players =
+                                    SeqDict.insert userId
+                                        { player
                                             | targetPosition =
-                                                case ( a.clickStart, input.action ) of
+                                                case ( player.clickStart, input.action ) of
                                                     ( Just clickStart, ClickRelease point ) ->
-                                                        if frameTimeElapsed clickStart.time frameId |> Quantity.lessThan (Duration.seconds 0.5) then
+                                                        if frameTimeElapsed clickStart.time frameId |> Quantity.lessThan clickMoveMaxDelay then
                                                             Just point
 
                                                         else
-                                                            a.targetPosition
+                                                            player.targetPosition
 
                                                     _ ->
-                                                        a.targetPosition
+                                                        player.targetPosition
                                             , lastEmote =
                                                 case input.emote of
                                                     Just emote ->
                                                         Just { time = frameId, emote = emote }
 
                                                     Nothing ->
-                                                        a.lastEmote
+                                                        player.lastEmote
                                             , clickStart =
                                                 case input.action of
                                                     ClickStart point ->
                                                         Just { position = point, time = frameId }
 
                                                     _ ->
-                                                        a.clickStart
+                                                        player.clickStart
                                         }
-                                    )
-                                )
-                                model2.players
-                    }
+                                        model2.players
+                                , snowballs =
+                                    case ( player.clickStart, input.action ) of
+                                        ( Just clickStart, ClickRelease point ) ->
+                                            if frameTimeElapsed clickStart.time frameId |> Quantity.lessThan clickMoveMaxDelay then
+                                                { thrownBy = userId
+                                                , targetPosition = clickStart.position
+                                                , startPosition = player.position
+                                                }
+                                                    :: model2.snowballs
+
+                                            else
+                                                model2.snowballs
+
+                                        _ ->
+                                            model2.snowballs
+                            }
+
+                        Nothing ->
+                            model2
                 )
                 model
                 inputs

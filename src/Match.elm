@@ -92,8 +92,8 @@ type alias MatchState =
 
 
 type alias Snowball =
-    { position : Point2d Meters WorldCoordinate
-    , velocity : Vector2d Meters WorldCoordinate
+    { targetPosition : Point2d Meters WorldCoordinate
+    , startPosition : Point2d Meters WorldCoordinate
     , thrownBy : Id UserId
     }
 
