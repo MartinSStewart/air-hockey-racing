@@ -42,6 +42,7 @@ init =
     , lobbies = SeqDict.empty
     , dummyChange = 0
     , counter = 0
+    , playerPositions = SeqDict.empty
     }
 
 
@@ -187,6 +188,17 @@ updateFromFrontendWithTime sessionId clientId msg model time =
 
                 MatchPageToBackend (MatchPage.MatchSetupRequest lobbyId eventId matchSetupMsg) ->
                     matchSetupRequest time lobbyId userId eventId clientId matchSetupMsg model
+
+                MatchPageToBackend (MatchPage.PlayerPositionsRequest lobbyId frameId positions) ->
+                    ( { model
+                        | playerPositions =
+                            SeqDict.insert
+                                lobbyId
+                                { oldestCachedFrameId = frameId, positions = positions }
+                                model.playerPositions
+                      }
+                    , Command.none
+                    )
 
                 PingRequest ->
                     ( model, PingResponse time |> Effect.Lamdera.sendToFrontend clientId )

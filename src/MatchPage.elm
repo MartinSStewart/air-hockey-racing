@@ -90,7 +90,7 @@ import Shape
 import Size exposing (Size)
 import Sounds exposing (Sounds)
 import TextMessage exposing (TextMessage)
-import Timeline exposing (FrameId, TimelineCache)
+import Timeline exposing (FrameId, TimelineCache, getOldestCachedState)
 import Ui
 import User exposing (UserId)
 import Vector2d exposing (Vector2d)
@@ -181,6 +181,7 @@ type alias MatchActiveLocal_ =
 
 type ToBackend
     = MatchSetupRequest (Id MatchId) (Id EventId) Match.Msg
+    | PlayerPositionsRequest (Id MatchId) (Id Timeline.FrameId) (SeqDict (Id UserId) (Point2d Meters WorldCoordinate))
 
 
 type ToFrontend
@@ -2256,15 +2257,26 @@ animationFrame config model =
 
                                 currentFrameId =
                                     timeToFrameId config match
+
+                                ( oldestFrameId, oldestState ) =
+                                    getOldestCachedState newCache
+
+                                playerPositionsCmd =
+                                    PlayerPositionsRequest
+                                        model.lobbyId
+                                        oldestFrameId
+                                        (SeqDict.map (\_ player -> player.position) oldestState.players)
+                                        |> Effect.Lamdera.sendToBackend
                             in
                             (if noInput == input then
-                                ( model3, Command.none )
+                                ( model3, playerPositionsCmd )
 
                              else
                                 matchSetupUpdate
                                     config.userId
                                     (Match.MatchInputRequest (timeToServerTime config) input)
                                     model3
+                                    |> Tuple.mapSecond (\cmd -> Command.batch [ cmd, playerPositionsCmd ])
                             )
                                 |> (\( matchSetupPage2, cmd ) ->
                                         case

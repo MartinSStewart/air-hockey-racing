@@ -1,4 +1,4 @@
-module Timeline exposing (Error(..), FrameId, Timeline, TimelineCache, addInput, getStateAt, init, maxCacheSize)
+module Timeline exposing (Error(..), FrameId, Timeline, TimelineCache, addInput, getOldestCachedState, getStateAt, init, maxCacheSize)
 
 import Id exposing (Id)
 import List.Extra as List
@@ -107,3 +107,10 @@ getStateAt updateFunc frame timelineCache timeline =
 
 maxCacheSize =
     180
+
+
+getOldestCachedState : TimelineCache state -> ( Id FrameId, state )
+getOldestCachedState timelineCache =
+    List.Nonempty.toList timelineCache.cache
+        |> List.minimumBy (Tuple.first >> Id.toInt)
+        |> Maybe.withDefault (List.Nonempty.head timelineCache.cache)

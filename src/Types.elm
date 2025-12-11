@@ -25,8 +25,10 @@ import Effect.Lamdera exposing (ClientId, SessionId)
 import Effect.Time as Time
 import Id exposing (Id)
 import Keyboard
-import Match exposing (LobbyPreview, Match, ServerTime)
+import Length exposing (Meters)
+import Match exposing (LobbyPreview, Match, ServerTime, WorldCoordinate)
 import MatchPage exposing (MatchId, Mouse, ScreenCoordinate, WorldPixel)
+import Timeline
 import PingData exposing (PingData)
 import Pixels exposing (Pixels)
 import Point2d exposing (Point2d)
@@ -101,6 +103,12 @@ type alias BackendModel =
     , lobbies : SeqDict (Id MatchId) Match
     , dummyChange : Float
     , counter : Int
+    , playerPositions :
+        SeqDict
+            (Id MatchId)
+            { oldestCachedFrameId : Id Timeline.FrameId
+            , positions : SeqDict (Id UserId) (Point2d Meters WorldCoordinate)
+            }
     }
 
 
