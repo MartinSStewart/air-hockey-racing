@@ -1106,6 +1106,30 @@ canvasViewHelper model matchSetup canvasSize =
                                             playerRadius_
                                     )
                                     (SeqDict.toList state.players)
+                                ++ List.map
+                                    (\snowball ->
+                                        let
+                                            currentFrameId =
+                                                timeToFrameId model match
+
+                                            position =
+                                                snowballPosition currentFrameId snowball
+
+                                            snowballRadius_ =
+                                                Length.inMeters snowballRadius
+                                        in
+                                        WebGL.entityWith
+                                            [ WebGL.Settings.cullFace WebGL.Settings.back ]
+                                            vertexShader
+                                            fragmentShader
+                                            snowballMesh
+                                            { view = viewMatrix
+                                            , model =
+                                                pointToMatrix position
+                                                    |> Mat4.scale3 snowballRadius_ snowballRadius_ snowballRadius_
+                                            }
+                                    )
+                                    state.snowballs
                                 ++ (case SeqDict.get model.userId state.players of
                                         Just player ->
                                             case ( player.finishTime, player.targetPosition ) of
@@ -1745,6 +1769,32 @@ circleMesh size color =
                 , { position = Math.Vector2.vec2 (cos t2 * size) (sin t2 * size), color = color }
                 )
             )
+
+
+snowballMesh : WebGL.Mesh Vertex
+snowballMesh =
+    circleMesh 1 (Math.Vector3.vec3 0 0 0)
+        ++ circleMesh 0.9 (Math.Vector3.vec3 1 1 1)
+        |> WebGL.triangles
+
+
+snowballRadius : Quantity Float Meters
+snowballRadius =
+    Length.meters 15
+
+
+snowballPosition : Id Timeline.FrameId -> Match.Snowball -> Point2d Meters WorldCoordinate
+snowballPosition currentFrameId snowball =
+    let
+        elapsedFrames =
+            Id.toInt currentFrameId - Id.toInt snowball.thrownAt
+
+        elapsedTime =
+            Quantity.multiplyBy (toFloat elapsedFrames) Match.frameDuration
+    in
+    Point2d.translateBy
+        (Vector2d.for elapsedTime snowball.startVelocity)
+        snowball.startPosition
 
 
 finishLine : BoundingBox2d Meters WorldCoordinate
