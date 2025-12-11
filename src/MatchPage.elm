@@ -119,6 +119,7 @@ type Msg
     | PointerUp Html.Events.Extra.Pointer.Event
     | PointerLeave Html.Events.Extra.Pointer.Event
     | PointerMoved Html.Events.Extra.Pointer.Event
+    | PressedLeaveMatch
 
 
 type MatchId
@@ -390,6 +391,9 @@ update config msg model =
         ScrolledToBottom ->
             ( model, Command.none )
 
+        PressedLeaveMatch ->
+            matchSetupUpdate config.userId Match.LeaveMatchSetup model
+
 
 matchSetupUpdate : Id UserId -> Match.Msg -> Model -> ( Model, Command FrontendOnly ToBackend msg )
 matchSetupUpdate userId msg matchSetup =
@@ -539,6 +543,11 @@ view config model =
                                     :: Element.htmlAttribute (Html.Events.Extra.Pointer.onLeave PointerLeave)
                                     :: Element.inFront (countdown config match)
                                     :: Element.inFront (desyncWarning matchData.desyncedAtFrame)
+                                    :: Element.inFront
+                                        (Element.Input.button
+                                            []
+                                            { onPress = Just PressedLeaveMatch, label = Element.el [ Element.Background.color (Element.rgb 255 255 255) ] (Element.text "Leave match") }
+                                        )
                                     :: Element.behindContent
                                         (canvasView
                                             config.windowSize
