@@ -106,6 +106,7 @@ type alias Player =
     , finishTime : Place
     , lastCollision : Maybe (Id FrameId)
     , lastEmote : Maybe { time : Id FrameId, emote : Emote }
+    , clickStart : Maybe { position : Point2d Meters WorldCoordinate, time : Id FrameId }
     }
 
 
@@ -127,7 +128,7 @@ type Emote
 
 
 type alias Input =
-    { targetPosition : Action
+    { action : Action
     , emote : Maybe Emote
     }
 

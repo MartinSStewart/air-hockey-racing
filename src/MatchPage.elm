@@ -1352,14 +1352,15 @@ gameUpdate frameId inputs model =
                                     (\a ->
                                         { a
                                             | targetPosition =
-                                                case input.targetPosition of
-                                                    ClickStart point ->
-                                                        point
+                                                case ( a.clickStart, input.action ) of
+                                                    ( Just clickStart, ClickRelease point ) ->
+                                                        if frameTimeElapsed clickStart.time frameId |> Quantity.lessThan (Duration.seconds 0.5) then
+                                                            point
 
-                                                    ClickRelease point ->
-                                                        point
+                                                        else
+                                                            a.targetPosition
 
-                                                    NoAction ->
+                                                    _ ->
                                                         a.targetPosition
                                             , lastEmote =
                                                 case input.emote of
@@ -1368,6 +1369,13 @@ gameUpdate frameId inputs model =
 
                                                     Nothing ->
                                                         a.lastEmote
+                                            , clickStart =
+                                                case input.action of
+                                                    ClickStart point ->
+                                                        Just { position = point, time = frameId }
+
+                                                    _ ->
+                                                        a.clickStart
                                         }
                                     )
                                 )
@@ -1503,6 +1511,7 @@ updateVelocities frameId players =
                     , finishTime = checkFinish a
                     , lastCollision = Just frameId
                     , lastEmote = a.lastEmote
+                    , clickStart = a.clickStart
                     }
 
                 Nothing ->
@@ -1513,6 +1522,7 @@ updateVelocities frameId players =
                     , finishTime = checkFinish a
                     , lastCollision = a.lastCollision
                     , lastEmote = a.lastEmote
+                    , clickStart = a.clickStart
                     }
         )
         players
@@ -1901,19 +1911,23 @@ initMatch startTime users =
                                 (Vector2d.fromMeters { x = toFloat x * spacing, y = toFloat y * spacing })
                                 playerStart
                     in
-                    ( userId
-                    , { position = position
-                      , targetPosition = position
-                      , velocity = Vector2d.zero
-                      , rotation = Quantity.zero
-                      , finishTime = DidNotFinish
-                      , lastCollision = Nothing
-                      , lastEmote = Nothing
-                      }
-                    )
+                    ( userId, initPlayer position )
                 )
             |> SeqDict.fromList
     , snowballs = []
+    }
+
+
+initPlayer : Point2d Meters WorldCoordinate -> Player
+initPlayer position =
+    { position = position
+    , targetPosition = position
+    , velocity = Vector2d.zero
+    , rotation = Quantity.zero
+    , finishTime = DidNotFinish
+    , lastCollision = Nothing
+    , lastEmote = Nothing
+    , clickStart = Nothing
     }
 
 
@@ -2178,7 +2192,7 @@ viewportHeight =
 
 getInput : Config a -> MatchState -> MatchActiveLocal_ -> Input
 getInput config matchState model =
-    { targetPosition =
+    { action =
         case ( model.primaryDown, model.previousPrimaryDown ) of
             ( Just _, Nothing ) ->
                 case ( model.touchPosition, SeqDict.get config.userId matchState.players ) of
@@ -2212,7 +2226,7 @@ getInput config matchState model =
 
 noInput : Input
 noInput =
-    { targetPosition = NoAction, emote = Nothing }
+    { action = NoAction, emote = Nothing }
 
 
 animationFrame : Config a -> Model -> ( Model, Command FrontendOnly ToBackend Msg )
@@ -2286,6 +2300,11 @@ animationFrame config model =
 
         _ ->
             ( model, Command.none )
+
+
+frameTimeElapsed : Id FrameId -> Id FrameId -> Duration
+frameTimeElapsed start end =
+    Quantity.multiplyBy (toFloat (Id.toInt end - Id.toInt start)) Match.frameDuration
 
 
 matchTimeLeft : Id FrameId -> MatchState -> Maybe Duration
