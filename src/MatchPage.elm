@@ -946,7 +946,9 @@ camera : Point2d Meters WorldCoordinate -> Length -> Camera3d Meters WorldCoordi
 camera position viewportHeight2 =
     let
         { x, y } =
-            Point2d.toMeters position
+            { x = 0, y = 0 }
+
+        --Point2d.toMeters position
     in
     Camera3d.orthographic
         { viewpoint =
@@ -1075,19 +1077,18 @@ canvasViewHelper model matchSetup canvasSize =
                                 playerRadius_ =
                                     Length.inMeters playerRadius
                             in
-                            backgroundGrid cameraPosition zoom canvasSize
-                                :: WebGL.entityWith
-                                    [ WebGL.Settings.cullFace WebGL.Settings.back ]
-                                    vertexShader
-                                    fragmentShader
-                                    finishLineMesh
-                                    { view = viewMatrix
-                                    , model =
-                                        Mat4.makeTranslate3
-                                            (BoundingBox2d.minX finishLine |> Length.inMeters)
-                                            (BoundingBox2d.minY finishLine |> Length.inMeters)
-                                            0
-                                    }
+                            WebGL.entityWith
+                                [ WebGL.Settings.cullFace WebGL.Settings.back ]
+                                vertexShader
+                                fragmentShader
+                                finishLineMesh
+                                { view = viewMatrix
+                                , model =
+                                    Mat4.makeTranslate3
+                                        (BoundingBox2d.minX finishLine |> Length.inMeters)
+                                        (BoundingBox2d.minY finishLine |> Length.inMeters)
+                                        0
+                                }
                                 :: WebGL.entityWith
                                     [ WebGL.Settings.cullFace WebGL.Settings.back ]
                                     vertexShader
@@ -1304,42 +1305,17 @@ toFromAndBack startDuration holdDuration endDuration timeElapsed easingIn easing
 wall : Polygon2d Meters WorldCoordinate
 wall =
     Polygon2d.withHoles
-        [ [ Point2d.meters 4600 2500
-          , Point2d.meters 4700 2500
-          , Point2d.meters 4700 2600
-          , Point2d.meters 4600 2600
-          ]
-            |> List.map (Point2d.rotateAround (Point2d.meters 4650 2550) (Angle.degrees 45))
+        []
+        [ Point2d.meters -12 -9
+        , Point2d.meters 12 -9
+        , Point2d.meters 12 9
+        , Point2d.meters -12 9
         ]
-        ([ Point2d.meters 1187 461
-         , Point2d.meters 1187 328
-         , Point2d.meters 1078 328
-         , Point2d.meters 1078 453
-         , Point2d.meters 875 453
-         , Point2d.meters 771 424
-         , Point2d.meters 563 424
-         , Point2d.meters 631 300
-         , Point2d.meters 631 141
-         , Point2d.meters 438 141
-         , Point2d.meters 438 270
-         , Point2d.meters 455 300
-         , Point2d.meters 438 300
-         , Point2d.meters 438 487
-         , Point2d.meters 509 560
-         , Point2d.meters 1090 560
-         ]
-            |> List.map (Point2d.scaleAbout Point2d.origin 0.05)
-        )
-        |> Polygon2d.translateBy (Vector2d.meters 0 -8)
 
 
 playerStart : Point2d Meters WorldCoordinate
 playerStart =
-    Point2d.fromMeters { x = 23, y = 0 }
-
-
-
---Point2d.fromMeters { x = 0, y = 0 }
+    Point2d.fromMeters { x = 0, y = 0 }
 
 
 wallSegments : List (LineSegment2d Meters WorldCoordinate)
@@ -1400,7 +1376,7 @@ getCollisionCandidates point =
 
 lineSegmentMesh : Vec3 -> List (LineSegment2d Meters WorldCoordinate) -> Mesh Vertex
 lineSegmentMesh color lines =
-    List.concatMap (lineMesh (Length.meters 0.01) color) lines |> WebGL.triangles
+    List.concatMap (lineMesh (Length.meters 0.1) color) lines |> WebGL.triangles
 
 
 lineMesh : Quantity Float Meters -> Vec3 -> LineSegment2d Meters WorldCoordinate -> List ( Vertex, Vertex, Vertex )
@@ -1447,7 +1423,7 @@ pointToVec point2d =
 
 clickMoveMaxDelay : Duration
 clickMoveMaxDelay =
-    Duration.seconds 0.5
+    Duration.seconds 0.2
 
 
 chargeMaxDelay : Duration
