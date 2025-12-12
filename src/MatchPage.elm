@@ -26,6 +26,7 @@ module MatchPage exposing
     , view
     )
 
+import Acceleration exposing (Acceleration)
 import Angle exposing (Angle)
 import Audio
 import Axis2d
@@ -78,7 +79,7 @@ import NetworkModel exposing (EventId, NetworkModel)
 import PingData exposing (PingData)
 import Pixels exposing (Pixels)
 import Point2d exposing (Point2d)
-import Point3d
+import Point3d exposing (Point3d)
 import Polygon2d exposing (Polygon2d)
 import Quantity exposing (Quantity(..), Rate)
 import Random
@@ -90,12 +91,13 @@ import SeqSet exposing (SeqSet)
 import Shape
 import Size exposing (Size)
 import Sounds exposing (Sounds)
-import Speed
+import Speed exposing (MetersPerSecond)
 import TextMessage exposing (TextMessage)
 import Timeline exposing (FrameId, TimelineCache, getOldestCachedState)
 import Ui
 import User exposing (UserId)
 import Vector2d exposing (Vector2d)
+import Vector3d exposing (Vector3d)
 import Viewpoint3d
 import WebGL.Matrices
 import WebGL.Settings
@@ -1108,28 +1110,39 @@ canvasViewHelper model matchSetup canvasSize =
                                             playerRadius_
                                     )
                                     (SeqDict.toList state.players)
-                                ++ List.map
+                                ++ List.concatMap
                                     (\snowball ->
                                         let
                                             currentFrameId =
                                                 timeToFrameId model match
 
-                                            position =
-                                                snowballPosition currentFrameId snowball
+                                            { x, y, z } =
+                                                snowballPosition currentFrameId snowball |> Point3d.toMeters
 
                                             snowballRadius_ =
                                                 Length.inMeters snowballRadius
                                         in
-                                        WebGL.entityWith
+                                        [ WebGL.entityWith
                                             [ WebGL.Settings.cullFace WebGL.Settings.back ]
                                             vertexShader
                                             fragmentShader
                                             snowballMesh
                                             { view = viewMatrix
                                             , model =
-                                                pointToMatrix position
+                                                Mat4.makeTranslate3 x (y + z) z
                                                     |> Mat4.scale3 snowballRadius_ snowballRadius_ snowballRadius_
                                             }
+                                        , WebGL.entityWith
+                                            [ WebGL.Settings.cullFace WebGL.Settings.back ]
+                                            vertexShader
+                                            fragmentShader
+                                            snowballShadowMesh
+                                            { view = viewMatrix
+                                            , model =
+                                                Mat4.makeTranslate3 x y 0
+                                                    |> Mat4.scale3 snowballRadius_ snowballRadius_ snowballRadius_
+                                            }
+                                        ]
                                     )
                                     state.snowballs
                                 ++ (case SeqDict.get model.userId state.players of
@@ -1306,10 +1319,10 @@ wall : Polygon2d Meters WorldCoordinate
 wall =
     Polygon2d.withHoles
         []
-        [ Point2d.meters -12 -9
-        , Point2d.meters 12 -9
-        , Point2d.meters 12 9
-        , Point2d.meters -12 9
+        [ Point2d.meters -14 -12
+        , Point2d.meters 14 -12
+        , Point2d.meters 14 12
+        , Point2d.meters -14 12
         ]
 
 
@@ -1511,10 +1524,7 @@ gameUpdate frameId inputs model =
                                         in
                                         { thrownBy = userId
                                         , thrownAt = frameId
-                                        , startVelocity =
-                                            Vector2d.withLength
-                                                (Speed.metersPerSecond (throwCharge elapsed * 10))
-                                                direction
+                                        , startVelocity = throwVelocity direction (throwCharge elapsed * 10 |> Length.meters)
                                         , startPosition = player.position
                                         }
                                             :: model2.snowballs
@@ -1546,6 +1556,16 @@ gameUpdate frameId inputs model =
             (\snowball -> frameTimeElapsed snowball.thrownAt frameId |> Quantity.lessThan (Duration.seconds 10))
             model3.snowballs
     }
+
+
+gravity : Acceleration
+gravity =
+    Acceleration.metersPerSecondSquared 9.8
+
+
+throwVelocity : Direction2d WorldCoordinate -> Length -> Vector3d MetersPerSecond WorldCoordinate
+throwVelocity direction distance =
+    Debug.todo "Should return the velocity necessary for the snowball to travel the given distance before reaching the ground"
 
 
 throwCharge : Duration -> Float
@@ -1640,7 +1660,7 @@ updateVelocities frameId players =
                             in
                             distance
                                 |> Vector2d.normalize
-                                |> Vector2d.scaleBy 0.003
+                                |> Vector2d.scaleBy 0.0025
                                 |> Vector2d.unwrap
                                 |> Vector2d.unsafe
 
@@ -1805,15 +1825,21 @@ snowballMesh =
         |> WebGL.triangles
 
 
+snowballShadowMesh : WebGL.Mesh Vertex
+snowballShadowMesh =
+    circleMesh 1 (Math.Vector3.vec3 0 0 0)
+        |> WebGL.triangles
+
+
 snowballRadius : Quantity Float Meters
 snowballRadius =
     Length.meters 0.15
 
 
-snowballPosition : Id Timeline.FrameId -> Match.Snowball -> Point2d Meters WorldCoordinate
+snowballPosition : Id Timeline.FrameId -> Match.Snowball -> Point3d Meters WorldCoordinate
 snowballPosition currentFrameId snowball =
-    Point2d.translateBy
-        (Vector2d.for (frameTimeElapsed snowball.thrownAt currentFrameId) snowball.startVelocity)
+    Point3d.translateBy
+        (Vector3d.for (frameTimeElapsed snowball.thrownAt currentFrameId) snowball.startVelocity)
         snowball.startPosition
 
 
@@ -2386,7 +2412,7 @@ colorSelector onSelect currentColor =
 
 viewportHeight : Length
 viewportHeight =
-    Length.meters 20
+    Length.meters 25
 
 
 getInput : Config a -> MatchState -> MatchActiveLocal_ -> Input

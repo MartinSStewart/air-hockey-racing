@@ -45,6 +45,7 @@ import List.Extra as List
 import List.Nonempty exposing (Nonempty(..))
 import MatchName exposing (MatchName)
 import Point2d exposing (Point2d)
+import Point3d exposing (Point3d)
 import Quantity
 import Random
 import SeqDict exposing (SeqDict)
@@ -55,6 +56,7 @@ import Time
 import Timeline exposing (FrameId, Timeline)
 import User exposing (UserId)
 import Vector2d exposing (Vector2d)
+import Vector3d exposing (Vector3d)
 
 
 type Match
@@ -93,8 +95,8 @@ type alias MatchState =
 
 
 type alias Snowball =
-    { startVelocity : Vector2d MetersPerSecond WorldCoordinate
-    , startPosition : Point2d Meters WorldCoordinate
+    { startVelocity : Vector3d MetersPerSecond WorldCoordinate
+    , startPosition : Point3d Meters WorldCoordinate
     , thrownBy : Id UserId
     , thrownAt : Id FrameId
     }
