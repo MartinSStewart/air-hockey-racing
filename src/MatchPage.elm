@@ -948,9 +948,7 @@ camera : Point2d Meters WorldCoordinate -> Length -> Camera3d Meters WorldCoordi
 camera position viewportHeight2 =
     let
         { x, y } =
-            { x = 0, y = 0 }
-
-        --Point2d.toMeters position
+            Point2d.toMeters position
     in
     Camera3d.orthographic
         { viewpoint =
@@ -1009,53 +1007,6 @@ canvasViewHelper model matchSetup canvasSize =
                     case Timeline.getStateAt gameUpdate (timeToFrameId model match) cache match.timeline of
                         Ok ( _, state ) ->
                             let
-                                canvasWidth =
-                                    Pixels.inPixels canvasSize.width
-
-                                canvasHeight =
-                                    Pixels.inPixels canvasSize.height
-
-                                ( cameraPosition, zoomFactor ) =
-                                    case SeqDict.get model.userId state.players of
-                                        Just player ->
-                                            ( player.position, 1 )
-
-                                        Nothing ->
-                                            let
-                                                vectorAndDistance =
-                                                    SeqDict.values state.players
-                                                        |> List.map
-                                                            (\player ->
-                                                                { vector = Vector2d.from Point2d.origin player.position
-                                                                , distance =
-                                                                    BoundingBox2d.centerPoint finishLine
-                                                                        |> Point2d.distanceFrom player.position
-                                                                }
-                                                            )
-
-                                                vectorAndWeight =
-                                                    List.map
-                                                        (\{ vector, distance } ->
-                                                            { vector = vector
-                                                            , weight = 1000 / max 100 (Quantity.unwrap distance)
-                                                            }
-                                                        )
-                                                        vectorAndDistance
-
-                                                totalWeight =
-                                                    List.map .weight vectorAndWeight |> List.sum
-                                            in
-                                            ( List.map
-                                                (\{ vector, weight } ->
-                                                    Vector2d.scaleBy weight vector
-                                                )
-                                                vectorAndWeight
-                                                |> Vector2d.sum
-                                                |> Vector2d.scaleBy (1 / totalWeight)
-                                                |> (\v -> Point2d.translateBy v Point2d.origin)
-                                            , 0.8
-                                            )
-
                                 zoom : Float
                                 zoom =
                                     1 / Length.inMeters viewportHeight
@@ -1066,7 +1017,7 @@ canvasViewHelper model matchSetup canvasSize =
                                 viewMatrix : Mat4
                                 viewMatrix =
                                     WebGL.Matrices.viewProjectionMatrix
-                                        (camera cameraPosition (Length.meters (1 / zoom)))
+                                        (camera Point2d.origin (Length.meters (1 / zoom)))
                                         { nearClipDepth = Length.meters 0.1
                                         , farClipDepth = Length.meters 30
                                         , aspectRatio =
@@ -1083,22 +1034,10 @@ canvasViewHelper model matchSetup canvasSize =
                                 [ WebGL.Settings.cullFace WebGL.Settings.back ]
                                 vertexShader
                                 fragmentShader
-                                finishLineMesh
+                                matchData.wallMesh
                                 { view = viewMatrix
-                                , model =
-                                    Mat4.makeTranslate3
-                                        (BoundingBox2d.minX finishLine |> Length.inMeters)
-                                        (BoundingBox2d.minY finishLine |> Length.inMeters)
-                                        0
+                                , model = Mat4.identity
                                 }
-                                :: WebGL.entityWith
-                                    [ WebGL.Settings.cullFace WebGL.Settings.back ]
-                                    vertexShader
-                                    fragmentShader
-                                    matchData.wallMesh
-                                    { view = viewMatrix
-                                    , model = Mat4.identity
-                                    }
                                 :: List.concatMap
                                     (\( userId, player ) ->
                                         drawPlayer
@@ -1632,19 +1571,6 @@ throwCharge clickStartElapsed =
 updateVelocities : Id FrameId -> SeqDict (Id UserId) Player -> SeqDict (Id UserId) Player
 updateVelocities frameId players =
     let
-        checkFinish : Player -> Place
-        checkFinish player =
-            case player.finishTime of
-                Finished _ ->
-                    player.finishTime
-
-                DidNotFinish ->
-                    if BoundingBox2d.contains player.position finishLine then
-                        Finished frameId
-
-                    else
-                        player.finishTime
-
         elapsed : Duration
         elapsed =
             Quantity.multiplyBy (Id.toInt frameId |> toFloat) Match.frameDuration
@@ -1745,7 +1671,7 @@ updateVelocities frameId players =
                     , targetPosition = newTargetPosition
                     , velocity = collisionVelocity
                     , rotation = a.rotation
-                    , finishTime = checkFinish a
+                    , finishTime = a.finishTime
                     , lastCollision = Just frameId
                     , lastEmote = a.lastEmote
                     , clickStart = a.clickStart
@@ -1757,7 +1683,7 @@ updateVelocities frameId players =
                     , targetPosition = newTargetPosition
                     , velocity = newVelocity
                     , rotation = a.rotation
-                    , finishTime = checkFinish a
+                    , finishTime = a.finishTime
                     , lastCollision = a.lastCollision
                     , lastEmote = a.lastEmote
                     , clickStart = a.clickStart
@@ -1890,71 +1816,6 @@ snowballShadowMesh =
 snowballRadius : Quantity Float Meters
 snowballRadius =
     Length.meters 0.2
-
-
-finishLine : BoundingBox2d Meters WorldCoordinate
-finishLine =
-    BoundingBox2d.from
-        (Point2d.fromMeters { x = 5300, y = 800 })
-        (Point2d.fromMeters { x = 6000, y = 1200 })
-
-
-finishLineMesh : Mesh Vertex
-finishLineMesh =
-    let
-        squareSize =
-            50
-
-        helper =
-            Quantity.divideBy squareSize >> Quantity.unwrap >> ceiling
-
-        ( squaresWide, squaresTall ) =
-            BoundingBox2d.dimensions finishLine |> Tuple.mapBoth helper helper
-    in
-    List.range 0 (squaresWide - 1)
-        |> List.concatMap
-            (\x ->
-                List.range 0 (squaresTall - 1)
-                    |> List.concatMap
-                        (\y ->
-                            let
-                                color =
-                                    if x + y |> modBy 2 |> (==) 0 then
-                                        Math.Vector3.vec3 0.2 0.2 0.2
-
-                                    else
-                                        Math.Vector3.vec3 1 1 1
-
-                                offsetX =
-                                    x * squareSize |> toFloat
-
-                                offsetY =
-                                    y * squareSize |> toFloat
-
-                                v0 =
-                                    Math.Vector2.vec2 offsetX offsetY
-
-                                v1 =
-                                    Math.Vector2.vec2 (squareSize + offsetX) offsetY
-
-                                v2 =
-                                    Math.Vector2.vec2 (squareSize + offsetX) (squareSize + offsetY)
-
-                                v3 =
-                                    Math.Vector2.vec2 offsetX (squareSize + offsetY)
-                            in
-                            [ ( { position = v0, color = color }
-                              , { position = v1, color = color }
-                              , { position = v2, color = color }
-                              )
-                            , ( { position = v0, color = color }
-                              , { position = v2, color = color }
-                              , { position = v3, color = color }
-                              )
-                            ]
-                        )
-            )
-        |> WebGL.triangles
 
 
 type alias PlayerUniforms =
