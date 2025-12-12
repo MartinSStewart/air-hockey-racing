@@ -1521,11 +1521,14 @@ gameUpdate frameId inputs model =
                                             direction =
                                                 Direction2d.from player.position clickStart.position
                                                     |> Maybe.withDefault Direction2d.x
+
+                                            { x, y } =
+                                                Point2d.toMeters player.position
                                         in
                                         { thrownBy = userId
                                         , thrownAt = frameId
                                         , startVelocity = throwVelocity direction (throwCharge elapsed * 10 |> Length.meters)
-                                        , startPosition = player.position
+                                        , startPosition = Point3d.meters x y snowballStartHeight
                                         }
                                             :: model2.snowballs
 
@@ -1563,9 +1566,44 @@ gravity =
     Acceleration.metersPerSecondSquared 9.8
 
 
+snowballStartHeight : Float
+snowballStartHeight =
+    1
+
+
 throwVelocity : Direction2d WorldCoordinate -> Length -> Vector3d MetersPerSecond WorldCoordinate
 throwVelocity direction distance =
-    Debug.todo "Should return the velocity necessary for the snowball to travel the given distance before reaching the ground"
+    let
+        -- Use 45-degree launch angle for optimal range
+        -- For projectile motion: range ≈ v²/g (simplified)
+        -- So v ≈ sqrt(distance * g)
+        g =
+            Acceleration.inMetersPerSecondSquared gravity
+
+        d =
+            Length.inMeters distance
+
+        -- Calculate speed needed for the distance
+        speed =
+            sqrt (d * g)
+
+        -- At 45 degrees, horizontal and vertical components are equal
+        -- horizontal speed = speed * cos(45°) = speed / sqrt(2)
+        -- vertical speed = speed * sin(45°) = speed / sqrt(2)
+        horizontalSpeed =
+            speed / sqrt 2
+
+        verticalSpeed =
+            speed / sqrt 2
+
+        -- Get the 2D direction components
+        ( dirX, dirY ) =
+            Direction2d.components direction
+    in
+    Vector3d.metersPerSecond
+        (dirX * horizontalSpeed)
+        (dirY * horizontalSpeed)
+        verticalSpeed
 
 
 throwCharge : Duration -> Float
@@ -1838,9 +1876,19 @@ snowballRadius =
 
 snowballPosition : Id Timeline.FrameId -> Match.Snowball -> Point3d Meters WorldCoordinate
 snowballPosition currentFrameId snowball =
-    Point3d.translateBy
-        (Vector3d.for (frameTimeElapsed snowball.thrownAt currentFrameId) snowball.startVelocity)
-        snowball.startPosition
+    let
+        elapsed =
+            frameTimeElapsed snowball.thrownAt currentFrameId
+
+        velocityDisplacement =
+            Vector3d.for elapsed snowball.startVelocity
+
+        gravityDisplacement =
+            Vector3d.meters 0 0 (-0.5 * Acceleration.inMetersPerSecondSquared gravity * Duration.inSeconds elapsed ^ 2)
+    in
+    snowball.startPosition
+        |> Point3d.translateBy velocityDisplacement
+        |> Point3d.translateBy gravityDisplacement
 
 
 finishLine : BoundingBox2d Meters WorldCoordinate
