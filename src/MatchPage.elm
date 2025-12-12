@@ -1132,6 +1132,61 @@ canvasViewHelper model matchSetup canvasSize =
                                     state.snowballs
                                 ++ (case SeqDict.get model.userId state.players of
                                         Just player ->
+                                            case player.clickStart of
+                                                Just clickStart ->
+                                                    let
+                                                        currentFrameId =
+                                                            timeToFrameId model match
+
+                                                        elapsed =
+                                                            frameTimeElapsed clickStart.time currentFrameId
+                                                    in
+                                                    if elapsed |> Quantity.greaterThanOrEqualTo clickMoveMaxDelay then
+                                                        case Direction2d.from player.position clickStart.position of
+                                                            Just direction ->
+                                                                let
+                                                                    charge =
+                                                                        elapsed
+                                                                            |> Quantity.minus clickMoveMaxDelay
+                                                                            |> Quantity.ratio chargeMaxDelay
+                                                                            |> clamp 0 1
+
+                                                                    arrowScale =
+                                                                        20 + 40 * charge
+
+                                                                    angle =
+                                                                        Direction2d.toAngle direction
+                                                                            |> Angle.inRadians
+                                                                            |> (\a -> a - pi / 2)
+                                                                in
+                                                                [ WebGL.entityWith
+                                                                    [ WebGL.Settings.cullFace WebGL.Settings.back ]
+                                                                    vertexShader
+                                                                    fragmentShader
+                                                                    chargingArrow
+                                                                    { view = viewMatrix
+                                                                    , model =
+                                                                        pointToMatrix player.position
+                                                                            |> Mat4.rotate angle (Math.Vector3.vec3 0 0 1)
+                                                                            |> Mat4.translate3 0 50 0
+                                                                            |> Mat4.scale3 arrowScale arrowScale arrowScale
+                                                                    }
+                                                                ]
+
+                                                            Nothing ->
+                                                                []
+
+                                                    else
+                                                        []
+
+                                                Nothing ->
+                                                    []
+
+                                        Nothing ->
+                                            []
+                                   )
+                                ++ (case SeqDict.get model.userId state.players of
+                                        Just player ->
                                             case ( player.finishTime, player.targetPosition ) of
                                                 ( DidNotFinish, Just targetPos ) ->
                                                     [ WebGL.entityWith
@@ -1669,6 +1724,28 @@ arrow =
                   }
                 , { position = Math.Vector2.vec2 (Tuple.first v2) (Tuple.second v2)
                   , color = Math.Vector3.vec3 1 0.8 0.1
+                  }
+                )
+            )
+        |> WebGL.triangles
+
+
+chargingArrow : WebGL.Mesh Vertex
+chargingArrow =
+    [ { v0 = ( -1, 1 ), v1 = ( 0, 0 ), v2 = ( 1, 1 ) }
+    , { v0 = ( -0.5, 1 ), v1 = ( 0.5, 1 ), v2 = ( 0.5, 2 ) }
+    , { v0 = ( -0.5, 2 ), v1 = ( -0.5, 1 ), v2 = ( 0.5, 2 ) }
+    ]
+        |> List.map
+            (\{ v0, v1, v2 } ->
+                ( { position = Math.Vector2.vec2 (Tuple.first v0) (Tuple.second v0)
+                  , color = Math.Vector3.vec3 0.3 0.7 1
+                  }
+                , { position = Math.Vector2.vec2 (Tuple.first v1) (Tuple.second v1)
+                  , color = Math.Vector3.vec3 0.3 0.7 1
+                  }
+                , { position = Math.Vector2.vec2 (Tuple.first v2) (Tuple.second v2)
+                  , color = Math.Vector3.vec3 0.3 0.7 1
                   }
                 )
             )
