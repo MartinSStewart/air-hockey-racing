@@ -50,6 +50,7 @@ import Element.Background
 import Element.Border
 import Element.Font
 import Element.Input
+import Env
 import FontRender
 import Frame2d
 import Geometry
@@ -1145,19 +1146,13 @@ canvasViewHelper model matchSetup canvasSize =
                                                         case Direction2d.from player.position clickStart.position of
                                                             Just direction ->
                                                                 let
-                                                                    charge =
-                                                                        elapsed
-                                                                            |> Quantity.minus clickMoveMaxDelay
-                                                                            |> Quantity.ratio chargeMaxDelay
-                                                                            |> clamp 0 1
-
                                                                     arrowScale =
-                                                                        20 + 40 * charge
+                                                                        0.2 + 0.4 * throwCharge elapsed
 
                                                                     angle =
                                                                         Direction2d.toAngle direction
                                                                             |> Angle.inRadians
-                                                                            |> (\a -> a - pi / 2)
+                                                                            |> (\a -> a + pi / 2)
                                                                 in
                                                                 [ WebGL.entityWith
                                                                     [ WebGL.Settings.cullFace WebGL.Settings.back ]
@@ -1168,7 +1163,7 @@ canvasViewHelper model matchSetup canvasSize =
                                                                     , model =
                                                                         pointToMatrix player.position
                                                                             |> Mat4.rotate angle (Math.Vector3.vec3 0 0 1)
-                                                                            |> Mat4.translate3 0 50 0
+                                                                            |> Mat4.translate3 0 (-0.5 - arrowScale * 3) 0
                                                                             |> Mat4.scale3 arrowScale arrowScale arrowScale
                                                                     }
                                                                 ]
@@ -1193,11 +1188,11 @@ canvasViewHelper model matchSetup canvasSize =
                                                         [ WebGL.Settings.cullFace WebGL.Settings.back ]
                                                         vertexShader
                                                         fragmentShader
-                                                        arrow
+                                                        moveArrow
                                                         { view = viewMatrix
                                                         , model =
                                                             pointToMatrix targetPos
-                                                                |> Mat4.scale3 30 30 30
+                                                                |> Mat4.scale3 0.3 0.3 0.3
                                                         }
                                                     ]
 
@@ -1333,14 +1328,14 @@ wall =
          , Point2d.meters 509 560
          , Point2d.meters 1090 560
          ]
-            |> List.map (Point2d.scaleAbout Point2d.origin 5)
+            |> List.map (Point2d.scaleAbout Point2d.origin 0.05)
         )
-        |> Polygon2d.translateBy (Vector2d.meters 0 -800)
+        |> Polygon2d.translateBy (Vector2d.meters 0 -8)
 
 
 playerStart : Point2d Meters WorldCoordinate
 playerStart =
-    Point2d.fromMeters { x = 2300, y = 0 }
+    Point2d.fromMeters { x = 23, y = 0 }
 
 
 
@@ -1405,7 +1400,7 @@ getCollisionCandidates point =
 
 lineSegmentMesh : Vec3 -> List (LineSegment2d Meters WorldCoordinate) -> Mesh Vertex
 lineSegmentMesh color lines =
-    List.concatMap (lineMesh (Length.meters 10) color) lines |> WebGL.triangles
+    List.concatMap (lineMesh (Length.meters 0.01) color) lines |> WebGL.triangles
 
 
 lineMesh : Quantity Float Meters -> Vec3 -> LineSegment2d Meters WorldCoordinate -> List ( Vertex, Vertex, Vertex )
@@ -1463,84 +1458,100 @@ chargeMaxDelay =
 gameUpdate : Id FrameId -> List TimelineEvent -> MatchState -> MatchState
 gameUpdate frameId inputs model =
     let
+        inputs2 : SeqDict (Id UserId) Input
+        inputs2 =
+            List.map (\input -> ( input.userId, input.input )) inputs |> SeqDict.fromList
+
         model3 : MatchState
         model3 =
-            List.foldl
-                (\{ userId, input } model2 ->
-                    case SeqDict.get userId model2.players of
-                        Just player ->
-                            { model2
-                                | players =
-                                    SeqDict.insert userId
-                                        { player
-                                            | targetPosition =
-                                                case ( player.clickStart, input.action ) of
-                                                    ( Just clickStart, ClickRelease point ) ->
-                                                        if frameTimeElapsed clickStart.time frameId |> Quantity.lessThan clickMoveMaxDelay then
-                                                            Just point
-
-                                                        else
-                                                            player.targetPosition
-
-                                                    _ ->
-                                                        player.targetPosition
-                                            , lastEmote =
-                                                case input.emote of
-                                                    Just emote ->
-                                                        Just { time = frameId, emote = emote }
-
-                                                    Nothing ->
-                                                        player.lastEmote
-                                            , clickStart =
-                                                case input.action of
-                                                    ClickStart point ->
-                                                        Just { position = point, time = frameId }
-
-                                                    _ ->
-                                                        player.clickStart
-                                        }
-                                        model2.players
-                                , snowballs =
-                                    case ( player.clickStart, input.action ) of
-                                        ( Just clickStart, ClickRelease point ) ->
-                                            let
-                                                elapsed : Duration
-                                                elapsed =
+            SeqDict.foldl
+                (\userId player model2 ->
+                    let
+                        input : Input
+                        input =
+                            SeqDict.get userId inputs2 |> Maybe.withDefault noInput
+                    in
+                    { model2
+                        | players =
+                            SeqDict.insert userId
+                                { player
+                                    | targetPosition =
+                                        case ( player.clickStart, input.action ) of
+                                            ( Just clickStart, ClickRelease point ) ->
+                                                if
                                                     frameTimeElapsed clickStart.time frameId
-                                            in
-                                            if elapsed |> Quantity.greaterThanOrEqualTo clickMoveMaxDelay then
-                                                let
-                                                    direction : Direction2d WorldCoordinate
-                                                    direction =
-                                                        Direction2d.from player.position clickStart.position
-                                                            |> Maybe.withDefault Direction2d.x
+                                                        |> Quantity.lessThan clickMoveMaxDelay
+                                                then
+                                                    Just point
 
-                                                    charge : Float
-                                                    charge =
-                                                        Quantity.ratio
-                                                            (elapsed |> Quantity.minus clickMoveMaxDelay)
-                                                            chargeMaxDelay
-                                                in
-                                                { thrownBy = userId
-                                                , thrownAt = frameId
-                                                , startVelocity =
-                                                    Vector2d.withLength (Speed.metersPerSecond (charge * 10)) direction
-                                                , startPosition = player.position
-                                                }
-                                                    :: model2.snowballs
+                                                else
+                                                    player.targetPosition
 
-                                            else
-                                                model2.snowballs
+                                            ( Just clickStart, _ ) ->
+                                                if
+                                                    frameTimeElapsed clickStart.time frameId
+                                                        |> Quantity.greaterThanOrEqualTo clickMoveMaxDelay
+                                                then
+                                                    Nothing
 
-                                        _ ->
-                                            model2.snowballs
-                            }
+                                                else
+                                                    player.targetPosition
 
-                        Nothing ->
-                            model2
+                                            _ ->
+                                                player.targetPosition
+                                    , lastEmote =
+                                        case input.emote of
+                                            Just emote ->
+                                                Just { time = frameId, emote = emote }
+
+                                            Nothing ->
+                                                player.lastEmote
+                                    , clickStart =
+                                        case input.action of
+                                            ClickStart point ->
+                                                Just { position = point, time = frameId }
+
+                                            ClickRelease _ ->
+                                                Nothing
+
+                                            NoAction ->
+                                                player.clickStart
+                                }
+                                model2.players
+                        , snowballs =
+                            case ( player.clickStart, input.action ) of
+                                ( Just clickStart, ClickRelease point ) ->
+                                    let
+                                        elapsed : Duration
+                                        elapsed =
+                                            frameTimeElapsed clickStart.time frameId
+                                    in
+                                    if elapsed |> Quantity.greaterThanOrEqualTo clickMoveMaxDelay then
+                                        let
+                                            direction : Direction2d WorldCoordinate
+                                            direction =
+                                                Direction2d.from player.position clickStart.position
+                                                    |> Maybe.withDefault Direction2d.x
+                                        in
+                                        { thrownBy = userId
+                                        , thrownAt = frameId
+                                        , startVelocity =
+                                            Vector2d.withLength
+                                                (Speed.metersPerSecond (throwCharge elapsed * 10))
+                                                direction
+                                        , startPosition = player.position
+                                        }
+                                            :: model2.snowballs
+
+                                    else
+                                        model2.snowballs
+
+                                _ ->
+                                    model2.snowballs
+                    }
                 )
                 model
-                inputs
+                model.players
 
         updatedVelocities_ : SeqDict (Id UserId) Player
         updatedVelocities_ =
@@ -1559,6 +1570,11 @@ gameUpdate frameId inputs model =
             (\snowball -> frameTimeElapsed snowball.thrownAt frameId |> Quantity.lessThan (Duration.seconds 10))
             model3.snowballs
     }
+
+
+throwCharge : Duration -> Float
+throwCharge clickStartElapsed =
+    Quantity.ratio (clickStartElapsed |> Quantity.minus clickMoveMaxDelay) chargeMaxDelay
 
 
 updateVelocities : Id FrameId -> SeqDict (Id UserId) Player -> SeqDict (Id UserId) Player
@@ -1646,27 +1662,23 @@ updateVelocities frameId players =
                                 distance =
                                     Vector2d.from a.position targetPos
                             in
-                            if Vector2d.length distance |> Quantity.lessThan (Length.meters 10) then
-                                Vector2d.zero
-
-                            else
-                                distance
-                                    |> Vector2d.normalize
-                                    |> Vector2d.scaleBy 0.8
-                                    |> Vector2d.unwrap
-                                    |> Vector2d.unsafe
+                            distance
+                                |> Vector2d.normalize
+                                |> Vector2d.scaleBy 0.003
+                                |> Vector2d.unwrap
+                                |> Vector2d.unsafe
 
                         _ ->
                             Vector2d.zero
                     )
                         |> Vector2d.plus a.velocity
-                        |> Vector2d.scaleBy 0.8
+                        |> Vector2d.scaleBy 0.95
 
                 newTargetPosition : Maybe (Point2d Meters WorldCoordinate)
                 newTargetPosition =
                     case a.targetPosition of
                         Just targetPos ->
-                            if Point2d.distanceFrom a.position targetPos |> Quantity.lessThan (Length.meters 10) then
+                            if Point2d.distanceFrom a.position targetPos |> Quantity.lessThan stopAtDistance then
                                 Nothing
 
                             else
@@ -1703,13 +1715,18 @@ updateVelocities frameId players =
         players
 
 
+stopAtDistance : Length
+stopAtDistance =
+    Length.meters 0.3
+
+
 playerRadius : Length
 playerRadius =
-    Length.meters 50
+    Length.meters 0.5
 
 
-arrow : WebGL.Mesh Vertex
-arrow =
+arrow : Vec3 -> Mesh { position : Vec2, color : Vec3 }
+arrow color =
     [ { v0 = ( -1, 1 ), v1 = ( 0, 0 ), v2 = ( 1, 1 ) }
     , { v0 = ( -0.5, 1 ), v1 = ( 0.5, 1 ), v2 = ( 0.5, 2 ) }
     , { v0 = ( -0.5, 2 ), v1 = ( -0.5, 1 ), v2 = ( 0.5, 2 ) }
@@ -1717,39 +1734,27 @@ arrow =
         |> List.map
             (\{ v0, v1, v2 } ->
                 ( { position = Math.Vector2.vec2 (Tuple.first v0) (Tuple.second v0)
-                  , color = Math.Vector3.vec3 1 0.8 0.1
+                  , color = color
                   }
                 , { position = Math.Vector2.vec2 (Tuple.first v1) (Tuple.second v1)
-                  , color = Math.Vector3.vec3 1 0.8 0.1
+                  , color = color
                   }
                 , { position = Math.Vector2.vec2 (Tuple.first v2) (Tuple.second v2)
-                  , color = Math.Vector3.vec3 1 0.8 0.1
+                  , color = color
                   }
                 )
             )
         |> WebGL.triangles
+
+
+moveArrow : WebGL.Mesh Vertex
+moveArrow =
+    arrow (Math.Vector3.vec3 1 0.8 0.1)
 
 
 chargingArrow : WebGL.Mesh Vertex
 chargingArrow =
-    [ { v0 = ( -1, 1 ), v1 = ( 0, 0 ), v2 = ( 1, 1 ) }
-    , { v0 = ( -0.5, 1 ), v1 = ( 0.5, 1 ), v2 = ( 0.5, 2 ) }
-    , { v0 = ( -0.5, 2 ), v1 = ( -0.5, 1 ), v2 = ( 0.5, 2 ) }
-    ]
-        |> List.map
-            (\{ v0, v1, v2 } ->
-                ( { position = Math.Vector2.vec2 (Tuple.first v0) (Tuple.second v0)
-                  , color = Math.Vector3.vec3 0.3 0.7 1
-                  }
-                , { position = Math.Vector2.vec2 (Tuple.first v1) (Tuple.second v1)
-                  , color = Math.Vector3.vec3 0.3 0.7 1
-                  }
-                , { position = Math.Vector2.vec2 (Tuple.first v2) (Tuple.second v2)
-                  , color = Math.Vector3.vec3 0.3 0.7 1
-                  }
-                )
-            )
-        |> WebGL.triangles
+    arrow (Math.Vector3.vec3 0.3 0.7 1)
 
 
 handleCollision : Id FrameId -> Player -> Player -> ( Player, Player )
@@ -1760,37 +1765,6 @@ handleCollision frameId playerA playerB =
 
         Nothing ->
             ( playerA, playerB )
-
-
-directionToOffset : Keyboard.Arrows.Direction -> Maybe (Direction2d WorldCoordinate)
-directionToOffset direction =
-    case direction of
-        Keyboard.Arrows.North ->
-            Vector2d.meters 0 1 |> Vector2d.direction
-
-        Keyboard.Arrows.NorthEast ->
-            Vector2d.meters 1 1 |> Vector2d.direction
-
-        Keyboard.Arrows.East ->
-            Vector2d.meters 1 0 |> Vector2d.direction
-
-        Keyboard.Arrows.SouthEast ->
-            Vector2d.meters 1 -1 |> Vector2d.direction
-
-        Keyboard.Arrows.South ->
-            Vector2d.meters 0 -1 |> Vector2d.direction
-
-        Keyboard.Arrows.SouthWest ->
-            Vector2d.meters -1 -1 |> Vector2d.direction
-
-        Keyboard.Arrows.West ->
-            Vector2d.meters -1 0 |> Vector2d.direction
-
-        Keyboard.Arrows.NorthWest ->
-            Vector2d.meters -1 1 |> Vector2d.direction
-
-        Keyboard.Arrows.NoDirection ->
-            Nothing
 
 
 squareMesh : WebGL.Mesh { position : Vec2 }
@@ -1857,7 +1831,7 @@ snowballMesh =
 
 snowballRadius : Quantity Float Meters
 snowballRadius =
-    Length.meters 15
+    Length.meters 0.15
 
 
 snowballPosition : Id Timeline.FrameId -> Match.Snowball -> Point2d Meters WorldCoordinate
@@ -1999,13 +1973,11 @@ backgroundFragmentShader =
         }
 
         void main () {
-            float primaryThickness = 9.0;
-            float secondaryThickness = 3.0;
-            int x0 = modI(worldCoordinate.x + primaryThickness * 0.5, 800.0) <= primaryThickness ? 1 : 0;
-            int y0 = modI(worldCoordinate.y + primaryThickness * 0.5, 800.0) <= primaryThickness ? 1 : 0;
-            int x1 = modI(worldCoordinate.x + secondaryThickness * 0.5, 200.0) <= secondaryThickness ? 1 : 0;
-            int y1 = modI(worldCoordinate.y + secondaryThickness * 0.5, 200.0) <= secondaryThickness ? 1 : 0;
-            float value = x0 + y0 >= 1 ? 0.5 : x1 + y1 >= 1 ? 0.7 : 0.95;
+            float primaryThickness = 5.0;
+            float secondaryThickness = 1.0;
+            int x0 = modI(worldCoordinate.x + primaryThickness * 0.5, 8.0) <= primaryThickness ? 1 : 0;
+            int y0 = modI(worldCoordinate.y + primaryThickness * 0.5, 8.0) <= primaryThickness ? 1 : 0;
+            float value = x0 + y0 >= 1 ? 0.96 : 0.98;
             gl_FragColor = vec4(value, value, value, 1.0);
         }
     |]
@@ -2438,7 +2410,7 @@ colorSelector onSelect currentColor =
 
 viewportHeight : Length
 viewportHeight =
-    Length.meters 2000
+    Length.meters 20
 
 
 getInput : Config a -> MatchState -> MatchActiveLocal_ -> Input
@@ -2513,7 +2485,7 @@ animationFrame config model =
 
                                 playerPositionsCmd : Command FrontendOnly ToBackend msg
                                 playerPositionsCmd =
-                                    if modBy 2 (Id.toInt oldestFrameId) == 0 then
+                                    if modBy 2 (Id.toInt oldestFrameId) == 0 && Env.isProduction then
                                         DesyncCheckRequest
                                             model.lobbyId
                                             oldestFrameId

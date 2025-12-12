@@ -10,7 +10,6 @@ module Types exposing
     , FrontendMsg_(..)
     , JoinLobbyError(..)
     , MainLobbyInitData
-    , MouseButton(..)
     , Page(..)
     , ToBackend(..)
     , ToFrontend(..)
@@ -127,11 +126,6 @@ type FrontendMsg_
     | GotTime Time.Posix
     | RandomInput Time.Posix
     | EditorPageMsg EditorPage.Msg
-
-
-type MouseButton
-    = PrimaryButton
-    | SecondaryButton
 
 
 type ToBackend
