@@ -703,6 +703,9 @@ matchSetupView config lobby matchSetupData currentPlayerData =
 
                 SpectatorMode ->
                     Ui.simpleButton (PressedPlayerMode PlayerMode) (Element.text "Switch to player")
+
+                BotMode ->
+                    Ui.simpleButton (PressedPlayerMode PlayerMode) (Element.text "Switch to player")
             ]
         , Element.column
             [ Element.spacing 8 ]
@@ -715,6 +718,9 @@ matchSetupView config lobby matchSetupData currentPlayerData =
 
                         SpectatorMode ->
                             0.5
+
+                        BotMode ->
+                            1
                     )
                 ]
                 [ Element.column
@@ -777,6 +783,9 @@ matchSetupView config lobby matchSetupData currentPlayerData =
 
                                         SpectatorMode ->
                                             " (spectator)"
+
+                                        BotMode ->
+                                            " (bot)"
                                    )
                                 ++ (case SeqDict.get userId places of
                                         Just place ->
@@ -1423,7 +1432,11 @@ gameUpdate frameId inputs model =
                     let
                         input : Input
                         input =
-                            SeqDict.get userId inputs2 |> Maybe.withDefault noInput
+                            if Id.toInt userId < 0 then
+                                getBotInput frameId model userId player
+
+                            else
+                                SeqDict.get userId inputs2 |> Maybe.withDefault noInput
                     in
                     { model2
                         | players =
@@ -1522,25 +1535,9 @@ gameUpdate frameId inputs model =
                 model
                 model.players
 
-        -- Update AI players with random movement
-        model4 : MatchState
-        model4 =
-            { model3
-                | players =
-                    SeqDict.map
-                        (\userId player ->
-                            if player.isAi then
-                                updateAiPlayer frameId userId player
-
-                            else
-                                player
-                        )
-                        model3.players
-            }
-
         updatedVelocities_ : SeqDict (Id UserId) Player
         updatedVelocities_ =
-            updateVelocities frameId model4.players
+            updateVelocities frameId model3.players
     in
     { players =
         SeqDict.map
@@ -1573,31 +1570,9 @@ gameUpdate frameId inputs model =
     }
 
 
-updateAiPlayer : Id FrameId -> Id UserId -> Player -> Player
-updateAiPlayer frameId odlUserId player =
-    let
-        -- Use frameId and odlUserId for deterministic randomness
-        seed =
-            Random.initialSeed (Id.toInt frameId + Id.toInt odlUserId * 1000)
-
-        -- AI picks a new target every ~60 frames (1 second) or when it has no target
-        shouldPickNewTarget =
-            player.targetPosition == Nothing || modBy 60 (Id.toInt frameId + Id.toInt odlUserId * 7) == 0
-
-        ( randomX, seed2 ) =
-            Random.step (Random.float -2 8) seed
-
-        ( randomY, _ ) =
-            Random.step (Random.float -2 8) seed2
-
-        newTargetPosition =
-            Point2d.meters randomX randomY
-    in
-    if shouldPickNewTarget then
-        { player | targetPosition = Just newTargetPosition }
-
-    else
-        player
+getBotInput : Id FrameId -> MatchState -> Id UserId -> Player -> Input
+getBotInput frameId model userId player =
+    Debug.todo "Give the bot some basic inputs like moving to random places and occasionally throwing a snowball"
 
 
 gravity : Acceleration
@@ -1763,7 +1738,6 @@ updateVelocities frameId players =
                     , lastEmote = a.lastEmote
                     , clickStart = a.clickStart
                     , isDead = a.isDead
-                    , isAi = a.isAi
                     }
 
                 Nothing ->
@@ -1776,7 +1750,6 @@ updateVelocities frameId players =
                     , lastEmote = a.lastEmote
                     , clickStart = a.clickStart
                     , isDead = a.isDead
-                    , isAi = a.isAi
                     }
         )
         players
@@ -2095,6 +2068,9 @@ updateMatchData newMsg newNetworkModel oldNetworkModel oldMatchData =
 
                                 SpectatorMode ->
                                     Nothing
+
+                                BotMode ->
+                                    Just ( id, playerMesh playerData )
                         )
                     |> SeqDict.fromList
             , wallMesh = lineSegmentMesh (Math.Vector3.vec3 1 0 0) wallSegments
@@ -2141,42 +2117,33 @@ actualTime { time, debugTimeOffset } =
     Duration.addTo time debugTimeOffset
 
 
-aiPlayerCount : Int
-aiPlayerCount =
-    3
-
-
 initMatch : ServerTime -> Nonempty ( Id UserId, PlayerData ) -> MatchState
 initMatch startTime users =
     let
-        humanPlayerIds =
+        playerIds =
             List.Nonempty.toList users
                 |> List.filterMap
                     (\( userId, playerData ) ->
                         case playerData.mode of
                             PlayerMode ->
-                                Just ( userId, False )
+                                Just userId
 
                             SpectatorMode ->
                                 Nothing
+
+                            BotMode ->
+                                Just userId
                     )
-
-        aiPlayerIds =
-            List.range 1 aiPlayerCount
-                |> List.map (\i -> ( Id.fromInt -i, True ))
-
-        allPlayerIds =
-            humanPlayerIds ++ aiPlayerIds
 
         ( shuffledPlayers, _ ) =
             Random.step
-                (Random.shuffle allPlayerIds)
+                (Random.shuffle playerIds)
                 (Match.unwrapServerTime startTime |> Time.posixToMillis |> Random.initialSeed)
     in
     { players =
         shuffledPlayers
             |> List.indexedMap
-                (\index ( userId, isAi ) ->
+                (\index userId ->
                     let
                         playersPerRow =
                             6
@@ -2195,15 +2162,15 @@ initMatch startTime users =
                                 (Vector2d.fromMeters { x = toFloat x * spacing, y = toFloat y * spacing })
                                 playerStart
                     in
-                    ( userId, initPlayer isAi position )
+                    ( userId, initPlayer position )
                 )
             |> SeqDict.fromList
     , snowballs = []
     }
 
 
-initPlayer : Bool -> Point2d Meters WorldCoordinate -> Player
-initPlayer isAi position =
+initPlayer : Point2d Meters WorldCoordinate -> Player
+initPlayer position =
     { position = position
     , targetPosition = Nothing
     , velocity = Vector2d.zero
@@ -2213,7 +2180,6 @@ initPlayer isAi position =
     , lastEmote = Nothing
     , clickStart = Nothing
     , isDead = Nothing
-    , isAi = isAi
     }
 
 
