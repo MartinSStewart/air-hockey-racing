@@ -1773,36 +1773,67 @@ aimingReticle =
 
         outerRadius =
             1.0
+
+        lineThickness =
+            0.08
+
+        toVertex ( x, y ) =
+            { position = Math.Vector2.vec2 x y, color = color }
+
+        -- Ring segments
+        ringTriangles =
+            List.range 0 (segments - 1)
+                |> List.concatMap
+                    (\i ->
+                        let
+                            angle1 =
+                                2 * pi * toFloat i / toFloat segments
+
+                            angle2 =
+                                2 * pi * toFloat (i + 1) / toFloat segments
+
+                            inner1 =
+                                ( innerRadius * cos angle1, innerRadius * sin angle1 )
+
+                            outer1 =
+                                ( outerRadius * cos angle1, outerRadius * sin angle1 )
+
+                            inner2 =
+                                ( innerRadius * cos angle2, innerRadius * sin angle2 )
+
+                            outer2 =
+                                ( outerRadius * cos angle2, outerRadius * sin angle2 )
+                        in
+                        [ ( toVertex inner1, toVertex outer1, toVertex outer2 )
+                        , ( toVertex inner1, toVertex outer2, toVertex inner2 )
+                        ]
+                    )
+
+        -- Horizontal crosshair
+        horizontalCrosshair =
+            [ ( toVertex ( -outerRadius, -lineThickness )
+              , toVertex ( outerRadius, -lineThickness )
+              , toVertex ( outerRadius, lineThickness )
+              )
+            , ( toVertex ( -outerRadius, -lineThickness )
+              , toVertex ( outerRadius, lineThickness )
+              , toVertex ( -outerRadius, lineThickness )
+              )
+            ]
+
+        -- Vertical crosshair
+        verticalCrosshair =
+            [ ( toVertex ( -lineThickness, -outerRadius )
+              , toVertex ( lineThickness, -outerRadius )
+              , toVertex ( lineThickness, outerRadius )
+              )
+            , ( toVertex ( -lineThickness, -outerRadius )
+              , toVertex ( lineThickness, outerRadius )
+              , toVertex ( -lineThickness, outerRadius )
+              )
+            ]
     in
-    List.range 0 (segments - 1)
-        |> List.concatMap
-            (\i ->
-                let
-                    angle1 =
-                        2 * pi * toFloat i / toFloat segments
-
-                    angle2 =
-                        2 * pi * toFloat (i + 1) / toFloat segments
-
-                    inner1 =
-                        ( innerRadius * cos angle1, innerRadius * sin angle1 )
-
-                    outer1 =
-                        ( outerRadius * cos angle1, outerRadius * sin angle1 )
-
-                    inner2 =
-                        ( innerRadius * cos angle2, innerRadius * sin angle2 )
-
-                    outer2 =
-                        ( outerRadius * cos angle2, outerRadius * sin angle2 )
-
-                    toVertex ( x, y ) =
-                        { position = Math.Vector2.vec2 x y, color = color }
-                in
-                [ ( toVertex inner1, toVertex outer1, toVertex outer2 )
-                , ( toVertex inner1, toVertex outer2, toVertex inner2 )
-                ]
-            )
+    (ringTriangles ++ horizontalCrosshair ++ verticalCrosshair)
         |> WebGL.triangles
 
 
