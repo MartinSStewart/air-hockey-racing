@@ -1571,8 +1571,37 @@ gameUpdate frameId inputs model =
 
 
 getBotInput : Id FrameId -> MatchState -> Id UserId -> Player -> Input
-getBotInput frameId model userId player =
-    Debug.todo "Give the bot some basic inputs like moving to random places and occasionally throwing a snowball"
+getBotInput frameId _ userId player =
+    let
+        -- Use frameId and userId for deterministic randomness
+        seed =
+            Random.initialSeed (Id.toInt frameId + Id.toInt userId * 1000)
+
+        -- AI picks a new target every ~60 frames (1 second) or when it has no target
+        shouldPickNewTarget =
+            player.targetPosition == Nothing || modBy 60 (Id.toInt frameId + Id.toInt userId * 7) == 0
+
+        ( randomX, seed2 ) =
+            Random.step (Random.float -2 8) seed
+
+        ( randomY, _ ) =
+            Random.step (Random.float -2 8) seed2
+
+        newTargetPosition =
+            Point2d.meters randomX randomY
+    in
+    case player.clickStart of
+        Nothing ->
+            -- Start a click if we need a new target
+            if shouldPickNewTarget then
+                { action = ClickStart newTargetPosition, emote = Nothing }
+
+            else
+                noInput
+
+        Just _ ->
+            -- Release click immediately to set target (within clickMoveMaxDelay for movement)
+            { action = ClickRelease newTargetPosition, emote = Nothing }
 
 
 gravity : Acceleration
