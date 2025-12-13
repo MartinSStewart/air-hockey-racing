@@ -1596,15 +1596,68 @@ gameUpdate frameId inputs model =
         updatedVelocities_ : SeqDict (Id UserId) Player
         updatedVelocities_ =
             updateVelocities frameId model3.players
+
+        -- Check snowball-player collisions
+        snowballCollisions : List { odlSnowball : Snowball, hitPlayer : Id UserId }
+        snowballCollisions =
+            model3.snowballs
+                |> List.filterMap
+                    (\snowball ->
+                        let
+                            snowballPos2d =
+                                Point2d.meters
+                                    (Point3d.xCoordinate snowball.position |> Length.inMeters)
+                                    (Point3d.yCoordinate snowball.position |> Length.inMeters)
+                        in
+                        SeqDict.toList updatedVelocities_
+                            |> List.filterMap
+                                (\( odlPlayerId, player ) ->
+                                    if
+                                        (odlPlayerId /= snowball.thrownBy)
+                                            && (player.isDead == Nothing)
+                                            && (Point2d.distanceFrom snowballPos2d player.position
+                                                    |> Quantity.lessThan (Quantity.plus playerRadius snowballRadius)
+                                               )
+                                    then
+                                        Just odlPlayerId
+
+                                    else
+                                        Nothing
+                                )
+                            |> List.head
+                            |> Maybe.map (\hitPlayer -> { odlSnowball = snowball, hitPlayer = hitPlayer })
+                    )
+
+        -- Get set of snowballs that hit players (to remove them)
+        snowballsThatHit : List Snowball
+        snowballsThatHit =
+            List.map .odlSnowball snowballCollisions
+
+        -- Get set of players that were hit
+        playersHit : SeqSet (Id UserId)
+        playersHit =
+            List.map .hitPlayer snowballCollisions |> SeqSet.fromList
+
+        -- Update players with collision results and isDead
+        playersAfterCollisions : SeqDict (Id UserId) Player
+        playersAfterCollisions =
+            SeqDict.map
+                (\odlUserId player ->
+                    let
+                        playerAfterPlayerCollisions =
+                            SeqDict.remove odlUserId updatedVelocities_
+                                |> SeqDict.values
+                                |> List.foldl (\a b -> handleCollision frameId b a |> Tuple.first) player
+                    in
+                    if SeqSet.member odlUserId playersHit then
+                        { playerAfterPlayerCollisions | isDead = Just frameId }
+
+                    else
+                        playerAfterPlayerCollisions
+                )
+                updatedVelocities_
     in
-    { players =
-        SeqDict.map
-            (\id player ->
-                SeqDict.remove id updatedVelocities_
-                    |> SeqDict.values
-                    |> List.foldl (\a b -> handleCollision frameId b a |> Tuple.first) player
-            )
-            updatedVelocities_
+    { players = playersAfterCollisions
     , snowballs =
         List.filterMap
             (\snowball ->
@@ -1612,8 +1665,11 @@ gameUpdate frameId inputs model =
                     position : Point3d Meters WorldCoordinate
                     position =
                         Point3d.translateBy (Vector3d.for Match.frameDuration snowball.velocity) snowball.position
+
+                    hitSomeone =
+                        List.member snowball snowballsThatHit
                 in
-                if Point3d.zCoordinate position |> Quantity.greaterThanZero then
+                if (Point3d.zCoordinate position |> Quantity.greaterThanZero) && not hitSomeone then
                     Just
                         { position = position
                         , velocity = Vector3d.plus (Vector3d.for Match.frameDuration gravityVector) snowball.velocity
