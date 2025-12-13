@@ -1404,6 +1404,11 @@ chargeMaxDelay =
     Duration.seconds 2
 
 
+clickTotalDelay : Duration
+clickTotalDelay =
+    Quantity.plus chargeMaxDelay clickMoveMaxDelay
+
+
 gameUpdate : Id FrameId -> List TimelineEvent -> MatchState -> MatchState
 gameUpdate frameId inputs model =
     let
@@ -1464,7 +1469,19 @@ gameUpdate frameId inputs model =
                                                 Nothing
 
                                             NoAction ->
-                                                player.clickStart
+                                                case player.clickStart of
+                                                    Just clickStart ->
+                                                        if
+                                                            frameTimeElapsed clickStart.time frameId
+                                                                |> Quantity.greaterThanOrEqualTo clickTotalDelay
+                                                        then
+                                                            Nothing
+
+                                                        else
+                                                            player.clickStart
+
+                                                    Nothing ->
+                                                        player.clickStart
                                 }
                                 model2.players
                         , snowballs =
@@ -1475,7 +1492,10 @@ gameUpdate frameId inputs model =
                                         elapsed =
                                             frameTimeElapsed clickStart.time frameId
                                     in
-                                    if elapsed |> Quantity.greaterThanOrEqualTo clickMoveMaxDelay then
+                                    if
+                                        (elapsed |> Quantity.greaterThanOrEqualTo clickMoveMaxDelay)
+                                            && (elapsed |> Quantity.lessThan clickTotalDelay)
+                                    then
                                         let
                                             direction : Direction2d WorldCoordinate
                                             direction =
@@ -2427,22 +2447,22 @@ viewportHeight =
     Length.meters 25
 
 
-getInput : Config a -> MatchState -> MatchActiveLocal_ -> Input
-getInput config matchState model =
+getInput : Config a -> MatchActiveLocal_ -> Input
+getInput config model =
     { action =
         case ( model.primaryDown, model.previousPrimaryDown ) of
             ( Just _, Nothing ) ->
-                case ( model.touchPosition, SeqDict.get config.userId matchState.players ) of
-                    ( Just position, Just currentPlayer ) ->
-                        screenToWorld config.windowSize currentPlayer.position viewportHeight position |> ClickStart
+                case model.touchPosition of
+                    Just position ->
+                        screenToWorld config.windowSize Point2d.origin viewportHeight position |> ClickStart
 
                     _ ->
                         NoAction
 
             ( Nothing, Just _ ) ->
-                case ( model.touchPosition, SeqDict.get config.userId matchState.players ) of
-                    ( Just position, Just currentPlayer ) ->
-                        screenToWorld config.windowSize currentPlayer.position viewportHeight position |> ClickRelease
+                case model.touchPosition of
+                    Just position ->
+                        screenToWorld config.windowSize Point2d.origin viewportHeight position |> ClickRelease
 
                     _ ->
                         NoAction
@@ -2477,7 +2497,7 @@ animationFrame config model =
                             let
                                 input : Input
                                 input =
-                                    getInput config matchState matchData
+                                    getInput config matchData
 
                                 model3 : Model
                                 model3 =
