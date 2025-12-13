@@ -22,6 +22,7 @@ module MatchPage exposing
     , unnamedMatchText
     , update
     , updateFromBackend
+    , validateBotCount
     , vertexShader
     , view
     )
@@ -33,7 +34,7 @@ import Axis2d
 import Axis3d
 import BoundingBox2d exposing (BoundingBox2d)
 import Camera3d exposing (Camera3d)
-import ColorIndex exposing (ColorIndex)
+import ColorIndex exposing (ColorIndex(..))
 import Decal exposing (Decal)
 import Dict exposing (Dict)
 import Direction2d exposing (Direction2d)
@@ -124,6 +125,7 @@ type Msg
     | PointerLeave Html.Events.Extra.Pointer.Event
     | PointerMoved Html.Events.Extra.Pointer.Event
     | PressedLeaveMatch
+    | TypedBotCount String
 
 
 type MatchId
@@ -162,7 +164,7 @@ init lobbyId lobby =
 
 
 type alias MatchSetupLocal_ =
-    { matchName : String, message : String, maxPlayers : String }
+    { matchName : String, message : String, maxPlayers : String, botCount : String }
 
 
 type alias Vertex =
@@ -397,6 +399,44 @@ update config msg model =
 
         PressedLeaveMatch ->
             matchSetupUpdate config.userId Match.LeaveMatchSetup model
+
+        TypedBotCount text ->
+            let
+                model2 =
+                    { model
+                        | matchData =
+                            case model.matchData of
+                                MatchActiveLocal _ ->
+                                    model.matchData
+
+                                MatchSetupLocal matchSetupData ->
+                                    { matchSetupData | botCount = text } |> MatchSetupLocal
+                    }
+            in
+            case validateBotCount text of
+                Ok botCount ->
+                    matchSetupUpdate config.userId (Match.SetBotCount botCount) model2
+
+                Err _ ->
+                    ( model2, Command.none )
+
+
+validateBotCount : String -> Result String Int
+validateBotCount text =
+    case String.toInt text of
+        Just int ->
+            if int >= 0 then
+                if int > 16 then
+                    Err "Max 16 bots"
+
+                else
+                    Ok int
+
+            else
+                Err "Must be an positive integer"
+
+        Nothing ->
+            Err "Must be an positive integer"
 
 
 matchSetupUpdate : Id UserId -> Match.Msg -> Model -> ( Model, Command FrontendOnly ToBackend msg )
@@ -689,6 +729,26 @@ matchSetupView config lobby matchSetupData currentPlayerData =
 
           else
             Element.none
+        , if Match.isOwner config.userId lobby then
+            Element.row
+                [ Element.spacing 8 ]
+                [ Element.Input.text
+                    [ Element.width (Element.px 50), Element.padding 4, Element.Font.alignRight ]
+                    { onChange = TypedBotCount
+                    , text = matchSetupData.botCount
+                    , placeholder = Nothing
+                    , label = Element.Input.labelLeft [] (Element.text "Number of bots")
+                    }
+                , case validateBotCount matchSetupData.botCount of
+                    Ok _ ->
+                        Element.none
+
+                    Err error ->
+                        Element.text error
+                ]
+
+          else
+            Element.none
         , Element.wrappedRow
             [ Element.spacing 8 ]
             [ if Match.isOwner config.userId lobby then
@@ -703,9 +763,6 @@ matchSetupView config lobby matchSetupData currentPlayerData =
 
                 SpectatorMode ->
                     Ui.simpleButton (PressedPlayerMode PlayerMode) (Element.text "Switch to player")
-
-                BotMode ->
-                    Ui.simpleButton (PressedPlayerMode PlayerMode) (Element.text "Switch to player")
             ]
         , Element.column
             [ Element.spacing 8 ]
@@ -718,9 +775,6 @@ matchSetupView config lobby matchSetupData currentPlayerData =
 
                         SpectatorMode ->
                             0.5
-
-                        BotMode ->
-                            1
                     )
                 ]
                 [ Element.column
@@ -783,9 +837,6 @@ matchSetupView config lobby matchSetupData currentPlayerData =
 
                                         SpectatorMode ->
                                             " (spectator)"
-
-                                        BotMode ->
-                                            " (bot)"
                                    )
                                 ++ (case SeqDict.get userId places of
                                         Just place ->
@@ -797,6 +848,16 @@ matchSetupView config lobby matchSetupData currentPlayerData =
                                 |> Element.text
                         )
                         users
+                        ++ (case Match.botCount lobby of
+                                0 ->
+                                    []
+
+                                1 ->
+                                    [ Element.text "(and 1 bot)" ]
+
+                                many ->
+                                    [ Element.text ("(and " ++ String.fromInt many ++ " bots)") ]
+                           )
                     )
                 ]
             , textChat matchSetupData lobby
@@ -1116,30 +1177,27 @@ canvasViewHelper model matchSetup canvasSize =
                                                                             |> Angle.inRadians
                                                                             |> (\a -> a + pi / 2)
 
-                                                                    throwDistance =
-                                                                        charge * 10
-
                                                                     targetPosition =
                                                                         Point2d.translateBy
-                                                                            (Vector2d.withLength (Length.meters throwDistance) direction)
+                                                                            (Vector2d.withLength (throwDistance elapsed) direction)
                                                                             player.position
 
                                                                     reticleScale =
                                                                         0.15 + 0.15 * charge
                                                                 in
-                                                                [ WebGL.entityWith
-                                                                    [ WebGL.Settings.cullFace WebGL.Settings.back ]
-                                                                    vertexShader
-                                                                    fragmentShader
-                                                                    chargingArrow
-                                                                    { view = viewMatrix
-                                                                    , model =
-                                                                        pointToMatrix player.position
-                                                                            |> Mat4.rotate angle (Math.Vector3.vec3 0 0 1)
-                                                                            |> Mat4.translate3 0 (-0.5 - arrowScale * 3) 0
-                                                                            |> Mat4.scale3 arrowScale arrowScale arrowScale
-                                                                    }
-                                                                , WebGL.entityWith
+                                                                [ --WebGL.entityWith
+                                                                  --    [ WebGL.Settings.cullFace WebGL.Settings.back ]
+                                                                  --    vertexShader
+                                                                  --    fragmentShader
+                                                                  --    chargingArrow
+                                                                  --    { view = viewMatrix
+                                                                  --    , model =
+                                                                  --        pointToMatrix player.position
+                                                                  --            |> Mat4.rotate angle (Math.Vector3.vec3 0 0 1)
+                                                                  --            |> Mat4.translate3 0 (-0.5 - arrowScale * 3) 0
+                                                                  --            |> Mat4.scale3 arrowScale arrowScale arrowScale
+                                                                  --    }
+                                                                  WebGL.entityWith
                                                                     [ WebGL.Settings.cullFace WebGL.Settings.back ]
                                                                     vertexShader
                                                                     fragmentShader
@@ -1410,7 +1468,7 @@ clickMoveMaxDelay =
 
 chargeMaxDelay : Duration
 chargeMaxDelay =
-    Duration.seconds 2
+    Duration.seconds 1
 
 
 clickTotalDelay : Duration
@@ -1520,7 +1578,7 @@ gameUpdate frameId inputs model =
                                         in
                                         { thrownBy = userId
                                         , thrownAt = frameId
-                                        , velocity = throwVelocity direction (throwCharge elapsed * 10 |> Length.meters)
+                                        , velocity = throwVelocity direction (throwDistance elapsed)
                                         , position = Point3d.meters x y (Length.inMeters snowballStartHeight)
                                         }
                                             :: model2.snowballs
@@ -1659,6 +1717,11 @@ throwCharge clickStartElapsed =
     Quantity.ratio (clickStartElapsed |> Quantity.minus clickMoveMaxDelay) chargeMaxDelay
 
 
+throwDistance : Duration -> Length
+throwDistance clickStartElapsed =
+    throwCharge clickStartElapsed * 10 + 0.1 |> Length.meters
+
+
 updateVelocities : Id FrameId -> SeqDict (Id UserId) Player -> SeqDict (Id UserId) Player
 updateVelocities frameId players =
     let
@@ -1733,7 +1796,7 @@ updateVelocities frameId players =
                             in
                             distance
                                 |> Vector2d.normalize
-                                |> Vector2d.scaleBy 0.0025
+                                |> Vector2d.scaleBy 0.0015
                                 |> Vector2d.unwrap
                                 |> Vector2d.unsafe
 
@@ -2082,7 +2145,7 @@ updateMatchData newMsg newNetworkModel oldNetworkModel oldMatchData =
 
         newUserIds : Nonempty ( Id UserId, PlayerData )
         newUserIds =
-            Match.allUsers newMatchState
+            Match.allUsersAndBots newMatchState
 
         initHelper : ServerTime -> MatchLocalOnly
         initHelper serverTime =
@@ -2097,9 +2160,6 @@ updateMatchData newMsg newNetworkModel oldNetworkModel oldMatchData =
 
                                 SpectatorMode ->
                                     Nothing
-
-                                BotMode ->
-                                    Just ( id, playerMesh playerData )
                         )
                     |> SeqDict.fromList
             , wallMesh = lineSegmentMesh (Math.Vector3.vec3 1 0 0) wallSegments
@@ -2159,9 +2219,6 @@ initMatch startTime users =
 
                             SpectatorMode ->
                                 Nothing
-
-                            BotMode ->
-                                Just userId
                     )
 
         ( shuffledPlayers, _ ) =
@@ -2361,6 +2418,7 @@ initMatchSetupData lobby =
     { matchName = MatchName.toString preview.name
     , message = ""
     , maxPlayers = String.fromInt preview.maxUserCount
+    , botCount = Match.botCount lobby |> String.fromInt
     }
 
 

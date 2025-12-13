@@ -16,7 +16,9 @@ module Match exposing
     , TimelineEvent
     , WorldCoordinate
     , allUsers
+    , allUsersAndBots
     , allUsers_
+    , botCount
     , clampTime
     , frameDuration
     , init
@@ -76,6 +78,7 @@ type alias Match_ =
     , messages : List { userId : Id UserId, message : TextMessage }
     , previousMatch : Maybe (SeqDict (Id UserId) Place)
     , maxPlayers : Int
+    , botCount : Int
     }
 
 
@@ -157,6 +160,7 @@ type Msg
     | SendTextMessage TextMessage
     | MatchFinished (SeqDict (Id UserId) Place)
     | SetMaxPlayers Int
+    | SetBotCount Int
 
 
 type ServerTime
@@ -186,7 +190,6 @@ clampTime (ServerTime currentTime) (ServerTime time) =
 type PlayerMode
     = PlayerMode
     | SpectatorMode
-    | BotMode
 
 
 maxInputDelay : Duration
@@ -199,6 +202,11 @@ maxPlayers (Match matchSetup) =
     matchSetup.maxPlayers
 
 
+botCount : Match -> Int
+botCount (Match matchSetup) =
+    matchSetup.botCount
+
+
 init : Id UserId -> Match
 init owner =
     { name = MatchName.empty
@@ -209,6 +217,7 @@ init owner =
     , messages = []
     , previousMatch = Nothing
     , maxPlayers = 16
+    , botCount = 2
     }
         |> Match
 
@@ -303,6 +312,25 @@ allUsers (Match lobby) =
     Nonempty ( lobby.owner, lobby.ownerPlayerData ) (SeqDict.toList lobby.users)
 
 
+allUsersAndBots : Match -> Nonempty ( Id UserId, PlayerData )
+allUsersAndBots (Match lobby) =
+    let
+        bots =
+            List.range 1 lobby.botCount
+                |> List.map
+                    (\index ->
+                        ( Id.fromInt -index
+                        , { primaryColor = Blue
+                          , secondaryColor = Blue
+                          , decal = Nothing
+                          , mode = PlayerMode
+                          }
+                        )
+                    )
+    in
+    Nonempty ( lobby.owner, lobby.ownerPlayerData ) (SeqDict.toList lobby.users ++ bots)
+
+
 allUsers_ : Match -> SeqDict (Id UserId) PlayerData
 allUsers_ (Match lobby) =
     SeqDict.insert lobby.owner lobby.ownerPlayerData lobby.users
@@ -356,10 +384,22 @@ matchSetupUpdate { userId, msg } match =
         SetMaxPlayers maxPlayerCount ->
             setMaxPlayers maxPlayerCount match
 
+        SetBotCount int ->
+            setBotCount userId int match
+
 
 setMaxPlayers : Int -> Match -> Match
 setMaxPlayers maxPlayerCount (Match matchSetup) =
     Match { matchSetup | maxPlayers = maxPlayerCount }
+
+
+setBotCount : Id UserId -> Int -> Match -> Match
+setBotCount userId int (Match matchSetup) =
+    if matchSetup.owner == userId && int >= 0 then
+        Match { matchSetup | botCount = min 16 int }
+
+    else
+        Match matchSetup
 
 
 matchFinished : SeqDict (Id UserId) Place -> Match -> Match
@@ -441,9 +481,6 @@ addInput userId serverTime input (Match matchSetup) =
                                 }
 
                         SpectatorMode ->
-                            matchSetup.matchActive
-
-                        BotMode ->
                             matchSetup.matchActive
 
                 _ ->
