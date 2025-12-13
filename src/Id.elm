@@ -1,4 +1,4 @@
-module Id exposing (Id, decrement, fromInt, increment, toInt)
+module Id exposing (Id, decrement, fromInt, increment, toInt, toString)
 
 
 type Id idType
@@ -23,3 +23,8 @@ increment (Id id) =
 decrement : Id idType -> Id idType
 decrement (Id id) =
     id - 1 |> Id
+
+
+toString : Id idType -> String
+toString (Id id) =
+    String.fromInt id
