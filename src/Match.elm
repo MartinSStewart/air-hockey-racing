@@ -112,6 +112,7 @@ type alias Player =
     , lastEmote : Maybe { time : Id FrameId, emote : Emote }
     , clickStart : Maybe { position : Point2d Meters WorldCoordinate, time : Id FrameId }
     , isDead : Maybe (Id FrameId)
+    , isAi : Bool
     }
 
 

@@ -1522,9 +1522,25 @@ gameUpdate frameId inputs model =
                 model
                 model.players
 
+        -- Update AI players with random movement
+        model4 : MatchState
+        model4 =
+            { model3
+                | players =
+                    SeqDict.map
+                        (\userId player ->
+                            if player.isAi then
+                                updateAiPlayer frameId userId player
+
+                            else
+                                player
+                        )
+                        model3.players
+            }
+
         updatedVelocities_ : SeqDict (Id UserId) Player
         updatedVelocities_ =
-            updateVelocities frameId model3.players
+            updateVelocities frameId model4.players
     in
     { players =
         SeqDict.map
@@ -1555,6 +1571,33 @@ gameUpdate frameId inputs model =
             )
             model3.snowballs
     }
+
+
+updateAiPlayer : Id FrameId -> Id UserId -> Player -> Player
+updateAiPlayer frameId odlUserId player =
+    let
+        -- Use frameId and odlUserId for deterministic randomness
+        seed =
+            Random.initialSeed (Id.toInt frameId + Id.toInt odlUserId * 1000)
+
+        -- AI picks a new target every ~60 frames (1 second) or when it has no target
+        shouldPickNewTarget =
+            player.targetPosition == Nothing || modBy 60 (Id.toInt frameId + Id.toInt odlUserId * 7) == 0
+
+        ( randomX, seed2 ) =
+            Random.step (Random.float -2 8) seed
+
+        ( randomY, _ ) =
+            Random.step (Random.float -2 8) seed2
+
+        newTargetPosition =
+            Point2d.meters randomX randomY
+    in
+    if shouldPickNewTarget then
+        { player | targetPosition = Just newTargetPosition }
+
+    else
+        player
 
 
 gravity : Acceleration
@@ -1720,6 +1763,7 @@ updateVelocities frameId players =
                     , lastEmote = a.lastEmote
                     , clickStart = a.clickStart
                     , isDead = a.isDead
+                    , isAi = a.isAi
                     }
 
                 Nothing ->
@@ -1732,6 +1776,7 @@ updateVelocities frameId players =
                     , lastEmote = a.lastEmote
                     , clickStart = a.clickStart
                     , isDead = a.isDead
+                    , isAi = a.isAi
                     }
         )
         players
@@ -2096,26 +2141,42 @@ actualTime { time, debugTimeOffset } =
     Duration.addTo time debugTimeOffset
 
 
+aiPlayerCount : Int
+aiPlayerCount =
+    3
+
+
 initMatch : ServerTime -> Nonempty ( Id UserId, PlayerData ) -> MatchState
 initMatch startTime users =
-    { players =
-        Random.step
-            (List.Nonempty.toList users
+    let
+        humanPlayerIds =
+            List.Nonempty.toList users
                 |> List.filterMap
                     (\( userId, playerData ) ->
                         case playerData.mode of
                             PlayerMode ->
-                                Just userId
+                                Just ( userId, False )
 
                             SpectatorMode ->
                                 Nothing
                     )
-                |> Random.shuffle
-            )
-            (Match.unwrapServerTime startTime |> Time.posixToMillis |> Random.initialSeed)
-            |> Tuple.first
+
+        aiPlayerIds =
+            List.range 1 aiPlayerCount
+                |> List.map (\i -> ( Id.fromInt -i, True ))
+
+        allPlayerIds =
+            humanPlayerIds ++ aiPlayerIds
+
+        ( shuffledPlayers, _ ) =
+            Random.step
+                (Random.shuffle allPlayerIds)
+                (Match.unwrapServerTime startTime |> Time.posixToMillis |> Random.initialSeed)
+    in
+    { players =
+        shuffledPlayers
             |> List.indexedMap
-                (\index userId ->
+                (\index ( userId, isAi ) ->
                     let
                         playersPerRow =
                             6
@@ -2134,15 +2195,15 @@ initMatch startTime users =
                                 (Vector2d.fromMeters { x = toFloat x * spacing, y = toFloat y * spacing })
                                 playerStart
                     in
-                    ( userId, initPlayer position )
+                    ( userId, initPlayer isAi position )
                 )
             |> SeqDict.fromList
     , snowballs = []
     }
 
 
-initPlayer : Point2d Meters WorldCoordinate -> Player
-initPlayer position =
+initPlayer : Bool -> Point2d Meters WorldCoordinate -> Player
+initPlayer isAi position =
     { position = position
     , targetPosition = Nothing
     , velocity = Vector2d.zero
@@ -2152,6 +2213,7 @@ initPlayer position =
     , lastEmote = Nothing
     , clickStart = Nothing
     , isDead = Nothing
+    , isAi = isAi
     }
 
 
