@@ -1096,13 +1096,27 @@ canvasViewHelper model matchSetup canvasSize =
                                                         case Direction2d.from player.position clickStart.position of
                                                             Just direction ->
                                                                 let
+                                                                    charge =
+                                                                        throwCharge elapsed
+
                                                                     arrowScale =
-                                                                        0.2 + 0.4 * throwCharge elapsed
+                                                                        0.2 + 0.4 * charge
 
                                                                     angle =
                                                                         Direction2d.toAngle direction
                                                                             |> Angle.inRadians
                                                                             |> (\a -> a + pi / 2)
+
+                                                                    throwDistance =
+                                                                        charge * 10
+
+                                                                    targetPosition =
+                                                                        Point2d.translateBy
+                                                                            (Vector2d.withLength (Length.meters throwDistance) direction)
+                                                                            player.position
+
+                                                                    reticleScale =
+                                                                        0.15 + 0.15 * charge
                                                                 in
                                                                 [ WebGL.entityWith
                                                                     [ WebGL.Settings.cullFace WebGL.Settings.back ]
@@ -1115,6 +1129,16 @@ canvasViewHelper model matchSetup canvasSize =
                                                                             |> Mat4.rotate angle (Math.Vector3.vec3 0 0 1)
                                                                             |> Mat4.translate3 0 (-0.5 - arrowScale * 3) 0
                                                                             |> Mat4.scale3 arrowScale arrowScale arrowScale
+                                                                    }
+                                                                , WebGL.entityWith
+                                                                    [ WebGL.Settings.cullFace WebGL.Settings.back ]
+                                                                    vertexShader
+                                                                    fragmentShader
+                                                                    aimingReticle
+                                                                    { view = viewMatrix
+                                                                    , model =
+                                                                        pointToMatrix targetPosition
+                                                                            |> Mat4.scale3 reticleScale reticleScale reticleScale
                                                                     }
                                                                 ]
 
@@ -1733,6 +1757,53 @@ moveArrow =
 chargingArrow : WebGL.Mesh Vertex
 chargingArrow =
     arrow (Math.Vector3.vec3 0.3 0.7 1)
+
+
+aimingReticle : WebGL.Mesh Vertex
+aimingReticle =
+    let
+        color =
+            Math.Vector3.vec3 0.3 0.7 1
+
+        segments =
+            32
+
+        innerRadius =
+            0.7
+
+        outerRadius =
+            1.0
+    in
+    List.range 0 (segments - 1)
+        |> List.concatMap
+            (\i ->
+                let
+                    angle1 =
+                        2 * pi * toFloat i / toFloat segments
+
+                    angle2 =
+                        2 * pi * toFloat (i + 1) / toFloat segments
+
+                    inner1 =
+                        ( innerRadius * cos angle1, innerRadius * sin angle1 )
+
+                    outer1 =
+                        ( outerRadius * cos angle1, outerRadius * sin angle1 )
+
+                    inner2 =
+                        ( innerRadius * cos angle2, innerRadius * sin angle2 )
+
+                    outer2 =
+                        ( outerRadius * cos angle2, outerRadius * sin angle2 )
+
+                    toVertex ( x, y ) =
+                        { position = Math.Vector2.vec2 x y, color = color }
+                in
+                [ ( toVertex inner1, toVertex outer1, toVertex outer2 )
+                , ( toVertex inner1, toVertex outer2, toVertex inner2 )
+                ]
+            )
+        |> WebGL.triangles
 
 
 handleCollision : Id FrameId -> Player -> Player -> ( Player, Player )
