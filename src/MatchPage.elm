@@ -1266,7 +1266,16 @@ drawPlayer frameId userId matchData viewMatrix player playerRadius_ =
                 { view = viewMatrix
                 , model =
                     pointToMatrix player.position
-                        |> Mat4.scale3 playerRadius_ playerRadius_ playerRadius_
+                        |> Mat4.scale3
+                            playerRadius_
+                            (case player.isDead of
+                                Just _ ->
+                                    playerRadius_ * 0.5
+
+                                Nothing ->
+                                    playerRadius_
+                            )
+                            playerRadius_
                         |> Mat4.rotate (Angle.inRadians player.rotation) (Math.Vector3.vec3 0 0 1)
                 }
             ]
@@ -1476,18 +1485,23 @@ clickTotalDelay =
     Quantity.plus chargeMaxDelay clickMoveMaxDelay
 
 
+snowballPlayerCollision : Snowball -> Id UserId -> Player -> Bool
 snowballPlayerCollision snowball userId player =
     let
-        snowballPos2d =
-            Point2d.meters
-                (Point3d.xCoordinate snowball.position |> Length.inMeters)
-                (Point3d.yCoordinate snowball.position |> Length.inMeters)
+        { x, y, z } =
+            Point3d.toMeters snowball.position
     in
     (userId /= snowball.thrownBy)
+        && (Length.meters z |> Quantity.lessThan playerHeight)
         && (player.isDead == Nothing)
-        && (Point2d.distanceFrom snowballPos2d player.position
+        && (Point2d.distanceFrom (Point2d.meters x y) player.position
                 |> Quantity.lessThan (Quantity.plus playerRadius snowballRadius)
            )
+
+
+playerHeight : Length
+playerHeight =
+    Length.meters 1.5
 
 
 gameUpdate : Id FrameId -> List TimelineEvent -> MatchState -> MatchState
@@ -1505,44 +1519,57 @@ gameUpdate frameId inputs model =
                         input : Input
                         input =
                             if Id.toInt userId < 0 then
-                                getBotInput frameId model userId player
+                                getBotInput frameId model2 userId player
 
                             else
                                 SeqDict.get userId inputs2 |> Maybe.withDefault noInput
 
-                        snowballCollision =
+                        ( isHit, snowballs ) =
                             List.foldl
-                                (\snowball -> snowballPlayerCollision)
-                                model3.snowballs
+                                (\snowball ( hasHit, snowballs2 ) ->
+                                    if not hasHit && snowballPlayerCollision snowball userId player then
+                                        ( True, snowballs2 )
+
+                                    else
+                                        ( hasHit, snowball :: snowballs2 )
+                                )
+                                ( False, [] )
+                                model2.snowballs
+                                |> Tuple.mapSecond List.reverse
                     in
                     { model2
                         | players =
                             SeqDict.insert userId
                                 { player
                                     | targetPosition =
-                                        case ( player.clickStart, input.action ) of
-                                            ( Just clickStart, ClickRelease point ) ->
-                                                if
-                                                    frameTimeElapsed clickStart.time frameId
-                                                        |> Quantity.lessThan clickMoveMaxDelay
-                                                then
-                                                    Just point
+                                        case player.isDead of
+                                            Just _ ->
+                                                Nothing
 
-                                                else
-                                                    player.targetPosition
+                                            Nothing ->
+                                                case ( player.clickStart, input.action ) of
+                                                    ( Just clickStart, ClickRelease point ) ->
+                                                        if
+                                                            frameTimeElapsed clickStart.time frameId
+                                                                |> Quantity.lessThan clickMoveMaxDelay
+                                                        then
+                                                            Just point
 
-                                            ( Just clickStart, _ ) ->
-                                                if
-                                                    frameTimeElapsed clickStart.time frameId
-                                                        |> Quantity.greaterThanOrEqualTo clickMoveMaxDelay
-                                                then
-                                                    Nothing
+                                                        else
+                                                            player.targetPosition
 
-                                                else
-                                                    player.targetPosition
+                                                    ( Just clickStart, _ ) ->
+                                                        if
+                                                            frameTimeElapsed clickStart.time frameId
+                                                                |> Quantity.greaterThanOrEqualTo clickMoveMaxDelay
+                                                        then
+                                                            Nothing
 
-                                            _ ->
-                                                player.targetPosition
+                                                        else
+                                                            player.targetPosition
+
+                                                    _ ->
+                                                        player.targetPosition
                                     , lastEmote =
                                         case input.emote of
                                             Just emote ->
@@ -1551,27 +1578,38 @@ gameUpdate frameId inputs model =
                                             Nothing ->
                                                 player.lastEmote
                                     , clickStart =
-                                        case input.action of
-                                            ClickStart point ->
-                                                Just { position = point, time = frameId }
-
-                                            ClickRelease _ ->
+                                        case player.isDead of
+                                            Just _ ->
                                                 Nothing
 
-                                            NoAction ->
-                                                case player.clickStart of
-                                                    Just clickStart ->
-                                                        if
-                                                            frameTimeElapsed clickStart.time frameId
-                                                                |> Quantity.greaterThanOrEqualTo clickTotalDelay
-                                                        then
-                                                            Nothing
+                                            Nothing ->
+                                                case input.action of
+                                                    ClickStart point ->
+                                                        Just { position = point, time = frameId }
 
-                                                        else
-                                                            player.clickStart
+                                                    ClickRelease _ ->
+                                                        Nothing
 
-                                                    Nothing ->
-                                                        player.clickStart
+                                                    NoAction ->
+                                                        case player.clickStart of
+                                                            Just clickStart ->
+                                                                if
+                                                                    frameTimeElapsed clickStart.time frameId
+                                                                        |> Quantity.greaterThanOrEqualTo clickTotalDelay
+                                                                then
+                                                                    Nothing
+
+                                                                else
+                                                                    player.clickStart
+
+                                                            Nothing ->
+                                                                player.clickStart
+                                    , isDead =
+                                        if isHit then
+                                            Just frameId
+
+                                        else
+                                            player.isDead
                                 }
                                 model2.players
                         , snowballs =
@@ -1600,13 +1638,13 @@ gameUpdate frameId inputs model =
                                         , velocity = throwVelocity direction (throwDistance elapsed)
                                         , position = Point3d.meters x y (Length.inMeters snowballStartHeight)
                                         }
-                                            :: model2.snowballs
+                                            :: snowballs
 
                                     else
-                                        model2.snowballs
+                                        snowballs
 
                                 _ ->
-                                    model2.snowballs
+                                    snowballs
                     }
                 )
                 model
@@ -1649,36 +1687,37 @@ gameUpdate frameId inputs model =
 
 getBotInput : Id FrameId -> MatchState -> Id UserId -> Player -> Input
 getBotInput frameId _ userId player =
-    let
-        -- Use frameId and userId for deterministic randomness
-        seed =
-            Random.initialSeed (Id.toInt frameId + Id.toInt userId * 1000)
-
-        -- AI picks a new target every ~60 frames (1 second) or when it has no target
-        shouldPickNewTarget =
-            player.targetPosition == Nothing || modBy 60 (Id.toInt frameId + Id.toInt userId * 7) == 0
-
-        ( randomX, seed2 ) =
-            Random.step (Random.float -2 8) seed
-
-        ( randomY, _ ) =
-            Random.step (Random.float -2 8) seed2
-
-        newTargetPosition =
-            Point2d.meters randomX randomY
-    in
-    case player.clickStart of
-        Nothing ->
-            -- Start a click if we need a new target
-            if shouldPickNewTarget then
-                { action = ClickStart newTargetPosition, emote = Nothing }
-
-            else
-                noInput
-
+    case player.isDead of
         Just _ ->
-            -- Release click immediately to set target (within clickMoveMaxDelay for movement)
-            { action = ClickRelease newTargetPosition, emote = Nothing }
+            { action = NoAction, emote = Nothing }
+
+        Nothing ->
+            let
+                seed =
+                    Random.initialSeed (Id.toInt frameId + Id.toInt userId * 1000)
+
+                shouldPickNewTarget =
+                    player.targetPosition == Nothing || modBy 60 (Id.toInt frameId + Id.toInt userId * 7) == 0
+
+                ( randomX, seed2 ) =
+                    Random.step (Random.float -2 8) seed
+
+                ( randomY, _ ) =
+                    Random.step (Random.float -2 8) seed2
+
+                newTargetPosition =
+                    Point2d.meters randomX randomY
+            in
+            case player.clickStart of
+                Nothing ->
+                    if shouldPickNewTarget then
+                        { action = ClickStart newTargetPosition, emote = Nothing }
+
+                    else
+                        noInput
+
+                Just _ ->
+                    { action = ClickRelease newTargetPosition, emote = Nothing }
 
 
 gravity : Acceleration
