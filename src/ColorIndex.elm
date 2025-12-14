@@ -1,9 +1,12 @@
 module ColorIndex exposing (ColorIndex(..), allColors, toElColor, toVec3)
 
 import Color exposing (Color)
-import Element
 import List.Nonempty exposing (Nonempty(..))
 import Math.Vector3 exposing (Vec3)
+import Ui
+import Ui.Anim
+import Ui.Layout
+import Ui.Prose
 
 
 type ColorIndex
@@ -45,7 +48,7 @@ toColor colorIndex =
             Color.yellow
 
 
-toElColor : ColorIndex -> Element.Color
+toElColor : ColorIndex -> Ui.Color
 toElColor =
     toColor >> colorToElColor
 
@@ -64,10 +67,10 @@ allColors =
     Nonempty Red [ Orange, Yellow, Green, Blue, Purple, Pink, Brown ]
 
 
-colorToElColor : Color -> Element.Color
+colorToElColor : Color -> Ui.Color
 colorToElColor color =
     let
         { red, green, blue, alpha } =
             Color.toRgba color
     in
-    Element.rgba red green blue alpha
+    Ui.rgba (255 * red |> round) (255 * green |> round) (255 * blue |> round) alpha

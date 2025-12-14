@@ -6,24 +6,25 @@ module MyUi exposing
     , simpleButton
     )
 
-import Element exposing (Element)
-import Element.Background
-import Element.Input
 import Pixels
 import Quantity
 import Size exposing (Size)
+import Ui
+import Ui.Input
 
 
-button : List (Element.Attribute msg) -> { onPress : msg, label : Element msg } -> Element msg
+button : List (Ui.Attribute msg) -> { onPress : msg, label : Ui.Element msg } -> Ui.Element msg
 button attributes { onPress, label } =
-    Element.Input.button attributes { onPress = Just onPress, label = label }
+    Ui.el
+        (Ui.width Ui.shrink :: Ui.Input.button onPress :: attributes)
+        label
 
 
-simpleButton : msg -> Element msg -> Element msg
+simpleButton : msg -> Ui.Element msg -> Ui.Element msg
 simpleButton onPress label =
     button
-        [ Element.Background.color <| Element.rgb 0.9 0.9 0.85
-        , Element.padding 4
+        [ Ui.background <| Ui.rgb 230 230 217
+        , Ui.padding 4
         ]
         { onPress = onPress
         , label = label

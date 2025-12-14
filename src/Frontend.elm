@@ -13,10 +13,6 @@ import Effect.Lamdera
 import Effect.Subscription as Subscription exposing (Subscription)
 import Effect.Task as Task
 import Effect.Time
-import Element exposing (Element)
-import Element.Background
-import Element.Border
-import Element.Font
 import Html exposing (Html)
 import Id exposing (Id)
 import Json.Decode
@@ -37,6 +33,11 @@ import Size exposing (Size)
 import Sounds exposing (Sounds)
 import Time
 import Types exposing (..)
+import Ui
+import Ui.Anim
+import Ui.Font
+import Ui.Layout
+import Ui.Prose
 import Url exposing (Url)
 import Url.Parser exposing ((<?>))
 import Url.Parser.Query
@@ -553,16 +554,16 @@ view _ model =
     , body =
         [ case model of
             Loading loading ->
-                Element.layout
-                    [ Element.width Element.fill
-                    , Element.height Element.fill
-                    , Element.padding 16
+                Ui.layout
+                    [ Ui.width Ui.fill
+                    , Ui.height Ui.fill
+                    , Ui.padding 16
                     ]
                     (if SeqDict.values loading.sounds |> List.any isErr then
-                        Element.text "Loading failed"
+                        Ui.text "Loading failed"
 
                      else
-                        Element.text "Loading"
+                        Ui.text "Loading"
                     )
 
             Loaded loadedModel ->
@@ -587,61 +588,60 @@ loadedView model =
         displayType =
             MyUi.displayType model.windowSize
     in
-    Element.layout
-        [ Element.clip ]
+    Ui.layout
+        [ Ui.clip, Ui.Font.family [ Ui.Font.sansSerif ], Ui.height Ui.fill ]
         (case model.page of
             MatchPage matchSetup ->
-                MatchPage.view model matchSetup |> Element.map MatchPageMsg
+                MatchPage.view model matchSetup |> Ui.map MatchPageMsg
 
             MainLobbyPage lobbyData ->
-                Element.column
-                    [ Element.width Element.fill
-                    , Element.height Element.fill
-                    , Element.spacing 16
-                    , Element.padding (MyUi.ifMobile displayType 8 16)
+                Ui.column
+                    [ Ui.height Ui.fill
+                    , Ui.spacing 16
+                    , Ui.padding (MyUi.ifMobile displayType 8 16)
                     ]
-                    [ Element.el [ Element.Font.bold ] (Element.text "Air Hockey Racing")
-                    , MyUi.simpleButton PressedCreateLobby (Element.text "Create new match")
-                    , MyUi.simpleButton PressedOpenLevelEditor (Element.text "Open level editor")
-                    , Element.column
-                        [ Element.width Element.fill, Element.height Element.fill, Element.spacing 8 ]
-                        [ Element.text "Or join existing match"
+                    [ Ui.el [ Ui.width Ui.shrink, Ui.Font.bold ] (Ui.text "Air Hockey Racing")
+                    , MyUi.simpleButton PressedCreateLobby (Ui.text "Create new match")
+                    , MyUi.simpleButton PressedOpenLevelEditor (Ui.text "Open level editor")
+                    , Ui.column
+                        [ Ui.height Ui.fill, Ui.spacing 8 ]
+                        [ Ui.text "Or join existing match"
                         , case lobbyData.joinLobbyError of
                             Nothing ->
-                                Element.none
+                                Ui.none
 
                             Just LobbyNotFound ->
-                                Element.el
-                                    [ Element.Font.color (Element.rgb 1 0 0) ]
-                                    (Element.text "Lobby not found!")
+                                Ui.el
+                                    [ Ui.width Ui.shrink, Ui.Font.color (Ui.rgb 255 0 0) ]
+                                    (Ui.text "Lobby not found!")
 
                             Just LobbyFull ->
-                                Element.el
-                                    [ Element.Font.color (Element.rgb 1 0 0) ]
-                                    (Element.text "Lobby is full!")
+                                Ui.el
+                                    [ Ui.width Ui.shrink, Ui.Font.color (Ui.rgb 255 0 0) ]
+                                    (Ui.text "Lobby is full!")
                         , if SeqDict.isEmpty lobbyData.lobbies then
-                            Element.paragraph
-                                [ Element.Font.center, Element.centerY ]
-                                [ Element.text "There are currently no existing matches" ]
-                                |> Element.el
-                                    [ Element.width (Element.maximum 800 Element.fill)
-                                    , Element.height Element.fill
-                                    , Element.Border.width 1
+                            Ui.Prose.paragraph
+                                [ Ui.width Ui.shrink, Ui.Font.center, Ui.centerY ]
+                                [ Ui.text "There are currently no existing matches" ]
+                                |> Ui.el
+                                    [ Ui.widthMax 800
+                                    , Ui.height Ui.fill
+                                    , Ui.border 1
                                     ]
 
                           else
                             SeqDict.toList lobbyData.lobbies
                                 |> List.indexedMap (\index lobby -> lobbyRowView (modBy 2 index == 0) lobby)
-                                |> Element.column
-                                    [ Element.width (Element.maximum 800 Element.fill)
-                                    , Element.height Element.fill
-                                    , Element.Border.width 1
+                                |> Ui.column
+                                    [ Ui.widthMax 800
+                                    , Ui.height Ui.fill
+                                    , Ui.border 1
                                     ]
                         ]
                     ]
 
             EditorPage editorPageModel ->
-                EditorPage.view model editorPageModel |> Element.map EditorPageMsg
+                EditorPage.view model editorPageModel |> Ui.map EditorPageMsg
         )
 
 
@@ -667,34 +667,32 @@ loadedView model =
 --        |> Element.column [ Element.alignTop ]
 
 
-lobbyRowView : Bool -> ( Id MatchId, LobbyPreview ) -> Element FrontendMsg_
+lobbyRowView : Bool -> ( Id MatchId, LobbyPreview ) -> Ui.Element FrontendMsg_
 lobbyRowView evenRow ( lobbyId, lobby ) =
-    Element.row
-        [ Element.width Element.fill
-        , Element.Background.color
+    Ui.row
+        [ Ui.background
             (if evenRow then
-                Element.rgb 1 1 1
+                Ui.rgb 255 255 255
 
              else
-                Element.rgb 0.95 0.95 0.95
+                Ui.rgb 242 242 242
             )
-        , Element.padding 4
+        , Ui.padding 4
         ]
         [ if lobby.name == MatchName.empty then
-            MatchPage.unnamedMatchText
+            Ui.el [ Ui.Font.italic ] (Ui.text "Unnamed match")
 
           else
-            Element.text (MatchName.toString lobby.name)
-        , Element.row
-            [ Element.alignRight, Element.spacing 8 ]
-            [ Element.text <| String.fromInt lobby.userCount ++ " / " ++ String.fromInt lobby.maxUserCount
-            , Element.link
-                [ Element.Background.color <| Element.rgb 0.9 0.9 0.85
-                , Element.padding 4
+            Ui.text (MatchName.toString lobby.name)
+        , Ui.row
+            [ Ui.width Ui.shrink, Ui.alignRight, Ui.spacing 8 ]
+            [ Ui.text <| String.fromInt lobby.userCount ++ " / " ++ String.fromInt lobby.maxUserCount
+            , Ui.el
+                [ Ui.link (Route.encode (Route.InMatchRoute lobbyId))
+                , Ui.background <| Ui.rgb 230 230 217
+                , Ui.padding 4
                 ]
-                { url = Route.encode (InMatchRoute lobbyId)
-                , label = Element.text "Join"
-                }
+                (Ui.text "Join")
             ]
         ]
 

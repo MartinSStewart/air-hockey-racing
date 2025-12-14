@@ -19,7 +19,6 @@ module MatchPage exposing
     , init
     , lineMesh
     , screenToWorld
-    , unnamedMatchText
     , update
     , updateFromBackend
     , validateBotCount
@@ -47,11 +46,6 @@ import Effect.Lamdera
 import Effect.Task as Task
 import Effect.Time as Time
 import Effect.WebGL as WebGL exposing (Mesh, Shader)
-import Element exposing (Element)
-import Element.Background
-import Element.Border
-import Element.Font
-import Element.Input
 import Env
 import FontRender
 import Frame2d
@@ -96,6 +90,13 @@ import Sounds exposing (Sounds)
 import Speed exposing (MetersPerSecond)
 import TextMessage exposing (TextMessage)
 import Timeline exposing (FrameId, TimelineCache, getOldestCachedState)
+import Ui
+import Ui.Anim
+import Ui.Events
+import Ui.Font
+import Ui.Input
+import Ui.Layout
+import Ui.Prose
 import User exposing (UserId)
 import Vector2d exposing (Vector2d)
 import Vector3d exposing (Vector3d)
@@ -566,7 +567,7 @@ type WorldPixel
     = WorldPixel Never
 
 
-view : Config a -> Model -> Element Msg
+view : Config a -> Model -> Ui.Element Msg
 view config model =
     let
         lobby : Match
@@ -579,20 +580,20 @@ view config model =
                 Ok cache ->
                     case Timeline.getStateAt gameUpdate (timeToFrameId config match) cache match.timeline of
                         Ok ( _, matchState ) ->
-                            Element.el
-                                (Element.width Element.fill
-                                    :: Element.height Element.fill
-                                    :: Element.htmlAttribute (Html.Events.Extra.Pointer.onDown PointerDown)
-                                    :: Element.htmlAttribute (Html.Events.Extra.Pointer.onUp PointerUp)
-                                    :: Element.htmlAttribute (Html.Events.Extra.Pointer.onLeave PointerLeave)
-                                    :: Element.inFront (countdown config match)
-                                    :: Element.inFront (desyncWarning matchData.desyncedAtFrame)
-                                    :: Element.inFront
-                                        (Element.Input.button
-                                            []
-                                            { onPress = Just PressedLeaveMatch, label = Element.el [ Element.Background.color (Element.rgb 255 255 255) ] (Element.text "Leave match") }
+                            Ui.el
+                                -- Containers now width fill by default (instead of width shrink). I couldn't update that here so I recommend you review these attributes
+                                (Ui.width Ui.fill
+                                    :: Ui.height Ui.fill
+                                    :: Ui.htmlAttribute (Html.Events.Extra.Pointer.onDown PointerDown)
+                                    :: Ui.htmlAttribute (Html.Events.Extra.Pointer.onUp PointerUp)
+                                    :: Ui.htmlAttribute (Html.Events.Extra.Pointer.onLeave PointerLeave)
+                                    :: Ui.inFront (desyncWarning matchData.desyncedAtFrame)
+                                    :: Ui.inFront
+                                        (Ui.el
+                                            [ Ui.Events.onClick PressedLeaveMatch ]
+                                            (Ui.el [ Ui.width Ui.shrink, Ui.background (Ui.rgb 65025 65025 65025) ] (Ui.text "Leave match"))
                                         )
-                                    :: Element.behindContent
+                                    :: Ui.behindContent
                                         (canvasView
                                             config.windowSize
                                             config.devicePixelRatio
@@ -600,7 +601,7 @@ view config model =
                                         )
                                     :: (case matchData.touchPosition of
                                             Just _ ->
-                                                [ Element.htmlAttribute (Html.Events.Extra.Pointer.onMove PointerMoved) ]
+                                                [ Ui.htmlAttribute (Html.Events.Extra.Pointer.onMove PointerMoved) ]
 
                                             Nothing ->
                                                 []
@@ -609,19 +610,19 @@ view config model =
                                 (matchEndText match matchState config)
 
                         Err _ ->
-                            Element.text "An error occurred during the match :("
+                            Ui.text "An error occurred during the match :("
 
                 Err _ ->
-                    Element.text "An error occurred during the match :("
+                    Ui.text "An error occurred during the match :("
 
         ( Nothing, MatchSetupLocal matchSetupData, Just currentPlayerData ) ->
             matchSetupView config lobby matchSetupData currentPlayerData
 
         _ ->
-            Element.text "Loading..."
+            Ui.text "Loading..."
 
 
-matchSetupView : Config a -> Match -> MatchSetupLocal_ -> PlayerData -> Element Msg
+matchSetupView : Config a -> Match -> MatchSetupLocal_ -> PlayerData -> Ui.Element Msg
 matchSetupView config lobby matchSetupData currentPlayerData =
     let
         displayType =
@@ -656,36 +657,36 @@ matchSetupView config lobby matchSetupData currentPlayerData =
         preview =
             Match.preview lobby
     in
-    Element.column
-        [ Element.spacing 8
-        , Element.padding (MyUi.ifMobile displayType 8 16)
-        , Element.width (Element.maximum 800 Element.fill)
-        , Element.height Element.fill
+    Ui.column
+        [ Ui.spacing 8
+        , Ui.padding (MyUi.ifMobile displayType 8 16)
+        , Ui.widthMax 800
+        , Ui.height Ui.fill
         ]
-        [ case SeqDict.get config.userId places of
-            Just place ->
-                placementText place
+        [ if Match.isOwner config.userId lobby then
+            Ui.row
+                [ Ui.spacing 8 ]
+                (Ui.Input.text
+                    [ Ui.padding 4
+                    , if matchSetupData.matchName == "" then
+                        Ui.Font.italic
 
-            Nothing ->
-                Element.none
-        , if Match.isOwner config.userId lobby then
-            Element.row
-                [ Element.spacing 8, Element.width Element.fill ]
-                (Element.Input.text
-                    [ Element.padding 4, Element.width Element.fill ]
+                      else
+                        Ui.noAttr
+                    ]
                     { onChange = TypedMatchName
                     , text = matchSetupData.matchName
-                    , placeholder = Element.Input.placeholder [] unnamedMatchText |> Just
-                    , label = Element.Input.labelHidden "Match name"
+                    , placeholder = Just "Unnamed match"
+                    , label = Ui.Input.labelHidden "Match name"
                     }
                     :: (if matchSetupData.matchName == matchName then
                             []
 
                         else
-                            MyUi.simpleButton PressedResetMatchName (Element.text "Reset")
+                            MyUi.simpleButton PressedResetMatchName (Ui.text "Reset")
                                 :: (case MatchName.fromString matchSetupData.matchName of
                                         Ok matchName_ ->
-                                            [ MyUi.simpleButton (PressedSaveMatchName matchName_) (Element.text "Save") ]
+                                            [ MyUi.simpleButton (PressedSaveMatchName matchName_) (Ui.text "Save") ]
 
                                         _ ->
                                             []
@@ -694,32 +695,40 @@ matchSetupView config lobby matchSetupData currentPlayerData =
                 )
 
           else
-            Element.row [ Element.Font.bold ]
-                [ Element.text "Match: "
+            Ui.row [ Ui.width Ui.shrink, Ui.Font.bold ]
+                [ Ui.text "Match: "
                 , if matchName == "" then
-                    unnamedMatchText
+                    Ui.el [ Ui.Font.italic ] (Ui.text "Unnamed match")
 
                   else
-                    Element.text matchName
+                    Ui.text matchName
                 ]
         , if Match.isOwner config.userId lobby then
-            Element.row
-                [ Element.spacing 8 ]
-                (Element.Input.text
-                    [ Element.width (Element.px 50), Element.padding 4, Element.Font.alignRight ]
-                    { onChange = TypedMaxPlayers
-                    , text = matchSetupData.maxPlayers
-                    , placeholder = Nothing
-                    , label = Element.Input.labelLeft [] (Element.text "Max players")
-                    }
+            let
+                label =
+                    Ui.Input.label "maxPlayers" [ Ui.width Ui.shrink ] (Ui.text "Max players")
+            in
+            Ui.row
+                [ Ui.width Ui.shrink, Ui.spacing 8 ]
+                (Ui.row
+                    [ Ui.spacing 4 ]
+                    [ label.element
+                    , Ui.Input.text
+                        [ Ui.width (Ui.px 50), Ui.padding 4, Ui.Font.alignRight ]
+                        { onChange = TypedMaxPlayers
+                        , text = matchSetupData.maxPlayers
+                        , placeholder = Nothing
+                        , label = label.id
+                        }
+                    ]
                     :: (if matchSetupData.maxPlayers == String.fromInt preview.maxUserCount then
                             []
 
                         else
-                            MyUi.simpleButton PressedResetMaxPlayers (Element.text "Reset")
+                            MyUi.simpleButton PressedResetMaxPlayers (Ui.text "Reset")
                                 :: (case String.toInt matchSetupData.maxPlayers of
                                         Just maxPlayers ->
-                                            [ MyUi.simpleButton (PressedSaveMaxPlayers maxPlayers) (Element.text "Save") ]
+                                            [ MyUi.simpleButton (PressedSaveMaxPlayers maxPlayers) (Ui.text "Save") ]
 
                                         Nothing ->
                                             []
@@ -728,47 +737,56 @@ matchSetupView config lobby matchSetupData currentPlayerData =
                 )
 
           else
-            Element.none
+            Ui.none
         , if Match.isOwner config.userId lobby then
-            Element.row
-                [ Element.spacing 8 ]
-                [ Element.Input.text
-                    [ Element.width (Element.px 50), Element.padding 4, Element.Font.alignRight ]
-                    { onChange = TypedBotCount
-                    , text = matchSetupData.botCount
-                    , placeholder = Nothing
-                    , label = Element.Input.labelLeft [] (Element.text "Number of bots")
-                    }
+            let
+                label =
+                    Ui.Input.label "maxPlayers" [ Ui.width Ui.shrink ] (Ui.text "Number of bots")
+            in
+            Ui.row
+                [ Ui.width Ui.shrink, Ui.spacing 8 ]
+                [ Ui.row
+                    [ Ui.spacing 4 ]
+                    [ label.element
+                    , Ui.Input.text
+                        [ Ui.width (Ui.px 50), Ui.padding 4, Ui.Font.alignRight ]
+                        { onChange = TypedBotCount
+                        , text = matchSetupData.botCount
+                        , placeholder = Nothing
+                        , label = label.id
+                        }
+                    ]
                 , case validateBotCount matchSetupData.botCount of
                     Ok _ ->
-                        Element.none
+                        Ui.none
 
                     Err error ->
-                        Element.text error
+                        Ui.text error
                 ]
 
           else
-            Element.none
-        , Element.wrappedRow
-            [ Element.spacing 8 ]
+            Ui.none
+        , Ui.row
+            [ Ui.width Ui.shrink, Ui.spacing 8 ]
             [ if Match.isOwner config.userId lobby then
-                MyUi.simpleButton PressedStartMatchSetup (Element.text "Start match")
+                MyUi.simpleButton PressedStartMatchSetup (Ui.text "Start match")
 
               else
-                Element.none
-            , MyUi.simpleButton PressedLeaveMatchSetup (Element.text "Leave")
+                Ui.none
+            , MyUi.simpleButton PressedLeaveMatchSetup (Ui.text "Leave")
             , case currentPlayerData.mode of
                 PlayerMode ->
-                    MyUi.simpleButton (PressedPlayerMode SpectatorMode) (Element.text "Switch to spectator")
+                    MyUi.simpleButton (PressedPlayerMode SpectatorMode) (Ui.text "Switch to spectator")
 
                 SpectatorMode ->
-                    MyUi.simpleButton (PressedPlayerMode PlayerMode) (Element.text "Switch to player")
+                    MyUi.simpleButton (PressedPlayerMode PlayerMode) (Ui.text "Switch to player")
             ]
-        , Element.column
-            [ Element.spacing 8 ]
-            [ Element.column
-                [ Element.spacing 8
-                , Element.alpha
+        , Ui.column
+            [ Ui.width Ui.shrink, Ui.spacing 8 ]
+            [ Ui.column
+                [ Ui.width Ui.shrink
+                , Ui.spacing 8
+                , Ui.opacity
                     (case currentPlayerData.mode of
                         PlayerMode ->
                             1
@@ -777,31 +795,31 @@ matchSetupView config lobby matchSetupData currentPlayerData =
                             0.5
                     )
                 ]
-                [ Element.column
-                    [ Element.spacing 4, Element.Font.size 16, Element.Font.bold ]
-                    [ Element.text "Primary color"
+                [ Ui.column
+                    [ Ui.width Ui.shrink, Ui.spacing 4, Ui.Font.size 16, Ui.Font.bold ]
+                    [ Ui.text "Primary color"
                     , colorSelector PressedPrimaryColor currentPlayerData.primaryColor
                     ]
-                , Element.column
-                    [ Element.spacing 4, Element.Font.size 16, Element.Font.bold ]
-                    [ Element.text "Secondary color"
+                , Ui.column
+                    [ Ui.width Ui.shrink, Ui.spacing 4, Ui.Font.size 16, Ui.Font.bold ]
+                    [ Ui.text "Secondary color"
                     , colorSelector PressedSecondaryColor currentPlayerData.secondaryColor
                     ]
-                , Element.column
-                    [ Element.spacing 4, Element.width Element.fill ]
-                    [ Element.el [ Element.Font.size 16, Element.Font.bold ] (Element.text "Decal")
+                , Ui.column
+                    [ Ui.spacing 4 ]
+                    [ Ui.el [ Ui.width Ui.shrink, Ui.Font.size 16, Ui.Font.bold ] (Ui.text "Decal")
                     , Nothing
                         :: List.map Just (List.Nonempty.toList Decal.allDecals)
                         |> List.map
                             (\maybeDecal ->
                                 MyUi.button
-                                    [ Element.paddingXY 4 4
-                                    , Element.Background.color
+                                    [ Ui.paddingXY 4 4
+                                    , Ui.background
                                         (if maybeDecal == currentPlayerData.decal then
-                                            Element.rgb 0.6 0.7 1
+                                            Ui.rgb 153 179 255
 
                                          else
-                                            Element.rgb 0.8 0.8 0.8
+                                            Ui.rgb 204 204 204
                                         )
                                     ]
                                     { onPress = PressedDecal maybeDecal
@@ -813,20 +831,20 @@ matchSetupView config lobby matchSetupData currentPlayerData =
                                             Nothing ->
                                                 "None"
                                         )
-                                            |> Element.text
+                                            |> Ui.text
                                     }
                             )
-                        |> Element.row [ Element.spacing 8, Element.width Element.fill ]
+                        |> Ui.row [ Ui.spacing 8 ]
                     ]
                 ]
             ]
-        , Element.row
-            [ Element.spacing 16, Element.width Element.fill, Element.height Element.fill ]
-            [ Element.column
-                [ Element.spacing 8, Element.alignTop, Element.Font.size 16 ]
-                [ Element.text "Participants:"
-                , Element.column
-                    []
+        , Ui.column
+            [ Ui.spacing 16, Ui.height Ui.fill ]
+            [ Ui.column
+                [ Ui.width Ui.shrink, Ui.spacing 8, Ui.alignTop, Ui.Font.size 16 ]
+                [ Ui.text "Participants:"
+                , Ui.column
+                    [ Ui.width Ui.shrink ]
                     (List.map
                         (\( userId, playerData ) ->
                             "User "
@@ -845,7 +863,7 @@ matchSetupView config lobby matchSetupData currentPlayerData =
                                         Nothing ->
                                             ""
                                    )
-                                |> Element.text
+                                |> Ui.text
                         )
                         users
                         ++ (case Match.botCount lobby of
@@ -853,10 +871,10 @@ matchSetupView config lobby matchSetupData currentPlayerData =
                                     []
 
                                 1 ->
-                                    [ Element.text "(and 1 bot)" ]
+                                    [ Ui.text "(and 1 bot)" ]
 
                                 many ->
-                                    [ Element.text ("(and " ++ String.fromInt many ++ " bots)") ]
+                                    [ Ui.text ("(and " ++ String.fromInt many ++ " bots)") ]
                            )
                     )
                 ]
@@ -865,13 +883,12 @@ matchSetupView config lobby matchSetupData currentPlayerData =
         ]
 
 
-textChat : MatchSetupLocal_ -> Match -> Element Msg
+textChat : MatchSetupLocal_ -> Match -> Ui.Element Msg
 textChat matchSetupData lobby =
-    Element.column
-        [ Element.scrollbarY
-        , Element.width Element.fill
-        , Element.height Element.fill
-        , Element.padding 4
+    Ui.column
+        [ Ui.scrollable
+        , Ui.height Ui.fill
+        , Ui.padding 4
         ]
         [ Match.messagesOldestToNewest lobby
             |> List.map
@@ -881,30 +898,30 @@ textChat matchSetupData lobby =
                         userName =
                             Id.toInt userId |> String.fromInt |> (++) "User "
                     in
-                    Element.row
-                        [ Element.Font.size 16 ]
+                    Ui.row
+                        [ Ui.width Ui.shrink, Ui.Font.size 16 ]
                         [ (if Match.isOwner userId lobby then
                             userName ++ " (host)" ++ " "
 
                            else
                             userName ++ " "
                           )
-                            |> Element.text
-                            |> Element.el [ Element.Font.bold, Element.alignTop ]
-                        , TextMessage.toString message |> Element.text |> List.singleton |> Element.paragraph []
+                            |> Ui.text
+                            |> Ui.el [ Ui.width Ui.shrink, Ui.Font.bold, Ui.alignTop ]
+                        , TextMessage.toString message |> Ui.text |> List.singleton |> Ui.Prose.paragraph [ Ui.width Ui.shrink ]
                         ]
                 )
-            |> Element.column
-                [ Element.spacing 4
-                , Element.scrollbarY
-                , Element.width Element.fill
-                , Element.height Element.fill
-                , Element.paddingXY 0 8
-                , Element.htmlAttribute (Effect.Browser.Dom.idToAttribute textMessageContainerId)
+            |> Ui.column
+                [ Ui.spacing 4
+                , Ui.scrollable
+                , Ui.height Ui.fill
+                , Ui.paddingXY 0 8
+                , Ui.htmlAttribute (Effect.Browser.Dom.idToAttribute textMessageContainerId)
                 ]
-        , Element.Input.text
-            (Element.Font.size 16
-                :: Element.padding 8
+        , Ui.Input.text
+            -- Containers now width fill by default (instead of width shrink). I couldn't update that here so I recommend you review these attributes
+            (Ui.Font.size 16
+                :: Ui.padding 8
                 :: (case TextMessage.fromString matchSetupData.message of
                         Ok message ->
                             [ Html.Events.on "keydown"
@@ -918,7 +935,7 @@ textChat matchSetupData lobby =
                                                 Json.Decode.fail ""
                                         )
                                 )
-                                |> Element.htmlAttribute
+                                |> Ui.htmlAttribute
                             ]
 
                         Err _ ->
@@ -927,8 +944,8 @@ textChat matchSetupData lobby =
             )
             { onChange = TypedTextMessage
             , text = matchSetupData.message
-            , placeholder = Element.Input.placeholder [] (Element.text "Press enter to send") |> Just
-            , label = Element.Input.labelHidden "Write message"
+            , placeholder = Just "Press enter to send"
+            , label = Ui.Input.labelHidden "Write message"
             }
         ]
 
@@ -965,7 +982,7 @@ findPixelPerfectSize windowSize (Quantity pixelRatio) =
     }
 
 
-canvasView : Size -> Quantity Float (Rate WorldPixel Pixels) -> (Size -> List WebGL.Entity) -> Element msg
+canvasView : Size -> Quantity Float (Rate WorldPixel Pixels) -> (Size -> List WebGL.Entity) -> Ui.Element msg
 canvasView windowSize devicePixelRatio entities =
     let
         ( cssWindowWidth, cssWindowHeight ) =
@@ -982,36 +999,7 @@ canvasView windowSize devicePixelRatio entities =
         , Html.Attributes.style "height" (String.fromInt (Pixels.inPixels cssWindowHeight) ++ "px")
         ]
         (entities actualCanvasSize)
-        |> Element.html
-
-
-placementText : Int -> Element msg
-placementText place =
-    placeToText place
-        |> Element.text
-        |> Element.el
-            [ Element.Font.size 64
-            , Element.Font.shadow
-                { offset = ( 0, 0 )
-                , blur = 2
-                , color = Element.rgba 0 0 0 1
-                }
-            , Element.Font.color
-                (case place of
-                    1 ->
-                        Element.rgb 1 0.9 0
-
-                    2 ->
-                        Element.rgb 0.79 0.79 0.8
-
-                    3 ->
-                        Element.rgb 0.7 0.5 0.2
-
-                    _ ->
-                        Element.rgb 0 0 0
-                )
-            , Element.Font.bold
-            ]
+        |> Ui.html
 
 
 camera : Point2d Meters WorldCoordinate -> Length -> Camera3d Meters WorldCoordinate
@@ -2336,14 +2324,7 @@ pointToMatrix point =
     Mat4.makeTranslate3 x y 0
 
 
-unnamedMatchText : Element msg
-unnamedMatchText =
-    Element.el
-        [ Element.Font.italic, Element.Font.color (Element.rgb 0.6 0.6 0.6) ]
-        (Element.text "Unnamed match")
-
-
-matchEndText : MatchActive -> MatchState -> Config a -> Element msg
+matchEndText : MatchActive -> MatchState -> Config a -> Ui.Element msg
 matchEndText match matchState model =
     let
         maybeFinish : Maybe { place : Int, userId : Id UserId, finishTime : Id FrameId }
@@ -2369,44 +2350,7 @@ matchEndText match matchState model =
         maybeTimeLeft =
             matchTimeLeft (timeToFrameId model match) matchState
     in
-    case maybeFinish of
-        Just finish ->
-            Element.column
-                [ Element.width Element.fill
-                , Element.spacing 16
-                , noPointerEvents
-                , Element.moveDown 24
-                ]
-                [ Element.el [ Element.centerX ] (placementText finish.place)
-                , Quantity.multiplyBy (Id.toInt finish.finishTime |> toFloat) Match.frameDuration
-                    |> timestamp_
-                    |> Element.text
-                    |> Element.el [ Element.centerX, Element.Font.bold, Element.Font.size 24 ]
-                , case maybeTimeLeft of
-                    Just timeLeft ->
-                        Element.paragraph
-                            [ Element.Font.center, Element.Font.bold, Element.Font.size 24 ]
-                            [ "Match will end in "
-                                ++ String.fromInt (round (Duration.inSeconds timeLeft))
-                                |> Element.text
-                            ]
-
-                    Nothing ->
-                        Element.none
-                ]
-
-        Nothing ->
-            case maybeTimeLeft of
-                Just timeLeft ->
-                    Element.paragraph
-                        [ Element.Font.center, Element.Font.bold, Element.Font.size 24 ]
-                        [ "Someone finished! The match will end in "
-                            ++ String.fromInt (round (Duration.inSeconds timeLeft))
-                            |> Element.text
-                        ]
-
-                Nothing ->
-                    Element.none
+    Ui.text "Match finished"
 
 
 placeToText : Int -> String
@@ -2486,79 +2430,40 @@ scrollToBottom =
         |> Task.attempt (\_ -> ScrolledToBottom)
 
 
-countdown : Config a -> MatchActive -> Element msg
-countdown model match =
-    let
-        elapsed : Duration
-        elapsed =
-            Quantity.multiplyBy (timeToFrameId model match |> Id.toInt |> toFloat) Match.frameDuration
-
-        countdownValue =
-            Duration.inSeconds elapsed |> floor |> (-) 3
-    in
-    if elapsed |> Quantity.lessThan countdownDelay then
-        String.fromInt countdownValue
-            |> Element.text
-            |> Element.el
-                [ Element.Font.size 100
-                , Element.Font.bold
-                , Element.centerX
-                , Element.centerY
-                , Element.Font.color (Element.rgb 1 1 1)
-                , Element.Font.glow (Element.rgb 0 0 0) 2
-                , Element.moveUp 100
-                , noPointerEvents
-                ]
-
-    else if elapsed |> Quantity.lessThan (Quantity.plus Duration.second countdownDelay) then
-        "GO"
-            |> Element.text
-            |> Element.el
-                [ Element.Font.size 100
-                , Element.Font.bold
-                , Element.centerX
-                , Element.centerY
-                , Element.Font.color (Element.rgb 1 1 1)
-                , Element.Font.glow (Element.rgb 0 0 0) 2
-                , Element.moveUp 100
-                , noPointerEvents
-                ]
-
-    else
-        Element.none
-
-
-desyncWarning : Maybe (Id FrameId) -> Element msg
+desyncWarning : Maybe (Id FrameId) -> Ui.Element msg
 desyncWarning maybeDesyncFrame =
     case maybeDesyncFrame of
         Just _ ->
-            Element.column
-                [ Element.alignTop
-                , Element.centerX
-                , Element.padding 16
-                , Element.spacing 8
-                , Element.Background.color (Element.rgba 0.8 0 0 0.9)
-                , Element.Border.rounded 8
-                , Element.moveDown 60
+            Ui.column
+                [ Ui.width Ui.shrink
+                , Ui.alignTop
+                , Ui.centerX
+                , Ui.padding 16
+                , Ui.spacing 8
+                , Ui.background (Ui.rgba 240 0 0 0.9)
+                , Ui.rounded 8
+                , Ui.move { x = 0, y = 60, z = 0 }
                 , noPointerEvents
                 ]
-                [ Element.el
-                    [ Element.Font.size 20
-                    , Element.Font.bold
-                    , Element.Font.color (Element.rgb 1 1 1)
-                    , Element.centerX
+                [ Ui.el
+                    [ Ui.width Ui.shrink
+                    , Ui.Font.size 20
+                    , Ui.Font.bold
+                    , Ui.Font.color (Ui.rgb 255 255 255)
+                    , Ui.centerX
                     ]
-                    (Element.text "Desync Detected!")
-                , Element.el
-                    [ Element.Font.size 14
-                    , Element.Font.color (Element.rgb 1 1 1)
-                    , Element.centerX
+                    (Ui.text "Desync Detected!")
+                , Ui.el
+                    [ Ui.width Ui.shrink
+                    , Ui.Font.size 14
+                    , Ui.Font.color (Ui.rgb 255 255 255)
+                    , Ui.centerX
                     ]
-                    (Element.text "One or more players have desynced")
+                    (Ui.text "One or more players have desynced")
                 ]
 
         Nothing ->
-            Element.none
+            Ui.none
 
 
 timestamp_ : Duration -> String
@@ -2587,32 +2492,32 @@ timestamp_ difference =
 
 
 noPointerEvents =
-    Element.htmlAttribute (Html.Attributes.style "pointer-events" "none")
+    Ui.htmlAttribute (Html.Attributes.style "pointer-events" "none")
 
 
-colorSelector : (ColorIndex -> msg) -> ColorIndex -> Element msg
+colorSelector : (ColorIndex -> msg) -> ColorIndex -> Ui.Element msg
 colorSelector onSelect currentColor =
     List.Nonempty.toList ColorIndex.allColors
         |> List.map
             (\colorIndex ->
                 MyUi.button
-                    [ Element.width (Element.px 36)
-                    , Element.height (Element.px 36)
-                    , Element.Border.width
+                    [ Ui.width (Ui.px 36)
+                    , Ui.height (Ui.px 36)
+                    , Ui.border
                         (if currentColor == colorIndex then
                             3
 
                          else
                             0
                         )
-                    , Element.Border.color (Element.rgb 1 1 1)
-                    , ColorIndex.toElColor colorIndex |> Element.Background.color
+                    , Ui.borderColor (Ui.rgb 255 255 255)
+                    , ColorIndex.toElColor colorIndex |> Ui.background
                     ]
                     { onPress = onSelect colorIndex
-                    , label = Element.none
+                    , label = Ui.none
                     }
             )
-        |> Element.wrappedRow []
+        |> Ui.row [ Ui.width Ui.shrink, Ui.wrap ]
 
 
 viewportHeight : Length

@@ -18,11 +18,6 @@ import CubicSpline2d
 import Direction2d
 import Effect.Command as Command exposing (Command, FrontendOnly)
 import Effect.WebGL as WebGL exposing (Entity, Mesh)
-import Element exposing (Element)
-import Element.Background
-import Element.Border
-import Element.Font
-import Element.Input
 import FontRender exposing (FontVertex)
 import Geometry
 import Geometry.Types exposing (Rectangle2d)
@@ -53,6 +48,13 @@ import SeqSet exposing (SeqSet)
 import Serialize
 import Shape exposing (Layer, LayerId, PathSegment)
 import Size exposing (Size)
+import Ui
+import Ui.Anim
+import Ui.Events
+import Ui.Font
+import Ui.Input
+import Ui.Layout
+import Ui.Prose
 import Vector2d exposing (Vector2d)
 import WebGL.Matrices
 import WebGL.Settings
@@ -1156,17 +1158,16 @@ updateFromBackend msg model =
             ( model, Command.none )
 
 
-view : Config a -> Model -> Element Msg
+view : Config a -> Model -> Ui.Element Msg
 view config model =
-    Element.el
-        [ Element.width Element.fill
-        , Element.height Element.fill
+    Ui.el
+        [ Ui.height Ui.fill
         , MatchPage.canvasView
             config.windowSize
             config.devicePixelRatio
             (canvasView model)
-            |> Element.behindContent
-        , Element.htmlAttribute
+            |> Ui.behindContent
+        , Ui.htmlAttribute
             (Html.Events.Extra.Mouse.onWithOptions
                 "mousedown"
                 { stopPropagation = False
@@ -1174,79 +1175,80 @@ view config model =
                 }
                 MouseDown
             )
-        , Element.htmlAttribute (Html.Events.Extra.Mouse.onUp MouseUp)
-        , Element.htmlAttribute (Html.Events.Extra.Mouse.onMove MouseMoved)
-        , Element.htmlAttribute (Html.Events.Extra.Mouse.onLeave MouseLeft)
-        , Element.htmlAttribute (Html.Events.Extra.Wheel.onWheel MouseWheel)
-        , toolView config model |> Element.inFront
+        , Ui.htmlAttribute (Html.Events.Extra.Mouse.onUp MouseUp)
+        , Ui.htmlAttribute (Html.Events.Extra.Mouse.onMove MouseMoved)
+        , Ui.htmlAttribute (Html.Events.Extra.Mouse.onLeave MouseLeft)
+        , Ui.htmlAttribute (Html.Events.Extra.Wheel.onWheel MouseWheel)
+        , toolView config model |> Ui.inFront
         ]
-        Element.none
+        Ui.none
 
 
-toolView : Config a -> Model -> Element Msg
+toolView : Config a -> Model -> Ui.Element Msg
 toolView config model =
     let
         ( _, layer ) =
             getLayer model.editorState
     in
-    Element.column
-        [ Element.width (Element.px layersViewWidth)
-        , Element.height Element.fill
-        , Element.Background.color (Element.rgb 1 1 1)
-        , Element.Border.width 1
-        , Element.spacing 4
+    Ui.column
+        [ Ui.width (Ui.px layersViewWidth)
+        , Ui.height Ui.fill
+        , Ui.background (Ui.rgb 255 255 255)
+        , Ui.border 1
+        , Ui.spacing 4
         ]
         [ layersView model.editorState.currentLayer model.editorState.layers
-        , Element.column
-            [ Element.spacing 4, Element.padding 4 ]
-            [ Element.Input.text
-                [ Element.padding 4 ]
-                { onChange =
-                    \text ->
-                        TypedColor
-                            { red = String.toInt text |> Maybe.withDefault layer.red
-                            , green = layer.green
-                            , blue = layer.blue
-                            }
-                , text = String.fromInt layer.red
-                , placeholder = Nothing
-                , label = Element.Input.labelLeft [] (Element.text "R")
-                }
-            , Element.Input.text
-                [ Element.padding 4 ]
-                { onChange =
-                    \text ->
-                        TypedColor
-                            { red = layer.red
-                            , green = String.toInt text |> Maybe.withDefault layer.green
-                            , blue = layer.blue
-                            }
-                , text = String.fromInt layer.green
-                , placeholder = Nothing
-                , label = Element.Input.labelLeft [] (Element.text "G")
-                }
-            , Element.Input.text
-                [ Element.padding 4 ]
-                { onChange =
-                    \text ->
-                        TypedColor
-                            { red = layer.red
-                            , green = layer.green
-                            , blue = String.toInt text |> Maybe.withDefault layer.blue
-                            }
-                , text = String.fromInt layer.blue
-                , placeholder = Nothing
-                , label = Element.Input.labelLeft [] (Element.text "B")
-                }
-            ]
-        , MyUi.button buttonAttributes { onPress = PressedMirrorX, label = Element.text "Mirror X" }
-        , MyUi.button buttonAttributes { onPress = PressedSave, label = Element.text "Save to clipboard" }
-        , Element.Input.text
-            [ Element.padding 4 ]
+
+        --, Ui.column
+        --    [ Ui.width Ui.shrink, Ui.spacing 4, Ui.padding 4 ]
+        --    [ Ui.Input.text
+        --        [ Ui.width Ui.shrink, Ui.padding 4 ]
+        --        { onChange =
+        --            \text ->
+        --                TypedColor
+        --                    { red = String.toInt text |> Maybe.withDefault layer.red
+        --                    , green = layer.green
+        --                    , blue = layer.blue
+        --                    }
+        --        , text = String.fromInt layer.red
+        --        , placeholder = Nothing
+        --        , label = Ui.Input.labelLeft [ Ui.width Ui.shrink ] (Ui.text "R")
+        --        }
+        --    , Ui.Input.text
+        --        [ Ui.width Ui.shrink, Ui.padding 4 ]
+        --        { onChange =
+        --            \text ->
+        --                TypedColor
+        --                    { red = layer.red
+        --                    , green = String.toInt text |> Maybe.withDefault layer.green
+        --                    , blue = layer.blue
+        --                    }
+        --        , text = String.fromInt layer.green
+        --        , placeholder = Nothing
+        --        , label = Ui.Input.labelLeft [ Ui.width Ui.shrink ] (Ui.text "G")
+        --        }
+        --    , Ui.Input.text
+        --        [ Ui.width Ui.shrink, Ui.padding 4 ]
+        --        { onChange =
+        --            \text ->
+        --                TypedColor
+        --                    { red = layer.red
+        --                    , green = layer.green
+        --                    , blue = String.toInt text |> Maybe.withDefault layer.blue
+        --                    }
+        --        , text = String.fromInt layer.blue
+        --        , placeholder = Nothing
+        --        , label = Ui.Input.labelLeft [ Ui.width Ui.shrink ] (Ui.text "B")
+        --        }
+        --    ]
+        , MyUi.button buttonAttributes { onPress = PressedMirrorX, label = Ui.text "Mirror X" }
+        , MyUi.button buttonAttributes { onPress = PressedSave, label = Ui.text "Save to clipboard" }
+        , Ui.Input.text
+            [ Ui.width Ui.shrink, Ui.padding 4 ]
             { onChange = TypedLoadFromClipboard
             , text = ""
-            , placeholder = Element.Input.placeholder [] (Element.text "Load from clipboard") |> Just
-            , label = Element.Input.labelHidden "Load from clipboard"
+            , placeholder = Just "Load from clipboard"
+            , label = Ui.Input.labelHidden "Load from clipboard"
             }
         , case model.mousePosition of
             Just mousePosition ->
@@ -1257,66 +1259,66 @@ toolView config model =
                 String.fromInt (round x)
                     ++ ","
                     ++ String.fromInt (round y)
-                    |> Element.text
-                    |> Element.el [ Element.alignBottom ]
+                    |> Ui.text
+                    |> Ui.el [ Ui.width Ui.shrink, Ui.alignBottom ]
 
             Nothing ->
-                Element.none
+                Ui.none
         ]
 
 
 buttonAttributes =
-    [ Element.padding 8
-    , Element.width Element.fill
-    , Element.Border.width 1
+    [ Ui.padding 8
+    , Ui.width Ui.fill
+    , Ui.border 1
     ]
 
 
-layersView : Id LayerId -> SeqDict (Id LayerId) Layer -> Element Msg
+layersView : Id LayerId -> SeqDict (Id LayerId) Layer -> Ui.Element Msg
 layersView currentLayer layers =
     List.map
         (\( layerId, _ ) ->
-            Element.row
-                [ Element.width Element.fill ]
+            Ui.row
+                []
                 [ MyUi.button
                     ((if currentLayer == layerId then
-                        Element.Font.bold
+                        Ui.Font.bold
 
                       else
-                        Element.Font.regular
+                        Ui.noAttr
                      )
                         :: buttonAttributes
                     )
                     { onPress = PressedLayer layerId
-                    , label = "Layer " ++ String.fromInt (Id.toInt layerId) |> Element.text
+                    , label = "Layer " ++ String.fromInt (Id.toInt layerId) |> Ui.text
                     }
                 , MyUi.button
-                    [ Element.padding 4
-                    , Element.height Element.fill
-                    , Element.Border.width 1
-                    , Element.Background.color (Element.rgb 0.8 0.8 0.8)
+                    [ Ui.padding 4
+                    , Ui.height Ui.fill
+                    , Ui.border 1
+                    , Ui.background (Ui.rgb 204 204 204)
                     ]
                     { onPress = PressedMoveLayerUp layerId
-                    , label = Element.text "🡹"
+                    , label = Ui.text "🡹"
                     }
                 , MyUi.button
-                    [ Element.padding 4
-                    , Element.height Element.fill
-                    , Element.Border.width 1
-                    , Element.Background.color (Element.rgb 0.8 0.8 0.8)
+                    [ Ui.padding 4
+                    , Ui.height Ui.fill
+                    , Ui.border 1
+                    , Ui.background (Ui.rgb 204 204 204)
                     ]
                     { onPress = PressedMoveLayerDown layerId
-                    , label = Element.text "🡻"
+                    , label = Ui.text "🡻"
                     }
                 , MyUi.button
-                    [ Element.padding 4
-                    , Element.height Element.fill
-                    , Element.Border.width 1
-                    , Element.Background.color (Element.rgb 0.8 0.8 0.8)
-                    , Element.Font.bold
+                    [ Ui.padding 4
+                    , Ui.height Ui.fill
+                    , Ui.border 1
+                    , Ui.background (Ui.rgb 204 204 204)
+                    , Ui.Font.bold
                     ]
                     { onPress = PressedRemoveLayer layerId
-                    , label = Element.text "X"
+                    , label = Ui.text "X"
                     }
                 ]
         )
@@ -1324,17 +1326,16 @@ layersView currentLayer layers =
         ++ [ MyUi.button
                 buttonAttributes
                 { onPress = PressedAddLayer
-                , label = Element.text "Add layer"
+                , label = Ui.text "Add layer"
                 }
            , MyUi.button
                 buttonAttributes
                 { onPress = PressedDuplicate
-                , label = Element.text "Duplicate"
+                , label = Ui.text "Duplicate"
                 }
            ]
-        |> Element.column
-            [ Element.width Element.fill
-            , Element.Border.width 1
+        |> Ui.column
+            [ Ui.border 1
             ]
 
 
