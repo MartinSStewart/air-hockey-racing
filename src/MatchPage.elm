@@ -581,9 +581,7 @@ view config model =
                     case Timeline.getStateAt gameUpdate (timeToFrameId config match) cache match.timeline of
                         Ok ( _, matchState ) ->
                             Ui.el
-                                -- Containers now width fill by default (instead of width shrink). I couldn't update that here so I recommend you review these attributes
-                                (Ui.width Ui.fill
-                                    :: Ui.height Ui.fill
+                                (Ui.height Ui.fill
                                     :: Ui.htmlAttribute (Html.Events.Extra.Pointer.onDown PointerDown)
                                     :: Ui.htmlAttribute (Html.Events.Extra.Pointer.onUp PointerUp)
                                     :: Ui.htmlAttribute (Html.Events.Extra.Pointer.onLeave PointerLeave)
@@ -607,7 +605,7 @@ view config model =
                                                 []
                                        )
                                 )
-                                (matchEndText match matchState config)
+                                Ui.none
 
                         Err _ ->
                             Ui.text "An error occurred during the match :("
@@ -919,7 +917,6 @@ textChat matchSetupData lobby =
                 , Ui.htmlAttribute (Effect.Browser.Dom.idToAttribute textMessageContainerId)
                 ]
         , Ui.Input.text
-            -- Containers now width fill by default (instead of width shrink). I couldn't update that here so I recommend you review these attributes
             (Ui.Font.size 16
                 :: Ui.padding 8
                 :: (case TextMessage.fromString matchSetupData.message of
@@ -2322,35 +2319,6 @@ pointToMatrix point =
             Point2d.unwrap point
     in
     Mat4.makeTranslate3 x y 0
-
-
-matchEndText : MatchActive -> MatchState -> Config a -> Ui.Element msg
-matchEndText match matchState model =
-    let
-        maybeFinish : Maybe { place : Int, userId : Id UserId, finishTime : Id FrameId }
-        maybeFinish =
-            SeqDict.toList matchState.players
-                |> List.filterMap
-                    (\( userId, player ) ->
-                        case player.finishTime of
-                            Finished finishTime ->
-                                Just ( userId, finishTime )
-
-                            DidNotFinish ->
-                                Nothing
-                    )
-                |> List.sortBy (Tuple.second >> Id.toInt)
-                |> List.indexedMap
-                    (\index ( userId, finishTime ) ->
-                        { place = index + 1, userId = userId, finishTime = finishTime }
-                    )
-                |> List.find (.userId >> (==) model.userId)
-
-        maybeTimeLeft : Maybe Duration
-        maybeTimeLeft =
-            matchTimeLeft (timeToFrameId model match) matchState
-    in
-    Ui.text "Match finished"
 
 
 placeToText : Int -> String

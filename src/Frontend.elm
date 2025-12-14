@@ -183,7 +183,7 @@ init url key =
 
 routeChanged : Route -> FrontendLoaded -> ( FrontendLoaded, Command FrontendOnly ToBackend FrontendMsg_ )
 routeChanged route model =
-    case route of
+    case Debug.log "route" route of
         HomePageRoute ->
             ( model, Command.none )
 
@@ -191,6 +191,7 @@ routeChanged route model =
             ( model
             , MatchPage.MatchRequest matchId (Id.fromInt -1) Match.JoinMatchSetup
                 |> MatchPageToBackend
+                |> Debug.log "toBackend"
                 |> Effect.Lamdera.sendToBackend
             )
 
