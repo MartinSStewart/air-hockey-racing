@@ -191,12 +191,14 @@ type alias MatchActiveLocal_ =
 type ToBackend
     = MatchRequest (Id MatchId) (Id EventId) Match.Msg
     | DesyncCheckRequest (Id MatchId) (Id Timeline.FrameId) (SeqDict (Id UserId) (Point2d Meters WorldCoordinate))
+    | CurrentCache (Id MatchId) (Id FrameId) MatchState
 
 
 type ToFrontend
     = MatchSetupBroadcast (Id MatchId) (Id UserId) Match.Msg
     | MatchSetupResponse (Id MatchId) (Id UserId) Match.Msg (Id EventId)
     | DesyncBroadcast (Id MatchId) (Id FrameId)
+    | NeedCurrentCacheBroadcast (Id MatchId) { minFrameId : Id FrameId, maxFrameId : Id FrameId }
 
 
 update : Config a -> Msg -> Model -> ( Model, Command FrontendOnly ToBackend Msg )

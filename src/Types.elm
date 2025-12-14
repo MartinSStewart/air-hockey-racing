@@ -8,7 +8,7 @@ module Types exposing
     , FrontendModel_(..)
     , FrontendMsg
     , FrontendMsg_(..)
-    , JoinLobbyError(..)
+    , JoinMatch(..)
     , MainLobbyInitData
     , Page(..)
     , ToBackend(..)
@@ -25,7 +25,7 @@ import Effect.Time as Time
 import Id exposing (Id)
 import Keyboard
 import Length exposing (Meters)
-import Match exposing (LobbyPreview, Match, ServerTime, WorldCoordinate)
+import Match exposing (LobbyPreview, Match, MatchState, ServerTime, WorldCoordinate)
 import MatchPage exposing (MatchId, Mouse, ScreenCoordinate, WorldPixel)
 import PingData exposing (PingData)
 import Pixels exposing (Pixels)
@@ -150,13 +150,15 @@ type ToFrontend
     | UpdateLobbyBroadcast (Id MatchId) LobbyPreview
     | CreateLobbyBroadcast (Id MatchId) LobbyPreview
     | ClientInit (Id UserId) MainLobbyInitData
-    | JoinLobbyResponse (Id MatchId) (Result JoinLobbyError Match)
+    | JoinLobbyResponse (Id MatchId) JoinMatch
     | PingResponse ServerTime
     | MatchPageToFrontend MatchPage.ToFrontend
     | RejoinMainLobby MainLobbyInitData
     | EditorPageToFrontend EditorPage.ToFrontend
 
 
-type JoinLobbyError
-    = LobbyNotFound
-    | LobbyFull
+type JoinMatch
+    = JoinedLobby Match
+    | JoinedActiveMatch Match (Id FrameId) MatchState
+    | MatchNotFound
+    | MatchFull

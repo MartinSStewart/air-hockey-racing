@@ -262,11 +262,11 @@ matchSetupRequest :
     -> ( BackendModel, Command BackendOnly ToFrontend BackendMsg )
 matchSetupRequest currentTime lobbyId userId eventId clientId matchSetupMsg model =
     case SeqDict.get lobbyId model.lobbies of
-        Just matchSetup ->
+        Just match ->
             let
                 matchSetup2 : Match
                 matchSetup2 =
-                    Match.matchSetupUpdate { userId = userId, msg = matchSetupMsg } matchSetup
+                    Match.matchSetupUpdate { userId = userId, msg = matchSetupMsg } match
 
                 model2 : BackendModel
                 model2 =
@@ -283,7 +283,7 @@ matchSetupRequest currentTime lobbyId userId eventId clientId matchSetupMsg mode
 
                 matchSetupBroadcast : BackendModel -> Command BackendOnly ToFrontend BackendMsg
                 matchSetupBroadcast model_ =
-                    Match.allUsers matchSetup
+                    Match.allUsers match
                         |> List.Nonempty.toList
                         |> List.concatMap
                             (\( lobbyUserId, _ ) ->
@@ -317,27 +317,32 @@ matchSetupRequest currentTime lobbyId userId eventId clientId matchSetupMsg mode
                     ( model2, matchSetupBroadcast model2 )
 
                 JoinMatchSetup ->
-                    if List.Nonempty.length (Match.allUsers matchSetup) < Match.maxPlayers matchSetup then
-                        ( model2
-                        , Command.batch
-                            [ Match.joinUser userId matchSetup
-                                |> Ok
-                                |> JoinLobbyResponse lobbyId
-                                |> Effect.Lamdera.sendToFrontend clientId
-                            , matchSetupBroadcast model2
-                            , newPreview lobbyId matchSetup matchSetup2
-                            ]
-                        )
+                    case Match.joinUser userId match of
+                        Ok matchWithJoinedUser ->
+                            ( model2
+                            , case Match.matchActive match of
+                                Just matchActive ->
+                                    broadcastToMatch match (MatchPage.NeedCurrentCacheBroadcast lobbyId)
 
-                    else
-                        ( model
-                        , Err LobbyFull |> JoinLobbyResponse lobbyId |> Effect.Lamdera.sendToFrontend clientId
-                        )
+                                Nothing ->
+                                    Command.batch
+                                        [ JoinedLobby match
+                                            |> JoinLobbyResponse lobbyId
+                                            |> Effect.Lamdera.sendToFrontend clientId
+                                        , matchSetupBroadcast model2
+                                        , newPreview lobbyId match matchSetup2
+                                        ]
+                            )
+
+                        Err () ->
+                            ( model
+                            , JoinLobbyResponse lobbyId MatchFull |> Effect.Lamdera.sendToFrontend clientId
+                            )
 
                 LeaveMatchSetup ->
-                    case Match.leaveUser userId matchSetup of
+                    case Match.leaveUser userId match of
                         Just _ ->
-                            ( model2, Command.batch [ matchSetupBroadcast model2, newPreview lobbyId matchSetup matchSetup2 ] )
+                            ( model2, Command.batch [ matchSetupBroadcast model2, newPreview lobbyId match matchSetup2 ] )
 
                         Nothing ->
                             let
@@ -352,11 +357,11 @@ matchSetupRequest currentTime lobbyId userId eventId clientId matchSetupMsg mode
                             )
 
                 _ ->
-                    ( model2, Command.batch [ newPreview lobbyId matchSetup matchSetup2, matchSetupBroadcast model2 ] )
+                    ( model2, Command.batch [ newPreview lobbyId match matchSetup2, matchSetupBroadcast model2 ] )
 
         Nothing ->
             ( model
-            , Err LobbyNotFound |> JoinLobbyResponse lobbyId |> Effect.Lamdera.sendToFrontend clientId
+            , JoinLobbyResponse lobbyId MatchNotFound |> Effect.Lamdera.sendToFrontend clientId
             )
 
 

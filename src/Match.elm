@@ -252,15 +252,31 @@ initPlayerData userId =
     Random.step randomData (Random.initialSeed (Id.toInt userId + 3)) |> Tuple.first
 
 
-joinUser : Id UserId -> Match -> Match
+joinUser : Id UserId -> Match -> Result () Match
 joinUser userId (Match lobby) =
-    (if userId == lobby.owner then
-        lobby
+    if userId == lobby.owner || SeqDict.member userId lobby.users then
+        Ok (Match lobby)
 
-     else
-        { lobby | users = SeqDict.insert userId (initPlayerData userId) lobby.users }
-    )
-        |> Match
+    else if SeqDict.size lobby.users < lobby.maxPlayers then
+        { lobby
+            | users =
+                SeqDict.update
+                    userId
+                    (\maybe ->
+                        case maybe of
+                            Just _ ->
+                                maybe
+
+                            Nothing ->
+                                initPlayerData userId |> Just
+                    )
+                    lobby.users
+        }
+            |> Match
+            |> Ok
+
+    else
+        Err ()
 
 
 leaveUser : Id UserId -> Match -> Maybe Match
@@ -345,7 +361,7 @@ matchSetupUpdate : { userId : Id UserId, msg : Msg } -> Match -> Match
 matchSetupUpdate { userId, msg } match =
     case msg of
         JoinMatchSetup ->
-            joinUser userId match
+            joinUser userId match |> Result.withDefault match
 
         LeaveMatchSetup ->
             leaveUser userId match |> Maybe.withDefault match

@@ -1,4 +1,14 @@
-module Timeline exposing (Error(..), FrameId, Timeline, TimelineCache, addInput, getOldestCachedState, getStateAt, init, maxCacheSize)
+module Timeline exposing
+    ( Error(..)
+    , FrameId
+    , Timeline
+    , TimelineCache
+    , addInput
+    , getOldestCachedState
+    , getStateAt
+    , init
+    , maxCacheSize
+    )
 
 import Id exposing (Id)
 import List.Extra as List
