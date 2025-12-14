@@ -1476,6 +1476,20 @@ clickTotalDelay =
     Quantity.plus chargeMaxDelay clickMoveMaxDelay
 
 
+snowballPlayerCollision snowball userId player =
+    let
+        snowballPos2d =
+            Point2d.meters
+                (Point3d.xCoordinate snowball.position |> Length.inMeters)
+                (Point3d.yCoordinate snowball.position |> Length.inMeters)
+    in
+    (userId /= snowball.thrownBy)
+        && (player.isDead == Nothing)
+        && (Point2d.distanceFrom snowballPos2d player.position
+                |> Quantity.lessThan (Quantity.plus playerRadius snowballRadius)
+           )
+
+
 gameUpdate : Id FrameId -> List TimelineEvent -> MatchState -> MatchState
 gameUpdate frameId inputs model =
     let
@@ -1495,6 +1509,11 @@ gameUpdate frameId inputs model =
 
                             else
                                 SeqDict.get userId inputs2 |> Maybe.withDefault noInput
+
+                        snowballCollision =
+                            List.foldl
+                                (\snowball -> snowballPlayerCollision)
+                                model3.snowballs
                     in
                     { model2
                         | players =
