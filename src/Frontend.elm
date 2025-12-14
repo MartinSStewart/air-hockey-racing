@@ -26,16 +26,17 @@ import List.Extra as List
 import Match exposing (LobbyPreview)
 import MatchName
 import MatchPage exposing (MatchId, WorldPixel)
+import MyUi
 import Pixels exposing (Pixels)
 import Point2d
 import Ports
 import Quantity exposing (Quantity(..), Rate)
+import Route exposing (Route(..))
 import SeqDict
 import Size exposing (Size)
 import Sounds exposing (Sounds)
 import Time
 import Types exposing (..)
-import Ui
 import Url exposing (Url)
 import Url.Parser exposing ((<?>))
 import Url.Parser.Query
@@ -98,24 +99,32 @@ loadedInit :
     -> ( Id UserId, MainLobbyInitData )
     -> ( FrontendModel_, Command FrontendOnly ToBackend FrontendMsg_, AudioCmd FrontendMsg_ )
 loadedInit loading time sounds ( userId, lobbyData ) =
-    ( { key = loading.key
-      , currentKeys = []
-      , previousKeys = []
-      , currentMouse = { position = Point2d.origin, primaryDown = False, secondaryDown = False }
-      , previousMouse = { position = Point2d.origin, primaryDown = False, secondaryDown = False }
-      , windowSize = loading.windowSize
-      , devicePixelRatio = loading.devicePixelRatio
-      , time = time
-      , debugTimeOffset = loading.debugTimeOffset
-      , page = MainLobbyPage { lobbies = lobbyData.lobbies, joinLobbyError = Nothing }
-      , sounds = sounds
-      , userId = userId
-      , pingStartTime = Nothing
-      , pingData = Nothing
-      }
-        |> (\a -> { a | pingStartTime = MatchPage.actualTime a |> Just })
-        |> Loaded
-    , Effect.Lamdera.sendToBackend PingRequest
+    let
+        model : FrontendLoaded
+        model =
+            { navigationKey = loading.navigationKey
+            , currentKeys = []
+            , previousKeys = []
+            , currentMouse = { position = Point2d.origin, primaryDown = False, secondaryDown = False }
+            , previousMouse = { position = Point2d.origin, primaryDown = False, secondaryDown = False }
+            , windowSize = loading.windowSize
+            , devicePixelRatio = loading.devicePixelRatio
+            , time = time
+            , debugTimeOffset = loading.debugTimeOffset
+            , page = MainLobbyPage { lobbies = lobbyData.lobbies, joinLobbyError = Nothing }
+            , sounds = sounds
+            , userId = userId
+            , pingStartTime = Nothing
+            , pingData = Nothing
+            , route = loading.route
+            }
+                |> (\a -> { a | pingStartTime = MatchPage.actualTime a |> Just })
+
+        ( model2, cmd ) =
+            routeChanged loading.route model
+    in
+    ( Loaded model2
+    , Command.batch [ cmd, Effect.Lamdera.sendToBackend PingRequest ]
     , Audio.cmdNone
     )
 
@@ -147,13 +156,14 @@ init url key =
                     Quantity.zero
     in
     ( Loading
-        { key = key
+        { navigationKey = key
         , windowSize = { width = Pixels.pixels 1920, height = Pixels.pixels 1080 }
         , devicePixelRatio = Quantity 1
         , time = Nothing
         , initData = Nothing
         , sounds = SeqDict.empty
         , debugTimeOffset = offset
+        , route = Route.decode url
         }
     , Command.batch
         [ Task.perform
@@ -168,6 +178,20 @@ init url key =
         ]
     , Sounds.requestSounds SoundLoaded
     )
+
+
+routeChanged : Route -> FrontendLoaded -> ( FrontendLoaded, Command FrontendOnly ToBackend FrontendMsg_ )
+routeChanged route model =
+    case route of
+        HomePageRoute ->
+            ( model, Command.none )
+
+        InMatchRoute matchId ->
+            ( model
+            , MatchPage.MatchRequest matchId (Id.fromInt -1) Match.JoinMatchSetup
+                |> MatchPageToBackend
+                |> Effect.Lamdera.sendToBackend
+            )
 
 
 update : AudioData -> FrontendMsg_ -> FrontendModel_ -> ( FrontendModel_, Command FrontendOnly ToBackend FrontendMsg_, AudioCmd FrontendMsg_ )
@@ -216,8 +240,15 @@ updateLoaded msg model =
         UrlClicked urlRequest ->
             case urlRequest of
                 Browser.Internal url ->
-                    ( model
-                    , Command.batch [ Effect.Browser.Navigation.pushUrl model.key (Url.toString url) ]
+                    let
+                        route =
+                            Route.decode url
+
+                        ( model2, cmd ) =
+                            routeChanged route model
+                    in
+                    ( model2
+                    , Command.batch [ cmd, Effect.Browser.Navigation.pushUrl model.navigationKey (Url.toString url) ]
                     )
 
                 Browser.External url ->
@@ -271,13 +302,6 @@ updateLoaded msg model =
                 _ ->
                     model
             , Command.none
-            )
-
-        PressedJoinLobby lobbyId ->
-            ( model
-            , MatchPage.MatchSetupRequest lobbyId (Id.fromInt -1) Match.JoinMatchSetup
-                |> MatchPageToBackend
-                |> Effect.Lamdera.sendToBackend
             )
 
         SoundLoaded _ _ ->
@@ -354,10 +378,16 @@ updateLoadedFromBackend msg model =
         CreateLobbyResponse lobbyId lobby ->
             case model.page of
                 MainLobbyPage _ ->
-                    MatchPage.init lobbyId lobby
-                        |> Tuple.mapBoth
-                            (\a -> { model | page = MatchPage a })
-                            (\cmd -> Command.map identity MatchPageMsg cmd)
+                    let
+                        ( match, cmd ) =
+                            MatchPage.init lobbyId lobby
+                    in
+                    ( { model | page = MatchPage match }
+                    , Command.batch
+                        [ Command.map identity MatchPageMsg cmd
+                        , Effect.Browser.Navigation.pushUrl model.navigationKey (Route.encode (InMatchRoute lobbyId))
+                        ]
+                    )
 
                 _ ->
                     ( model, Command.none )
@@ -555,7 +585,7 @@ loadedView : FrontendLoaded -> Html FrontendMsg_
 loadedView model =
     let
         displayType =
-            Ui.displayType model.windowSize
+            MyUi.displayType model.windowSize
     in
     Element.layout
         [ Element.clip ]
@@ -568,11 +598,11 @@ loadedView model =
                     [ Element.width Element.fill
                     , Element.height Element.fill
                     , Element.spacing 16
-                    , Element.padding (Ui.ifMobile displayType 8 16)
+                    , Element.padding (MyUi.ifMobile displayType 8 16)
                     ]
                     [ Element.el [ Element.Font.bold ] (Element.text "Air Hockey Racing")
-                    , Ui.simpleButton PressedCreateLobby (Element.text "Create new match")
-                    , Ui.simpleButton PressedOpenLevelEditor (Element.text "Open level editor")
+                    , MyUi.simpleButton PressedCreateLobby (Element.text "Create new match")
+                    , MyUi.simpleButton PressedOpenLevelEditor (Element.text "Open level editor")
                     , Element.column
                         [ Element.width Element.fill, Element.height Element.fill, Element.spacing 8 ]
                         [ Element.text "Or join existing match"
@@ -658,7 +688,13 @@ lobbyRowView evenRow ( lobbyId, lobby ) =
         , Element.row
             [ Element.alignRight, Element.spacing 8 ]
             [ Element.text <| String.fromInt lobby.userCount ++ " / " ++ String.fromInt lobby.maxUserCount
-            , Ui.simpleButton (PressedJoinLobby lobbyId) (Element.text "Join")
+            , Element.link
+                [ Element.Background.color <| Element.rgb 0.9 0.9 0.85
+                , Element.padding 4
+                ]
+                { url = Route.encode (InMatchRoute lobbyId)
+                , label = Element.text "Join"
+                }
             ]
         ]
 

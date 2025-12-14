@@ -76,6 +76,7 @@ import Math.Matrix4 as Mat4 exposing (Mat4)
 import Math.Vector2 exposing (Vec2)
 import Math.Vector3 exposing (Vec3)
 import Math.Vector4 exposing (Vec4)
+import MyUi
 import NetworkModel exposing (EventId, NetworkModel)
 import PingData exposing (PingData)
 import Pixels exposing (Pixels)
@@ -95,7 +96,6 @@ import Sounds exposing (Sounds)
 import Speed exposing (MetersPerSecond)
 import TextMessage exposing (TextMessage)
 import Timeline exposing (FrameId, TimelineCache, getOldestCachedState)
-import Ui
 import User exposing (UserId)
 import Vector2d exposing (Vector2d)
 import Vector3d exposing (Vector3d)
@@ -188,7 +188,7 @@ type alias MatchActiveLocal_ =
 
 
 type ToBackend
-    = MatchSetupRequest (Id MatchId) (Id EventId) Match.Msg
+    = MatchRequest (Id MatchId) (Id EventId) Match.Msg
     | DesyncCheckRequest (Id MatchId) (Id Timeline.FrameId) (SeqDict (Id UserId) (Point2d Meters WorldCoordinate))
 
 
@@ -454,7 +454,7 @@ matchSetupUpdate userId msg matchSetup =
                 matchSetup.networkModel
                 matchSetup.matchData
       }
-    , MatchSetupRequest matchSetup.lobbyId eventId msg |> Effect.Lamdera.sendToBackend
+    , MatchRequest matchSetup.lobbyId eventId msg |> Effect.Lamdera.sendToBackend
     )
 
 
@@ -625,7 +625,7 @@ matchSetupView : Config a -> Match -> MatchSetupLocal_ -> PlayerData -> Element 
 matchSetupView config lobby matchSetupData currentPlayerData =
     let
         displayType =
-            Ui.displayType config.windowSize
+            MyUi.displayType config.windowSize
 
         matchName : String
         matchName =
@@ -658,7 +658,7 @@ matchSetupView config lobby matchSetupData currentPlayerData =
     in
     Element.column
         [ Element.spacing 8
-        , Element.padding (Ui.ifMobile displayType 8 16)
+        , Element.padding (MyUi.ifMobile displayType 8 16)
         , Element.width (Element.maximum 800 Element.fill)
         , Element.height Element.fill
         ]
@@ -682,10 +682,10 @@ matchSetupView config lobby matchSetupData currentPlayerData =
                             []
 
                         else
-                            Ui.simpleButton PressedResetMatchName (Element.text "Reset")
+                            MyUi.simpleButton PressedResetMatchName (Element.text "Reset")
                                 :: (case MatchName.fromString matchSetupData.matchName of
                                         Ok matchName_ ->
-                                            [ Ui.simpleButton (PressedSaveMatchName matchName_) (Element.text "Save") ]
+                                            [ MyUi.simpleButton (PressedSaveMatchName matchName_) (Element.text "Save") ]
 
                                         _ ->
                                             []
@@ -716,10 +716,10 @@ matchSetupView config lobby matchSetupData currentPlayerData =
                             []
 
                         else
-                            Ui.simpleButton PressedResetMaxPlayers (Element.text "Reset")
+                            MyUi.simpleButton PressedResetMaxPlayers (Element.text "Reset")
                                 :: (case String.toInt matchSetupData.maxPlayers of
                                         Just maxPlayers ->
-                                            [ Ui.simpleButton (PressedSaveMaxPlayers maxPlayers) (Element.text "Save") ]
+                                            [ MyUi.simpleButton (PressedSaveMaxPlayers maxPlayers) (Element.text "Save") ]
 
                                         Nothing ->
                                             []
@@ -752,17 +752,17 @@ matchSetupView config lobby matchSetupData currentPlayerData =
         , Element.wrappedRow
             [ Element.spacing 8 ]
             [ if Match.isOwner config.userId lobby then
-                Ui.simpleButton PressedStartMatchSetup (Element.text "Start match")
+                MyUi.simpleButton PressedStartMatchSetup (Element.text "Start match")
 
               else
                 Element.none
-            , Ui.simpleButton PressedLeaveMatchSetup (Element.text "Leave")
+            , MyUi.simpleButton PressedLeaveMatchSetup (Element.text "Leave")
             , case currentPlayerData.mode of
                 PlayerMode ->
-                    Ui.simpleButton (PressedPlayerMode SpectatorMode) (Element.text "Switch to spectator")
+                    MyUi.simpleButton (PressedPlayerMode SpectatorMode) (Element.text "Switch to spectator")
 
                 SpectatorMode ->
-                    Ui.simpleButton (PressedPlayerMode PlayerMode) (Element.text "Switch to player")
+                    MyUi.simpleButton (PressedPlayerMode PlayerMode) (Element.text "Switch to player")
             ]
         , Element.column
             [ Element.spacing 8 ]
@@ -794,7 +794,7 @@ matchSetupView config lobby matchSetupData currentPlayerData =
                         :: List.map Just (List.Nonempty.toList Decal.allDecals)
                         |> List.map
                             (\maybeDecal ->
-                                Ui.button
+                                MyUi.button
                                     [ Element.paddingXY 4 4
                                     , Element.Background.color
                                         (if maybeDecal == currentPlayerData.decal then
@@ -2595,7 +2595,7 @@ colorSelector onSelect currentColor =
     List.Nonempty.toList ColorIndex.allColors
         |> List.map
             (\colorIndex ->
-                Ui.button
+                MyUi.button
                     [ Element.width (Element.px 36)
                     , Element.height (Element.px 36)
                     , Element.Border.width

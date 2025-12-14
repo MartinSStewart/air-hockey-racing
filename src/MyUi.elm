@@ -1,4 +1,4 @@
-module Ui exposing
+module MyUi exposing
     ( DisplayType(..)
     , button
     , displayType

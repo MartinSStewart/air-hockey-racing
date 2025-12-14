@@ -40,6 +40,7 @@ import MatchPage exposing (Mouse, ScreenCoordinate, Vertex, WorldPixel)
 import Math.Matrix4 as Mat4 exposing (Mat4)
 import Math.Vector2
 import Math.Vector3
+import MyUi
 import Pixels exposing (Pixels)
 import Point2d exposing (Point2d)
 import Point3d
@@ -52,7 +53,6 @@ import SeqSet exposing (SeqSet)
 import Serialize
 import Shape exposing (Layer, LayerId, PathSegment)
 import Size exposing (Size)
-import Ui
 import Vector2d exposing (Vector2d)
 import WebGL.Matrices
 import WebGL.Settings
@@ -1239,8 +1239,8 @@ toolView config model =
                 , label = Element.Input.labelLeft [] (Element.text "B")
                 }
             ]
-        , Ui.button buttonAttributes { onPress = PressedMirrorX, label = Element.text "Mirror X" }
-        , Ui.button buttonAttributes { onPress = PressedSave, label = Element.text "Save to clipboard" }
+        , MyUi.button buttonAttributes { onPress = PressedMirrorX, label = Element.text "Mirror X" }
+        , MyUi.button buttonAttributes { onPress = PressedSave, label = Element.text "Save to clipboard" }
         , Element.Input.text
             [ Element.padding 4 ]
             { onChange = TypedLoadFromClipboard
@@ -1278,7 +1278,7 @@ layersView currentLayer layers =
         (\( layerId, _ ) ->
             Element.row
                 [ Element.width Element.fill ]
-                [ Ui.button
+                [ MyUi.button
                     ((if currentLayer == layerId then
                         Element.Font.bold
 
@@ -1290,7 +1290,7 @@ layersView currentLayer layers =
                     { onPress = PressedLayer layerId
                     , label = "Layer " ++ String.fromInt (Id.toInt layerId) |> Element.text
                     }
-                , Ui.button
+                , MyUi.button
                     [ Element.padding 4
                     , Element.height Element.fill
                     , Element.Border.width 1
@@ -1299,7 +1299,7 @@ layersView currentLayer layers =
                     { onPress = PressedMoveLayerUp layerId
                     , label = Element.text "🡹"
                     }
-                , Ui.button
+                , MyUi.button
                     [ Element.padding 4
                     , Element.height Element.fill
                     , Element.Border.width 1
@@ -1308,7 +1308,7 @@ layersView currentLayer layers =
                     { onPress = PressedMoveLayerDown layerId
                     , label = Element.text "🡻"
                     }
-                , Ui.button
+                , MyUi.button
                     [ Element.padding 4
                     , Element.height Element.fill
                     , Element.Border.width 1
@@ -1321,12 +1321,12 @@ layersView currentLayer layers =
                 ]
         )
         (SeqDict.toList layers)
-        ++ [ Ui.button
+        ++ [ MyUi.button
                 buttonAttributes
                 { onPress = PressedAddLayer
                 , label = Element.text "Add layer"
                 }
-           , Ui.button
+           , MyUi.button
                 buttonAttributes
                 { onPress = PressedDuplicate
                 , label = Element.text "Duplicate"

@@ -189,7 +189,7 @@ updateFromFrontendWithTime sessionId clientId msg model time =
                         ]
                     )
 
-                MatchPageToBackend (MatchPage.MatchSetupRequest lobbyId eventId matchSetupMsg) ->
+                MatchPageToBackend (MatchPage.MatchRequest lobbyId eventId matchSetupMsg) ->
                     matchSetupRequest time lobbyId userId eventId clientId matchSetupMsg model
 
                 MatchPageToBackend (MatchPage.DesyncCheckRequest lobbyId frameId positions) ->

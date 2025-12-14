@@ -31,6 +31,7 @@ import PingData exposing (PingData)
 import Pixels exposing (Pixels)
 import Point2d exposing (Point2d)
 import Quantity exposing (Quantity, Rate)
+import Route exposing (Route)
 import SeqDict exposing (SeqDict)
 import SeqSet exposing (SeqSet)
 import Size exposing (Size)
@@ -53,18 +54,19 @@ type FrontendModel_
 
 
 type alias FrontendLoading =
-    { key : Effect.Browser.Navigation.Key
+    { navigationKey : Effect.Browser.Navigation.Key
     , windowSize : Size
     , devicePixelRatio : Quantity Float (Rate WorldPixel Pixels)
     , time : Maybe Time.Posix
     , debugTimeOffset : Duration
     , initData : Maybe ( Id UserId, MainLobbyInitData )
     , sounds : SeqDict String (Result Audio.LoadError Audio.Source)
+    , route : Route
     }
 
 
 type alias FrontendLoaded =
-    { key : Effect.Browser.Navigation.Key
+    { navigationKey : Effect.Browser.Navigation.Key
     , windowSize : Size
     , currentKeys : List Keyboard.Key
     , previousKeys : List Keyboard.Key
@@ -78,6 +80,7 @@ type alias FrontendLoaded =
     , userId : Id UserId
     , pingStartTime : Maybe Time.Posix
     , pingData : Maybe PingData
+    , route : Route
     }
 
 
@@ -120,7 +123,6 @@ type FrontendMsg_
     | AnimationFrame Time.Posix
     | PressedCreateLobby
     | PressedOpenLevelEditor
-    | PressedJoinLobby (Id MatchId)
     | SoundLoaded String (Result Audio.LoadError Audio.Source)
     | MatchPageMsg MatchPage.Msg
     | GotTime Time.Posix
