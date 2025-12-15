@@ -159,8 +159,16 @@ updateFromFrontend sessionId clientId msg model =
     ( model, Effect.Time.now |> Task.perform (ServerTime >> UpdateFromFrontendWithTime sessionId clientId msg) )
 
 
+updateMatchPageToBackend :
+    Id UserId
+    -> SessionId
+    -> ClientId
+    -> MatchPage.ToBackend
+    -> BackendModel
+    -> ServerTime
+    -> ( BackendModel, Command BackendOnly ToFrontend BackendMsg )
 updateMatchPageToBackend userId sessionId clientId msg model time =
-    case msg of
+    case Debug.log "updateMatchPageToBackend" msg of
         MatchPage.MatchRequest lobbyId eventId matchSetupMsg ->
             matchSetupRequest time lobbyId userId eventId clientId matchSetupMsg model
 
