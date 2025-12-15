@@ -6,6 +6,7 @@ module MyUi exposing
     , simpleButton
     )
 
+import Effect.Browser.Dom as Dom exposing (HtmlId)
 import Pixels
 import Quantity
 import Size exposing (Size)
@@ -13,16 +14,17 @@ import Ui
 import Ui.Input
 
 
-button : List (Ui.Attribute msg) -> { onPress : msg, label : Ui.Element msg } -> Ui.Element msg
-button attributes { onPress, label } =
+button : HtmlId -> List (Ui.Attribute msg) -> { onPress : msg, label : Ui.Element msg } -> Ui.Element msg
+button htmlId attributes { onPress, label } =
     Ui.el
-        (Ui.width Ui.shrink :: Ui.Input.button onPress :: attributes)
+        (Ui.id (Dom.idToString htmlId) :: Ui.width Ui.shrink :: Ui.Input.button onPress :: attributes)
         label
 
 
-simpleButton : msg -> Ui.Element msg -> Ui.Element msg
-simpleButton onPress label =
+simpleButton : HtmlId -> msg -> Ui.Element msg -> Ui.Element msg
+simpleButton htmlId onPress label =
     button
+        htmlId
         [ Ui.background <| Ui.rgb 230 230 217
         , Ui.padding 4
         ]

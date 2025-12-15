@@ -40,7 +40,7 @@ import Direction2d exposing (Direction2d)
 import Direction3d
 import Duration exposing (Duration)
 import Ease exposing (Easing)
-import Effect.Browser.Dom exposing (HtmlId)
+import Effect.Browser.Dom as Dom exposing (HtmlId)
 import Effect.Command as Command exposing (Command, FrontendOnly)
 import Effect.Lamdera
 import Effect.Task as Task
@@ -709,10 +709,10 @@ matchSetupView config lobby matchSetupData currentPlayerData =
                             []
 
                         else
-                            MyUi.simpleButton PressedResetMatchName (Ui.text "Reset")
+                            MyUi.simpleButton (Dom.id "resetMatchName") PressedResetMatchName (Ui.text "Reset")
                                 :: (case MatchName.fromString matchSetupData.matchName of
                                         Ok matchName_ ->
-                                            [ MyUi.simpleButton (PressedSaveMatchName matchName_) (Ui.text "Save") ]
+                                            [ MyUi.simpleButton (Dom.id "saveMatchName") (PressedSaveMatchName matchName_) (Ui.text "Save") ]
 
                                         _ ->
                                             []
@@ -751,10 +751,10 @@ matchSetupView config lobby matchSetupData currentPlayerData =
                             []
 
                         else
-                            MyUi.simpleButton PressedResetMaxPlayers (Ui.text "Reset")
+                            MyUi.simpleButton (Dom.id "resetMaxPlayers") PressedResetMaxPlayers (Ui.text "Reset")
                                 :: (case String.toInt matchSetupData.maxPlayers of
                                         Just maxPlayers ->
-                                            [ MyUi.simpleButton (PressedSaveMaxPlayers maxPlayers) (Ui.text "Save") ]
+                                            [ MyUi.simpleButton (Dom.id "saveMaxPlayers") (PressedSaveMaxPlayers maxPlayers) (Ui.text "Save") ]
 
                                         Nothing ->
                                             []
@@ -795,17 +795,17 @@ matchSetupView config lobby matchSetupData currentPlayerData =
         , Ui.row
             [ Ui.width Ui.shrink, Ui.spacing 8 ]
             [ if Match.isOwner config.userId lobby then
-                MyUi.simpleButton PressedStartMatchSetup (Ui.text "Start match")
+                MyUi.simpleButton (Dom.id "startMatchSetup") PressedStartMatchSetup (Ui.text "Start match")
 
               else
                 Ui.none
-            , MyUi.simpleButton PressedLeaveMatchSetup (Ui.text "Leave")
+            , MyUi.simpleButton (Dom.id "leaveMatchSetup") PressedLeaveMatchSetup (Ui.text "Leave")
             , case currentPlayerData.mode of
                 PlayerMode ->
-                    MyUi.simpleButton (PressedPlayerMode SpectatorMode) (Ui.text "Switch to spectator")
+                    MyUi.simpleButton (Dom.id "switchToSpectator") (PressedPlayerMode SpectatorMode) (Ui.text "Switch to spectator")
 
                 SpectatorMode ->
-                    MyUi.simpleButton (PressedPlayerMode PlayerMode) (Ui.text "Switch to player")
+                    MyUi.simpleButton (Dom.id "switchToPlayer") (PressedPlayerMode PlayerMode) (Ui.text "Switch to player")
             ]
         , Ui.column
             [ Ui.width Ui.shrink, Ui.spacing 8 ]
@@ -839,6 +839,7 @@ matchSetupView config lobby matchSetupData currentPlayerData =
                         |> List.map
                             (\maybeDecal ->
                                 MyUi.button
+                                    (decalHtmlId maybeDecal)
                                     [ Ui.paddingXY 4 4
                                     , Ui.background
                                         (if maybeDecal == currentPlayerData.decal then
@@ -909,6 +910,36 @@ matchSetupView config lobby matchSetupData currentPlayerData =
         ]
 
 
+decalHtmlId : Maybe Decal -> HtmlId
+decalHtmlId maybeDecal =
+    "selectDecal_"
+        ++ (case maybeDecal of
+                Just decal ->
+                    case decal of
+                        Decal.Star ->
+                            "Star"
+
+                        Decal.Triangle ->
+                            "Triangle"
+
+                        Decal.Plus ->
+                            "Plus"
+
+                        Decal.Minus ->
+                            "Minus"
+
+                        Decal.Square ->
+                            "Square"
+
+                        Decal.HollowSquare ->
+                            "HollowSquare"
+
+                Nothing ->
+                    "noDecal"
+           )
+        |> Dom.id
+
+
 textChat : MatchSetupLocal_ -> Match -> Ui.Element Msg
 textChat matchSetupData lobby =
     Ui.column
@@ -942,7 +973,7 @@ textChat matchSetupData lobby =
                 , Ui.scrollable
                 , Ui.height Ui.fill
                 , Ui.paddingXY 0 8
-                , Ui.htmlAttribute (Effect.Browser.Dom.idToAttribute textMessageContainerId)
+                , Ui.htmlAttribute (Dom.idToAttribute textMessageContainerId)
                 ]
         , Ui.Input.text
             (Ui.Font.size 16
@@ -2422,7 +2453,7 @@ initMatchSetupData lobby =
 
 scrollToBottom : Command FrontendOnly toMsg Msg
 scrollToBottom =
-    Effect.Browser.Dom.setViewportOf textMessageContainerId 0 99999
+    Dom.setViewportOf textMessageContainerId 0 99999
         |> Task.attempt (\_ -> ScrolledToBottom)
 
 
@@ -2497,6 +2528,7 @@ colorSelector onSelect currentColor =
         |> List.map
             (\colorIndex ->
                 MyUi.button
+                    (colorSelectorHtmlId currentColor)
                     [ Ui.width (Ui.px 36)
                     , Ui.height (Ui.px 36)
                     , Ui.border
@@ -2514,6 +2546,37 @@ colorSelector onSelect currentColor =
                     }
             )
         |> Ui.row [ Ui.width Ui.shrink, Ui.wrap ]
+
+
+colorSelectorHtmlId : ColorIndex -> HtmlId
+colorSelectorHtmlId colorIndex =
+    "matchPageColorSelector_"
+        ++ (case colorIndex of
+                Red ->
+                    "Red"
+
+                Green ->
+                    "Green"
+
+                Blue ->
+                    "Blue"
+
+                Orange ->
+                    "Orange"
+
+                Brown ->
+                    "Brown"
+
+                Purple ->
+                    "Purple"
+
+                Pink ->
+                    "Pink"
+
+                Yellow ->
+                    "Yellow"
+           )
+        |> Dom.id
 
 
 viewportHeight : Length
@@ -2700,7 +2763,7 @@ matchTimeLeft currentFrameId matchState =
 
 textMessageContainerId : HtmlId
 textMessageContainerId =
-    Effect.Browser.Dom.id "textMessageContainer"
+    Dom.id "textMessageContainer"
 
 
 getLocalState : Model -> Match

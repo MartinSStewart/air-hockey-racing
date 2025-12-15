@@ -1,4 +1,4 @@
-module Backend exposing (app)
+module Backend exposing (app, app_)
 
 import Effect.Command as Command exposing (BackendOnly, Command)
 import Effect.Lamdera exposing (ClientId, SessionId)
@@ -23,15 +23,28 @@ import Types exposing (..)
 import User exposing (UserId)
 
 
+app :
+    { init : ( BackendModel, Cmd BackendMsg )
+    , update : BackendMsg -> BackendModel -> ( BackendModel, Cmd BackendMsg )
+    , updateFromFrontend : String -> String -> ToBackend -> BackendModel -> ( BackendModel, Cmd BackendMsg )
+    , subscriptions : BackendModel -> Sub BackendMsg
+    }
 app =
-    Effect.Lamdera.backend
-        Lamdera.broadcast
-        Lamdera.sendToFrontend
-        { init = ( init, Command.none )
-        , update = update
-        , updateFromFrontend = updateFromFrontend
-        , subscriptions = subscriptions
-        }
+    Effect.Lamdera.backend Lamdera.broadcast Lamdera.sendToFrontend app_
+
+
+app_ :
+    { init : ( BackendModel, Command restriction toMsg msg )
+    , update : BackendMsg -> BackendModel -> ( BackendModel, Command BackendOnly ToFrontend BackendMsg )
+    , updateFromFrontend : SessionId -> ClientId -> ToBackend -> BackendModel -> ( BackendModel, Command BackendOnly ToFrontend BackendMsg )
+    , subscriptions : BackendModel -> Subscription BackendOnly BackendMsg
+    }
+app_ =
+    { init = ( init, Command.none )
+    , update = update
+    , updateFromFrontend = updateFromFrontend
+    , subscriptions = subscriptions
+    }
 
 
 subscriptions : BackendModel -> Subscription BackendOnly BackendMsg

@@ -21,14 +21,17 @@ port audioPortFromJS : (Json.Decode.Value -> msg) -> Sub msg
 port supermario_copy_to_clipboard_to_js : Json.Encode.Value -> Cmd msg
 
 
-audioFromJs =
-    Subscription.fromJs "audioPortFromJS" audioPortFromJS
+audioFromJs : (Json.Decode.Value -> msg) -> Subscription FrontendOnly msg
+audioFromJs msg =
+    Subscription.fromJs "audioPortFromJS" audioPortFromJS msg
 
 
+audioToJs : Json.Encode.Value -> Command FrontendOnly toMsg msg
 audioToJs =
     Command.sendToJs "audioPortToJS" audioPortToJS
 
 
+devicePixelRatioRequest : Command FrontendOnly toMsg msg
 devicePixelRatioRequest =
     Command.sendToJs
         "martinsstewart_elm_device_pixel_ratio_to_js"

@@ -1,11 +1,11 @@
-module Frontend exposing (app)
+module Frontend exposing (app, app_)
 
 import Audio exposing (Audio, AudioCmd, AudioData)
 import Browser
 import Browser.Navigation
 import Duration
 import EditorPage
-import Effect.Browser.Dom
+import Effect.Browser.Dom as Dom
 import Effect.Browser.Events
 import Effect.Browser.Navigation
 import Effect.Command as Command exposing (Command, FrontendOnly)
@@ -54,23 +54,33 @@ app :
     , onUrlChange : Url -> FrontendMsg
     }
 app =
-    Effect.Lamdera.frontend
-        Lamdera.sendToBackend
-        (Audio.lamderaFrontendWithAudio
-            { init = init
-            , onUrlRequest = UrlClicked
-            , onUrlChange = \_ -> UrlChanged
-            , update = update
-            , updateFromBackend = updateFromBackend
-            , subscriptions = subscriptions
-            , view = view
-            , audio = audio
-            , audioPort =
-                { fromJS = Ports.audioFromJs
-                , toJS = Ports.audioToJs
-                }
+    Effect.Lamdera.frontend Lamdera.sendToBackend app_
+
+
+app_ :
+    { init : Url -> Effect.Browser.Navigation.Key -> ( Audio.Model FrontendMsg_ FrontendModel_, Command FrontendOnly ToBackend (Audio.Msg FrontendMsg_) )
+    , view : Audio.Model FrontendMsg_ FrontendModel_ -> Browser.Document (Audio.Msg FrontendMsg_)
+    , update : Audio.Msg FrontendMsg_ -> Audio.Model FrontendMsg_ FrontendModel_ -> ( Audio.Model FrontendMsg_ FrontendModel_, Command FrontendOnly ToBackend (Audio.Msg FrontendMsg_) )
+    , updateFromBackend : ToFrontend -> Audio.Model FrontendMsg_ FrontendModel_ -> ( Audio.Model FrontendMsg_ FrontendModel_, Command FrontendOnly ToBackend (Audio.Msg FrontendMsg_) )
+    , subscriptions : Audio.Model FrontendMsg_ FrontendModel_ -> Subscription FrontendOnly (Audio.Msg FrontendMsg_)
+    , onUrlRequest : Browser.UrlRequest -> Audio.Msg FrontendMsg_
+    , onUrlChange : Url -> Audio.Msg FrontendMsg_
+    }
+app_ =
+    Audio.lamderaFrontendWithAudio
+        { init = init
+        , onUrlRequest = UrlClicked
+        , onUrlChange = \_ -> UrlChanged
+        , update = update
+        , updateFromBackend = updateFromBackend
+        , subscriptions = subscriptions
+        , view = view
+        , audio = audio
+        , audioPort =
+            { fromJS = Ports.audioFromJs
+            , toJS = Ports.audioToJs
             }
-        )
+        }
 
 
 audio : AudioData -> FrontendModel_ -> Audio
@@ -174,7 +184,7 @@ init url key =
                     , height = round viewport.height |> Pixels.pixels
                     }
             )
-            Effect.Browser.Dom.getViewport
+            Dom.getViewport
         , Effect.Time.now |> Task.perform GotTime
         ]
     , Sounds.requestSounds SoundLoaded
@@ -608,8 +618,8 @@ loadedView model =
                     , Ui.padding (MyUi.ifMobile displayType 8 16)
                     ]
                     [ Ui.el [ Ui.width Ui.shrink, Ui.Font.bold ] (Ui.text "Air Hockey Racing")
-                    , MyUi.simpleButton PressedCreateLobby (Ui.text "Create new match")
-                    , MyUi.simpleButton PressedOpenLevelEditor (Ui.text "Open level editor")
+                    , MyUi.simpleButton (Dom.id "createNewMatch") PressedCreateLobby (Ui.text "Create new match")
+                    , MyUi.simpleButton (Dom.id "openLevelEditor") PressedOpenLevelEditor (Ui.text "Open level editor")
                     , Ui.column
                         [ Ui.height Ui.fill, Ui.spacing 8 ]
                         [ Ui.text "Or join existing match"

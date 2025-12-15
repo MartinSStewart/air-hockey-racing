@@ -16,6 +16,7 @@ import Axis3d
 import Camera3d exposing (Camera3d)
 import CubicSpline2d
 import Direction2d
+import Effect.Browser.Dom as Dom
 import Effect.Command as Command exposing (Command, FrontendOnly)
 import Effect.WebGL as WebGL exposing (Entity, Mesh)
 import FontRender exposing (FontVertex)
@@ -1241,8 +1242,14 @@ toolView config model =
         --        , label = Ui.Input.labelLeft [ Ui.width Ui.shrink ] (Ui.text "B")
         --        }
         --    ]
-        , MyUi.button buttonAttributes { onPress = PressedMirrorX, label = Ui.text "Mirror X" }
-        , MyUi.button buttonAttributes { onPress = PressedSave, label = Ui.text "Save to clipboard" }
+        , MyUi.button
+            (Dom.id "editorPage_mirrorX")
+            buttonAttributes
+            { onPress = PressedMirrorX, label = Ui.text "Mirror X" }
+        , MyUi.button
+            (Dom.id "editorPage_saveToClipboard")
+            buttonAttributes
+            { onPress = PressedSave, label = Ui.text "Save to clipboard" }
         , Ui.Input.text
             [ Ui.width Ui.shrink, Ui.padding 4 ]
             { onChange = TypedLoadFromClipboard
@@ -1281,6 +1288,7 @@ layersView currentLayer layers =
             Ui.row
                 []
                 [ MyUi.button
+                    (Dom.id "editorPage_layer")
                     ((if currentLayer == layerId then
                         Ui.Font.bold
 
@@ -1293,6 +1301,7 @@ layersView currentLayer layers =
                     , label = "Layer " ++ String.fromInt (Id.toInt layerId) |> Ui.text
                     }
                 , MyUi.button
+                    (Dom.id "editorPage_moveLayerUp")
                     [ Ui.padding 4
                     , Ui.height Ui.fill
                     , Ui.border 1
@@ -1302,6 +1311,7 @@ layersView currentLayer layers =
                     , label = Ui.text "🡹"
                     }
                 , MyUi.button
+                    (Dom.id "editorPage_moveLayerDown")
                     [ Ui.padding 4
                     , Ui.height Ui.fill
                     , Ui.border 1
@@ -1311,6 +1321,7 @@ layersView currentLayer layers =
                     , label = Ui.text "🡻"
                     }
                 , MyUi.button
+                    (Dom.id "editorPage_removeLayer")
                     [ Ui.padding 4
                     , Ui.height Ui.fill
                     , Ui.border 1
@@ -1324,11 +1335,13 @@ layersView currentLayer layers =
         )
         (SeqDict.toList layers)
         ++ [ MyUi.button
+                (Dom.id "editorPage_addLayer")
                 buttonAttributes
                 { onPress = PressedAddLayer
                 , label = Ui.text "Add layer"
                 }
            , MyUi.button
+                (Dom.id "editorPage_duplicate")
                 buttonAttributes
                 { onPress = PressedDuplicate
                 , label = Ui.text "Duplicate"
