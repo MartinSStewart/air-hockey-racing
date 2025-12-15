@@ -198,7 +198,7 @@ type ToFrontend
     = MatchSetupBroadcast (Id MatchId) (Id UserId) Match.Msg
     | MatchSetupResponse (Id MatchId) (Id UserId) Match.Msg (Id EventId)
     | DesyncBroadcast (Id MatchId) (Id FrameId)
-    | NeedCurrentCacheBroadcast (Id MatchId) { minFrameId : Id FrameId, maxFrameId : Id FrameId }
+    | NeedCurrentCacheBroadcast (Id MatchId) (Id FrameId)
 
 
 update : Config a -> Msg -> Model -> ( Model, Command FrontendOnly ToBackend Msg )

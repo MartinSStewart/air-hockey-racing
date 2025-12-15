@@ -8,12 +8,15 @@ import Effect.Time
 import Id exposing (Id)
 import Lamdera
 import Length exposing (Meters)
+import List.Extra
 import List.Nonempty
 import Match exposing (Match, Msg(..), ServerTime(..), WorldCoordinate)
 import MatchPage exposing (MatchId)
 import NetworkModel exposing (EventId)
 import Point2d exposing (Point2d)
+import Quantity
 import SeqDict exposing (SeqDict)
+import SeqSet
 import Timeline exposing (FrameId)
 import Types exposing (..)
 import User exposing (UserId)
@@ -322,7 +325,23 @@ matchSetupRequest currentTime lobbyId userId eventId clientId matchSetupMsg mode
                             ( model2
                             , case Match.matchActive match of
                                 Just matchActive ->
-                                    broadcastToMatch match (MatchPage.NeedCurrentCacheBroadcast lobbyId)
+                                    let
+                                        frameId : Id FrameId
+                                        frameId =
+                                            case
+                                                SeqSet.toList matchActive.timeline
+                                                    |> List.Extra.maximumBy (\( frameId, _ ) -> Id.toInt frameId)
+                                            of
+                                                Just ( frameId2, _ ) ->
+                                                    Id.toInt frameId2
+                                                        - ceiling (Quantity.ratio Match.maxInputDelay Match.frameDuration)
+                                                        |> max 0
+                                                        |> Id.fromInt
+
+                                                Nothing ->
+                                                    Id.fromInt 0
+                                    in
+                                    broadcastToMatch match (MatchPage.NeedCurrentCacheBroadcast lobbyId frameId) model2
 
                                 Nothing ->
                                     Command.batch
