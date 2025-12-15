@@ -13,11 +13,12 @@ import List.Nonempty
 import Match exposing (Match, Msg(..), ServerTime(..), WorldCoordinate)
 import MatchPage exposing (MatchId)
 import NetworkModel exposing (EventId)
+import NonemptySet
 import Point2d exposing (Point2d)
 import Quantity
 import SeqDict exposing (SeqDict)
 import SeqSet
-import Timeline exposing (FrameId)
+import Timeline exposing (FrameId, Timeline)
 import Types exposing (..)
 import User exposing (UserId)
 
@@ -46,6 +47,7 @@ init =
     { userSessions = SeqDict.empty
     , users = SeqDict.empty
     , lobbies = SeqDict.empty
+    , joiningActiveMatch = SeqDict.empty
     , dummyChange = 0
     , counter = 0
     , playerPositions = SeqDict.empty
@@ -157,6 +159,62 @@ updateFromFrontend sessionId clientId msg model =
     ( model, Effect.Time.now |> Task.perform (ServerTime >> UpdateFromFrontendWithTime sessionId clientId msg) )
 
 
+updateMatchPageToBackend userId sessionId clientId msg model time =
+    case msg of
+        MatchPage.MatchRequest lobbyId eventId matchSetupMsg ->
+            matchSetupRequest time lobbyId userId eventId clientId matchSetupMsg model
+
+        MatchPage.DesyncCheckRequest lobbyId frameId positions ->
+            case SeqDict.get lobbyId model.lobbies of
+                Just match ->
+                    let
+                        playerPositions : SeqDict (Id FrameId) (SeqDict (Id UserId) (Point2d Meters WorldCoordinate))
+                        playerPositions =
+                            SeqDict.get lobbyId model.playerPositions |> Maybe.withDefault SeqDict.empty
+                    in
+                    case SeqDict.get frameId playerPositions of
+                        Just playerPositions2 ->
+                            if playerPositions2 == positions then
+                                ( model, Command.none )
+
+                            else
+                                ( model
+                                , broadcastToMatch match (MatchPage.DesyncBroadcast lobbyId frameId) model
+                                )
+
+                        Nothing ->
+                            ( { model
+                                | playerPositions =
+                                    SeqDict.insert
+                                        lobbyId
+                                        (SeqDict.insert frameId positions playerPositions
+                                            |> SeqDict.remove (Id.toInt frameId - 30 |> Id.fromInt)
+                                        )
+                                        model.playerPositions
+                              }
+                            , Command.none
+                            )
+
+                Nothing ->
+                    ( model, Command.none )
+
+        MatchPage.CurrentCache matchId frameId matchState ->
+            case ( SeqDict.get ( matchId, frameId ) model.joiningActiveMatch, SeqDict.get matchId model.lobbies ) of
+                ( Just usersTryingToJoin, Just match ) ->
+                    ( { model | joiningActiveMatch = SeqDict.remove ( matchId, frameId ) model.joiningActiveMatch }
+                    , NonemptySet.toList usersTryingToJoin
+                        |> List.map
+                            (\clientId2 ->
+                                JoinLobbyResponse matchId (JoinedActiveMatch match frameId matchState)
+                                    |> Effect.Lamdera.sendToFrontend clientId2
+                            )
+                        |> Command.batch
+                    )
+
+                _ ->
+                    ( model, Command.none )
+
+
 updateFromFrontendWithTime :
     SessionId
     -> ClientId
@@ -192,42 +250,8 @@ updateFromFrontendWithTime sessionId clientId msg model time =
                         ]
                     )
 
-                MatchPageToBackend (MatchPage.MatchRequest lobbyId eventId matchSetupMsg) ->
-                    matchSetupRequest time lobbyId userId eventId clientId matchSetupMsg model
-
-                MatchPageToBackend (MatchPage.DesyncCheckRequest lobbyId frameId positions) ->
-                    case SeqDict.get lobbyId model.lobbies of
-                        Just match ->
-                            let
-                                playerPositions : SeqDict (Id FrameId) (SeqDict (Id UserId) (Point2d Meters WorldCoordinate))
-                                playerPositions =
-                                    SeqDict.get lobbyId model.playerPositions |> Maybe.withDefault SeqDict.empty
-                            in
-                            case SeqDict.get frameId playerPositions of
-                                Just playerPositions2 ->
-                                    if playerPositions2 == positions then
-                                        ( model, Command.none )
-
-                                    else
-                                        ( model
-                                        , broadcastToMatch match (MatchPage.DesyncBroadcast lobbyId frameId) model
-                                        )
-
-                                Nothing ->
-                                    ( { model
-                                        | playerPositions =
-                                            SeqDict.insert
-                                                lobbyId
-                                                (SeqDict.insert frameId positions playerPositions
-                                                    |> SeqDict.remove (Id.toInt frameId - 30 |> Id.fromInt)
-                                                )
-                                                model.playerPositions
-                                      }
-                                    , Command.none
-                                    )
-
-                        Nothing ->
-                            ( model, Command.none )
+                MatchPageToBackend matchPageToBackend ->
+                    updateMatchPageToBackend userId sessionId clientId matchPageToBackend model time
 
                 PingRequest ->
                     ( model, PingResponse time |> Effect.Lamdera.sendToFrontend clientId )
@@ -322,40 +346,44 @@ matchSetupRequest currentTime lobbyId userId eventId clientId matchSetupMsg mode
                 JoinMatchSetup ->
                     case Match.joinUser userId match of
                         Ok matchWithJoinedUser ->
-                            ( model2
-                            , case Match.matchActive match of
+                            case Match.matchActive match of
                                 Just matchActive ->
                                     let
-                                        frameId : Id FrameId
-                                        frameId =
-                                            case
-                                                SeqSet.toList matchActive.timeline
-                                                    |> List.Extra.maximumBy (\( frameId, _ ) -> Id.toInt frameId)
-                                            of
-                                                Just ( frameId2, _ ) ->
-                                                    Id.toInt frameId2
-                                                        - ceiling (Quantity.ratio Match.maxInputDelay Match.frameDuration)
-                                                        |> max 0
-                                                        |> Id.fromInt
-
-                                                Nothing ->
-                                                    Id.fromInt 0
+                                        latestFrameThatWontChange2 : Id FrameId
+                                        latestFrameThatWontChange2 =
+                                            latestFrameThatWontChange matchActive.timeline
                                     in
-                                    broadcastToMatch match (MatchPage.NeedCurrentCacheBroadcast lobbyId frameId) model2
+                                    ( { model2
+                                        | joiningActiveMatch =
+                                            SeqDict.update
+                                                ( lobbyId, latestFrameThatWontChange2 )
+                                                (\maybe ->
+                                                    case maybe of
+                                                        Just nonempty ->
+                                                            NonemptySet.insert clientId nonempty |> Just
+
+                                                        Nothing ->
+                                                            NonemptySet.singleton clientId |> Just
+                                                )
+                                                model2.joiningActiveMatch
+                                      }
+                                    , broadcastToMatch match (MatchPage.NeedCurrentCacheBroadcast lobbyId latestFrameThatWontChange2) model2
+                                    )
 
                                 Nothing ->
-                                    Command.batch
+                                    ( { model2 | lobbies = SeqDict.insert lobbyId matchWithJoinedUser model2.lobbies }
+                                    , Command.batch
                                         [ JoinedLobby match
                                             |> JoinLobbyResponse lobbyId
                                             |> Effect.Lamdera.sendToFrontend clientId
                                         , matchSetupBroadcast model2
                                         , newPreview lobbyId match matchSetup2
                                         ]
-                            )
+                                    )
 
                         Err () ->
                             ( model
-                            , JoinLobbyResponse lobbyId MatchFull |> Effect.Lamdera.sendToFrontend clientId
+                            , JoinLobbyResponse lobbyId (JoinLobbyError MatchFull) |> Effect.Lamdera.sendToFrontend clientId
                             )
 
                 LeaveMatchSetup ->
@@ -380,8 +408,26 @@ matchSetupRequest currentTime lobbyId userId eventId clientId matchSetupMsg mode
 
         Nothing ->
             ( model
-            , JoinLobbyResponse lobbyId MatchNotFound |> Effect.Lamdera.sendToFrontend clientId
+            , JoinLobbyResponse lobbyId (JoinLobbyError MatchNotFound) |> Effect.Lamdera.sendToFrontend clientId
             )
+
+
+{-| The most recent point in the timeline that we know can't change thanks to Match.clampTime
+-}
+latestFrameThatWontChange : Timeline event -> Id FrameId
+latestFrameThatWontChange timeline =
+    case
+        SeqSet.toList timeline
+            |> List.Extra.maximumBy (\( frameId2, _ ) -> Id.toInt frameId2)
+    of
+        Just ( frameId2, _ ) ->
+            Id.toInt frameId2
+                - ceiling (Quantity.ratio Match.maxInputDelay Match.frameDuration)
+                |> max 0
+                |> Id.fromInt
+
+        Nothing ->
+            Id.fromInt 0
 
 
 newPreview : Id MatchId -> Match -> Match -> Command BackendOnly ToFrontend BackendMsg

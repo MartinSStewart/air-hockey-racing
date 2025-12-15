@@ -8,6 +8,7 @@ module Types exposing
     , FrontendModel_(..)
     , FrontendMsg
     , FrontendMsg_(..)
+    , JoinLobbyError(..)
     , JoinMatch(..)
     , MainLobbyInitData
     , Page(..)
@@ -25,8 +26,10 @@ import Effect.Time as Time
 import Id exposing (Id)
 import Keyboard
 import Length exposing (Meters)
+import List.Nonempty exposing (Nonempty)
 import Match exposing (LobbyPreview, Match, MatchState, ServerTime, WorldCoordinate)
 import MatchPage exposing (MatchId, Mouse, ScreenCoordinate, WorldPixel)
+import NonemptySet exposing (NonemptySet)
 import PingData exposing (PingData)
 import Pixels exposing (Pixels)
 import Point2d exposing (Point2d)
@@ -104,6 +107,7 @@ type alias BackendModel =
     { userSessions : SeqDict SessionId { clientIds : SeqDict ClientId (), userId : Id UserId }
     , users : SeqDict (Id UserId) BackendUserData
     , lobbies : SeqDict (Id MatchId) Match
+    , joiningActiveMatch : SeqDict ( Id MatchId, Id FrameId ) (NonemptySet ClientId)
     , dummyChange : Float
     , counter : Int
     , playerPositions : SeqDict (Id MatchId) (SeqDict (Id FrameId) (SeqDict (Id UserId) (Point2d Meters WorldCoordinate)))
@@ -160,5 +164,9 @@ type ToFrontend
 type JoinMatch
     = JoinedLobby Match
     | JoinedActiveMatch Match (Id FrameId) MatchState
-    | MatchNotFound
+    | JoinLobbyError JoinLobbyError
+
+
+type JoinLobbyError
+    = MatchNotFound
     | MatchFull

@@ -148,6 +148,7 @@ type alias Model =
 init : Id MatchId -> Match -> ( Model, Command FrontendOnly toMsg Msg )
 init lobbyId lobby =
     let
+        networkModel : NetworkModel { userId : Id UserId, msg : Match.Msg } Match
         networkModel =
             NetworkModel.init lobby
     in
@@ -461,7 +462,7 @@ matchSetupUpdate userId msg matchSetup =
     )
 
 
-updateFromBackend : ToFrontend -> Model -> ( Model, Command FrontendOnly toMsg Msg )
+updateFromBackend : ToFrontend -> Model -> ( Model, Command FrontendOnly ToBackend Msg )
 updateFromBackend msg matchSetup =
     case msg of
         MatchSetupBroadcast lobbyId userId matchSetupMsg ->
@@ -540,6 +541,31 @@ updateFromBackend msg matchSetup =
                 matchSetup
             , Command.none
             )
+
+        NeedCurrentCacheBroadcast matchId frameId ->
+            let
+                networkModel : Match
+                networkModel =
+                    NetworkModel.localState Match.matchSetupUpdate matchSetup.networkModel
+            in
+            case ( matchSetup.matchData, Match.matchActive networkModel ) of
+                ( MatchActiveLocal matchData, Just matchActive ) ->
+                    case matchData.timelineCache of
+                        Ok timelineCache ->
+                            case Timeline.getStateAt gameUpdate frameId timelineCache matchActive.timeline of
+                                Ok ( _, ok ) ->
+                                    ( matchSetup
+                                    , Effect.Lamdera.sendToBackend (CurrentCache matchId frameId ok)
+                                    )
+
+                                Err _ ->
+                                    ( matchSetup, Command.none )
+
+                        Err error ->
+                            ( matchSetup, Command.none )
+
+                _ ->
+                    ( matchSetup, Command.none )
 
 
 type alias Config a =

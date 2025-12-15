@@ -398,16 +398,22 @@ updateLoadedFromBackend msg model =
             case model.page of
                 MainLobbyPage lobbyPage ->
                     case result of
-                        Ok lobby ->
+                        JoinedLobby lobby ->
                             MatchPage.init lobbyId lobby
                                 |> Tuple.mapBoth
                                     (\a -> { model | page = MatchPage a })
                                     (\cmd -> Command.map identity MatchPageMsg cmd)
 
-                        Err error ->
+                        JoinLobbyError error ->
                             ( { model | page = MainLobbyPage { lobbyPage | joinLobbyError = Just error } }
                             , Command.none
                             )
+
+                        JoinedActiveMatch match frameId matchState ->
+                            MatchPage.init lobbyId match
+                                |> Tuple.mapBoth
+                                    (\a -> { model | page = MatchPage a })
+                                    (\cmd -> Command.map identity MatchPageMsg cmd)
 
                 _ ->
                     ( model, Command.none )
@@ -611,18 +617,18 @@ loadedView model =
                             Nothing ->
                                 Ui.none
 
-                            Just LobbyNotFound ->
+                            Just MatchNotFound ->
                                 Ui.el
                                     [ Ui.width Ui.shrink, Ui.Font.color (Ui.rgb 255 0 0) ]
                                     (Ui.text "Lobby not found!")
 
-                            Just LobbyFull ->
+                            Just MatchFull ->
                                 Ui.el
                                     [ Ui.width Ui.shrink, Ui.Font.color (Ui.rgb 255 0 0) ]
                                     (Ui.text "Lobby is full!")
                         , if SeqDict.isEmpty lobbyData.lobbies then
                             Ui.Prose.paragraph
-                                [ Ui.width Ui.shrink, Ui.Font.center, Ui.centerY ]
+                                [ Ui.Font.center, Ui.centerY ]
                                 [ Ui.text "There are currently no existing matches" ]
                                 |> Ui.el
                                     [ Ui.widthMax 800
