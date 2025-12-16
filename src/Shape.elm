@@ -198,7 +198,7 @@ dictCodec keyCodec valueCodec =
 layerCodec : Codec e Layer
 layerCodec =
     Serialize.record (\a b c d -> Layer a b c d)
-        |> Serialize.field .paths (Serialize.list pathSegmentCodec |> Serialize.map List.singleton (\a -> Debug.todo ""))
+        |> Serialize.field .paths (Serialize.list pathSegmentCodec |> Serialize.map List.singleton (\a -> List.head a |> Maybe.withDefault []))
         |> Serialize.field .red Serialize.byte
         |> Serialize.field .green Serialize.byte
         |> Serialize.field .blue Serialize.byte

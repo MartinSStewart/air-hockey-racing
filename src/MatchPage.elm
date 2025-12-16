@@ -1730,7 +1730,11 @@ backgroundFragmentShader =
             int x1 = modI(worldCoordinate.x + secondaryThickness * 0.5, 200.0) <= secondaryThickness ? 1 : 0;
             int y1 = modI(worldCoordinate.y + secondaryThickness * 0.5, 200.0) <= secondaryThickness ? 1 : 0;
             float value = x0 + y0 >= 1 ? 0.5 : x1 + y1 >= 1 ? 0.7 : 0.95;
-            gl_FragColor = vec4(value, value, value, 1.0);
+            gl_FragColor = vec4(
+                worldCoordinate.y < primaryThickness * 0.5 && worldCoordinate.y > -primaryThickness * 0.5 ? 1.0 : value,
+                worldCoordinate.x < primaryThickness * 0.5 && worldCoordinate.x > -primaryThickness * 0.5 ? 0.8 : value,
+                value,
+                1.0);
         }
     |]
 
