@@ -1232,7 +1232,7 @@ canvasViewHelper model matchSetup canvasSize =
                                             snowballMesh
                                             { view = viewMatrix
                                             , model =
-                                                Mat4.makeTranslate3 x (y + z / 2) z
+                                                Mat4.makeTranslate3 x (y + z) z
                                                     |> Mat4.scale3 snowballRadius_ snowballRadius_ snowballRadius_
                                             }
                                         ]
@@ -1801,7 +1801,7 @@ snowballStartHeight =
 
 maxThrowDistance : Length
 maxThrowDistance =
-    Length.meters 10
+    Length.meters 15
 
 
 throwVelocity : Direction2d WorldCoordinate -> Length -> Vector3d MetersPerSecond WorldCoordinate
