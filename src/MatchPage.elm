@@ -1834,12 +1834,12 @@ throwVelocity direction distance =
         -- g*d²*tan²(θ) - 2*v²*d*tan(θ) + (g*d² - 2*v²*h) = 0
         -- Discriminant: D = v⁴ + 2*g*v²*h - g²*d²
         -- tan(θ) = (v² ± sqrt(D)) / (g*d)
-        -- Use + solution to get θ = 45° when d = R_max
+        -- Use - solution to get lower/downward angles for short distances
         discriminant =
             vSquared * vSquared + 2 * g * vSquared * h - g * g * d * d
 
         tanTheta =
-            (vSquared + sqrt (max 0 discriminant)) / (g * d)
+            (vSquared - sqrt (max 0 discriminant)) / (g * d)
 
         launchAngle =
             atan tanTheta
