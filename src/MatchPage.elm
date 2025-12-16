@@ -1352,6 +1352,7 @@ drawPlayer frameId userId matchData viewMatrix player playerRadius_ =
                                         (Id.toInt frameId - Id.toInt lastEmote.time |> toFloat)
                                         Match.frameDuration
 
+                                emojiSize : Float
                                 emojiSize =
                                     toFromAndBack
                                         (Duration.milliseconds 200)
@@ -1361,7 +1362,7 @@ drawPlayer frameId userId matchData viewMatrix player playerRadius_ =
                                         Ease.outBack
                                         Ease.inBack
                                         0
-                                        0.15
+                                        0.002
                             in
                             (case lastEmote.emote of
                                 SurpriseEmote ->
@@ -1375,8 +1376,8 @@ drawPlayer frameId userId matchData viewMatrix player playerRadius_ =
                                         FontRender.drawLayer
                                             layer.color
                                             layer.mesh
-                                            (pointToMatrix (Point2d.translateBy (Vector2d.meters 40 30) player.position)
-                                                |> Mat4.scale3 emojiSize emojiSize 1
+                                            (pointToMatrix (Point2d.translateBy (Vector2d.meters 0.4 0.3) player.position)
+                                                |> Mat4.scale3 emojiSize emojiSize 0.01
                                             )
                                             viewMatrix
                                     )
