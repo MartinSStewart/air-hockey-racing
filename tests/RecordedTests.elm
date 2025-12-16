@@ -7,8 +7,10 @@ import Effect.Browser.Dom as Dom
 import Effect.Lamdera as Lamdera exposing (SessionId)
 import Effect.Test as T exposing (DelayInMs, FileUpload(..), HttpRequest, HttpResponse(..), MultipleFilesUpload(..))
 import Frontend
+import Id
 import Json.Decode
 import Json.Encode
+import Route
 import Test.Html.Query
 import Test.Html.Selector
 import Time
@@ -51,10 +53,7 @@ handlePortToJs :
 handlePortToJs requestAndData =
     case requestAndData.currentRequest.portName of
         "audioPortToJS" ->
-            ( "audioPortFromJS"
-            , stringToJson """{"type":1,"requestId":0,"bufferId":0,"durationInSeconds":0.03325}"""
-            )
-                |> Just
+            Nothing
 
         "martinsstewart_elm_device_pixel_ratio_to_js" ->
             Just ( "martinsstewart_elm_device_pixel_ratio_from_js", Json.Encode.float 1 )
@@ -187,9 +186,31 @@ tests fileData =
             sessionId0
             "/"
             desktopWindow
-            (\user ->
-                [ user.click 100 (Dom.id "createNewMatch")
+            (\userA ->
+                [ handleAudioPorts userA
+                , userA.click 500 (Dom.id "createNewMatch")
+                , T.connectFrontend
+                    100
+                    sessionId1
+                    "/"
+                    desktopWindow
+                    (\userB ->
+                        [ handleAudioPorts userB
+                        , userB.clickLink 500 (Route.encode (Route.InMatchRoute (Id.fromInt 0)))
+                        ]
+                    )
+                , userA.click 100 (Dom.id "startMatchSetup")
                 ]
             )
         ]
     ]
+
+
+handleAudioPorts :
+    T.FrontendActions toBackend frontendMsg frontendModel toFrontend backendMsg backendModel
+    -> T.Action toBackend frontendMsg frontendModel toFrontend backendMsg backendModel
+handleAudioPorts user =
+    T.group
+        [ user.portEvent 100 "audioPortFromJS" (stringToJson """{"type":2,"samplesPerSecond":48000}""")
+        , user.portEvent 100 "audioPortFromJS" (stringToJson """{"type":1,"requestId":0,"bufferId":0,"durationInSeconds":0.03325}""")
+        ]

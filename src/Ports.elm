@@ -27,8 +27,12 @@ audioFromJs msg =
 
 
 audioToJs : Json.Encode.Value -> Command FrontendOnly toMsg msg
-audioToJs =
-    Command.sendToJs "audioPortToJS" audioPortToJS
+audioToJs json =
+    --let
+    --    _ =
+    --        Debug.log "audioToJs" (Json.Encode.encode 0 json)
+    --in
+    Command.sendToJs "audioPortToJS" audioPortToJS json
 
 
 devicePixelRatioRequest : Command FrontendOnly toMsg msg

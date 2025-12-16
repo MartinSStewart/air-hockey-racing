@@ -260,7 +260,7 @@ updateLoaded msg model =
                             routeChanged route model
                     in
                     ( model2
-                    , Command.batch [ cmd, Effect.Browser.Navigation.pushUrl model.navigationKey (Url.toString url) ]
+                    , Command.batch [ cmd, Effect.Browser.Navigation.pushUrl model.navigationKey (Route.encode route) ]
                     )
 
                 Browser.External url ->
@@ -726,7 +726,7 @@ subscriptions _ model =
             Loading _ ->
                 Subscription.none
 
-            Loaded _ ->
+            Loaded loaded ->
                 Subscription.batch
                     [ Subscription.map KeyMsg Keyboard.subscriptions
                     , Effect.Browser.Events.onAnimationFrame AnimationFrame
