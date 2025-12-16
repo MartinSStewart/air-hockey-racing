@@ -1807,27 +1807,39 @@ maxThrowDistance =
 throwVelocity : Direction2d WorldCoordinate -> Length -> Vector3d MetersPerSecond WorldCoordinate
 throwVelocity direction distance =
     let
-        -- Use 45-degree launch angle for optimal range
-        -- For projectile motion: range ≈ v²/g (simplified)
-        -- So v ≈ sqrt(distance * g)
+        -- Constant throw speed: the speed needed to achieve maxThrowDistance at 45°
+        -- For projectile motion: R_max = v² / |g| at 45°, so v = sqrt(R_max * |g|)
         g =
-            Acceleration.inMetersPerSecondSquared gravity
+            Acceleration.inMetersPerSecondSquared gravity |> abs
 
+        rMax =
+            Length.inMeters maxThrowDistance
+
+        speed =
+            sqrt (rMax * g)
+
+        -- For a target distance d, we need to find angle θ such that:
+        -- d = v² * sin(2θ) / g
+        -- sin(2θ) = d * g / v² = d / R_max
+        -- θ = arcsin(d / R_max) / 2
         d =
             Length.inMeters distance
 
-        -- Calculate speed needed for the distance
-        speed =
-            sqrt (d * -g)
+        -- Clamp the ratio to avoid domain errors with arcsin
+        distanceRatio =
+            clamp 0 1 (d / rMax)
 
-        -- At 45 degrees, horizontal and vertical components are equal
-        -- horizontal speed = speed * cos(45°) = speed / sqrt(2)
-        -- vertical speed = speed * sin(45°) = speed / sqrt(2)
+        -- Calculate launch angle (in radians)
+        -- For shorter distances, we get a steeper angle
+        launchAngle =
+            asin distanceRatio / 2
+
+        -- Velocity components
         horizontalSpeed =
-            speed / sqrt 2
+            speed * cos launchAngle
 
         verticalSpeed =
-            speed / sqrt 2
+            speed * sin launchAngle
 
         -- Get the 2D direction components
         ( dirX, dirY ) =
