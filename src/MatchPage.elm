@@ -613,6 +613,7 @@ view config model =
                                     :: Ui.htmlAttribute (Html.Events.Extra.Pointer.onDown PointerDown)
                                     :: Ui.htmlAttribute (Html.Events.Extra.Pointer.onUp PointerUp)
                                     :: Ui.htmlAttribute (Html.Events.Extra.Pointer.onLeave PointerLeave)
+                                    :: Ui.id "canvas"
                                     :: Ui.inFront (desyncWarning matchData.desyncedAtFrame)
                                     :: Ui.inFront
                                         (Ui.el

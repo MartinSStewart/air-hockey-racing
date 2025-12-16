@@ -8,21 +8,24 @@ import Effect.Browser.Dom as Dom
 import Effect.Lamdera as Lamdera exposing (ClientId, SessionId)
 import Effect.Test as T exposing (DelayInMs, FileUpload(..), HttpRequest, HttpResponse(..), MultipleFilesUpload(..))
 import Frontend
-import Id
+import Id exposing (Id)
 import Json.Decode
 import Json.Encode
-import Match
+import Length exposing (Meters)
+import List.Extra
+import List.Nonempty
+import Match exposing (MatchState, WorldCoordinate)
 import MatchPage exposing (MatchId, MatchLocalOnly(..))
-import Point2d
+import Point2d exposing (Point2d)
 import Route
-import SeqDict
+import SeqDict exposing (SeqDict)
 import Test.Html.Query
 import Test.Html.Selector
 import Time
-import Timeline
+import Timeline exposing (FrameId)
 import Types exposing (BackendModel, BackendMsg, FrontendModel, FrontendModel_(..), FrontendMsg, Page(..), ToBackend, ToFrontend)
-import User
 import Url exposing (Url)
+import User exposing (UserId)
 
 
 setup : T.ViewerWith (List (T.EndToEndTest ToBackend FrontendMsg FrontendModel ToFrontend BackendMsg BackendModel))
@@ -204,9 +207,20 @@ tests fileData =
                     (\userB ->
                         [ handleAudioPorts userB
                         , userB.clickLink 500 (Route.encode (Route.InMatchRoute (Id.fromInt 0)))
+                        , userA.click 100 (Dom.id "startMatchSetup")
+                        , userA.pointerDown 100 (Dom.id "canvas") ( 500, 100 ) []
+                        , userA.pointerUp 100 (Dom.id "canvas") ( 500, 100 ) []
+                        , checkPlayersInSync 5000
                         ]
                     )
-                , userA.click 100 (Dom.id "startMatchSetup")
+                , T.connectFrontend
+                    100
+                    sessionId1
+                    (Route.encode (Route.InMatchRoute (Id.fromInt 0)))
+                    desktopWindow
+                    (\userB ->
+                        [ handleAudioPorts userB, checkPlayersInSync 5000 ]
+                    )
                 ]
             )
         ]
@@ -233,18 +247,10 @@ checkPlayersInSync delay =
     T.checkState delay
         (\data ->
             let
-                -- Extract active match data from each frontend
-                -- Returns list of (matchId, clientId, frameId, playerPositions)
-                frontendMatchData :
-                    List
-                        { matchId : Id.Id MatchId
-                        , clientId : ClientId
-                        , frameId : Id.Id Timeline.FrameId
-                        , positions : SeqDict.SeqDict (Id.Id User.UserId) { x : Float, y : Float }
-                        }
+                frontendMatchData : List { matchId : Id MatchId, frameId : Id FrameId, state : MatchState }
                 frontendMatchData =
                     SeqDict.toList data.frontends
-                        |> List.filterMap
+                        |> List.concatMap
                             (\( clientId, frontendModel ) ->
                                 case Audio.getUserModel frontendModel of
                                     Loaded loaded ->
@@ -254,169 +260,34 @@ checkPlayersInSync delay =
                                                     MatchActiveLocal activeLocal ->
                                                         case activeLocal.timelineCache of
                                                             Ok cache ->
-                                                                let
-                                                                    ( frameId, state ) =
-                                                                        Timeline.getOldestCachedState cache
-                                                                in
-                                                                Just
-                                                                    { matchId = matchPage.lobbyId
-                                                                    , clientId = clientId
-                                                                    , frameId = frameId
-                                                                    , positions =
-                                                                        SeqDict.map
-                                                                            (\_ player ->
-                                                                                Point2d.toMeters player.position
-                                                                            )
-                                                                            state.players
-                                                                    }
+                                                                List.map
+                                                                    (\( frameId, state ) ->
+                                                                        { matchId = matchPage.lobbyId
+                                                                        , frameId = frameId
+                                                                        , state = state
+                                                                        }
+                                                                    )
+                                                                    (List.Nonempty.toList cache.cache)
 
                                                             Err _ ->
-                                                                Nothing
+                                                                []
 
                                                     MatchSetupLocal _ ->
-                                                        Nothing
+                                                        []
 
                                             _ ->
-                                                Nothing
+                                                []
 
                                     Loading _ ->
-                                        Nothing
-                            )
-
-                -- Group frontends by matchId
-                groupedByMatch :
-                    List
-                        ( Id.Id MatchId
-                        , List
-                            { clientId : ClientId
-                            , frameId : Id.Id Timeline.FrameId
-                            , positions : SeqDict.SeqDict (Id.Id User.UserId) { x : Float, y : Float }
-                            }
-                        )
-                groupedByMatch =
-                    frontendMatchData
-                        |> List.foldl
-                            (\item acc ->
-                                let
-                                    existing =
-                                        List.filter (\( mid, _ ) -> mid == item.matchId) acc
-                                            |> List.head
-                                            |> Maybe.map Tuple.second
-                                            |> Maybe.withDefault []
-
-                                    newItem =
-                                        { clientId = item.clientId
-                                        , frameId = item.frameId
-                                        , positions = item.positions
-                                        }
-                                in
-                                case existing of
-                                    [] ->
-                                        ( item.matchId, [ newItem ] ) :: acc
-
-                                    _ ->
-                                        List.map
-                                            (\( mid, items ) ->
-                                                if mid == item.matchId then
-                                                    ( mid, newItem :: items )
-
-                                                else
-                                                    ( mid, items )
-                                            )
-                                            acc
-                            )
-                            []
-
-                -- Check each match group for sync issues
-                syncErrors : List String
-                syncErrors =
-                    groupedByMatch
-                        |> List.concatMap
-                            (\( matchId, frontends ) ->
-                                case frontends of
-                                    [] ->
                                         []
-
-                                    [ _ ] ->
-                                        -- Only one frontend, nothing to compare
-                                        []
-
-                                    first :: rest ->
-                                        -- Compare all frontends against the first one
-                                        -- Only compare at the minimum common frameId
-                                        let
-                                            minFrameId =
-                                                List.foldl
-                                                    (\f minId ->
-                                                        if Id.toInt f.frameId < Id.toInt minId then
-                                                            f.frameId
-
-                                                        else
-                                                            minId
-                                                    )
-                                                    first.frameId
-                                                    rest
-
-                                            -- Get positions at minFrameId (use cached positions as approximation)
-                                            positionsMatch pos1 pos2 =
-                                                let
-                                                    tolerance =
-                                                        0.001
-                                                in
-                                                abs (pos1.x - pos2.x)
-                                                    < tolerance
-                                                    && abs (pos1.y - pos2.y)
-                                                    < tolerance
-
-                                            comparePositions refPositions other =
-                                                SeqDict.toList refPositions
-                                                    |> List.filterMap
-                                                        (\( userId, refPos ) ->
-                                                            case SeqDict.get userId other.positions of
-                                                                Just otherPos ->
-                                                                    if positionsMatch refPos otherPos then
-                                                                        Nothing
-
-                                                                    else
-                                                                        Just
-                                                                            ("Player "
-                                                                                ++ String.fromInt (Id.toInt userId)
-                                                                                ++ " position mismatch: ("
-                                                                                ++ String.fromFloat refPos.x
-                                                                                ++ ", "
-                                                                                ++ String.fromFloat refPos.y
-                                                                                ++ ") vs ("
-                                                                                ++ String.fromFloat otherPos.x
-                                                                                ++ ", "
-                                                                                ++ String.fromFloat otherPos.y
-                                                                                ++ ")"
-                                                                            )
-
-                                                                Nothing ->
-                                                                    -- Player not found in other frontend
-                                                                    Just
-                                                                        ("Player "
-                                                                            ++ String.fromInt (Id.toInt userId)
-                                                                            ++ " missing in other frontend"
-                                                                        )
-                                                        )
-                                        in
-                                        rest
-                                            |> List.concatMap (comparePositions first.positions)
-                                            |> List.map
-                                                (\err ->
-                                                    "Match "
-                                                        ++ String.fromInt (Id.toInt matchId)
-                                                        ++ " at frame "
-                                                        ++ String.fromInt (Id.toInt minFrameId)
-                                                        ++ ": "
-                                                        ++ err
-                                                )
                             )
             in
-            if List.isEmpty syncErrors then
+            if
+                List.Extra.gatherEqualsBy (\a -> ( a.matchId, a.frameId )) frontendMatchData
+                    |> List.all (\( head, rest ) -> List.all (\a -> a == head) rest)
+            then
                 Ok ()
 
             else
-                Err (String.join "\n" syncErrors)
+                Err "Players are no longer in sync"
         )

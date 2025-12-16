@@ -1,4 +1,4 @@
-module Backend exposing (app, app_)
+module Backend exposing (app, app_, latestFrameThatWontChange)
 
 import Effect.Command as Command exposing (BackendOnly, Command)
 import Effect.Lamdera exposing (ClientId, SessionId)

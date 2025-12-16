@@ -1176,6 +1176,7 @@ view config model =
                 }
                 MouseDown
             )
+        , Ui.id "editorCanvas"
         , Ui.htmlAttribute (Html.Events.Extra.Mouse.onUp MouseUp)
         , Ui.htmlAttribute (Html.Events.Extra.Mouse.onMove MouseMoved)
         , Ui.htmlAttribute (Html.Events.Extra.Mouse.onLeave MouseLeft)
