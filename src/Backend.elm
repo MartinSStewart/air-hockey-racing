@@ -394,11 +394,11 @@ matchSetupRequest currentTime lobbyId userId eventId clientId matchSetupMsg mode
                                 Nothing ->
                                     ( { model2 | lobbies = SeqDict.insert lobbyId matchWithJoinedUser model2.lobbies }
                                     , Command.batch
-                                        [ JoinedLobby match
+                                        [ JoinedLobby matchWithJoinedUser
                                             |> JoinLobbyResponse lobbyId
                                             |> Effect.Lamdera.sendToFrontend clientId
                                         , matchSetupBroadcast model2
-                                        , newPreview lobbyId match matchSetup2
+                                        , newPreview lobbyId matchWithJoinedUser matchSetup2
                                         ]
                                     )
 
