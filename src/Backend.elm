@@ -1,5 +1,6 @@
-module Backend exposing (app, app_, latestFrameThatWontChange)
+module Backend exposing (app, app_)
 
+import Duration
 import Effect.Command as Command exposing (BackendOnly, Command)
 import Effect.Lamdera exposing (ClientId, SessionId)
 import Effect.Subscription as Subscription exposing (Subscription)
@@ -372,7 +373,9 @@ matchSetupRequest currentTime lobbyId userId eventId clientId matchSetupMsg mode
                                     let
                                         latestFrameThatWontChange2 : Id FrameId
                                         latestFrameThatWontChange2 =
-                                            latestFrameThatWontChange matchActive.timeline
+                                            Match.serverTimeToFrameId
+                                                (Match.serverTimeAdd (Quantity.negate Match.maxInputDelay) currentTime)
+                                                matchActive
                                     in
                                     ( { model2
                                         | joiningActiveMatch =
@@ -431,24 +434,6 @@ matchSetupRequest currentTime lobbyId userId eventId clientId matchSetupMsg mode
             ( model
             , JoinLobbyResponse lobbyId (JoinLobbyError MatchNotFound) |> Effect.Lamdera.sendToFrontend clientId
             )
-
-
-{-| The most recent point in the timeline that we know can't change thanks to Match.clampTime
--}
-latestFrameThatWontChange : Timeline event -> Id FrameId
-latestFrameThatWontChange timeline =
-    case
-        SeqSet.toList timeline
-            |> List.Extra.maximumBy (\( frameId2, _ ) -> Id.toInt frameId2)
-    of
-        Just ( frameId2, _ ) ->
-            Id.toInt frameId2
-                - ceiling (Quantity.ratio Match.maxInputDelay Match.frameDuration)
-                |> max 0
-                |> Id.fromInt
-
-        Nothing ->
-            Id.fromInt 0
 
 
 newPreview : Id MatchId -> Match -> Match -> Command BackendOnly ToFrontend BackendMsg

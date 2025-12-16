@@ -188,7 +188,7 @@ tests fileData =
                 domain
     in
     [ T.start
-        "Normal game"
+        "User rejoins game"
         startTime
         config
         [ T.connectFrontend
@@ -210,6 +210,8 @@ tests fileData =
                         , userA.click 100 (Dom.id "startMatchSetup")
                         , userA.pointerDown 100 (Dom.id "canvas") ( 500, 100 ) []
                         , userA.pointerUp 100 (Dom.id "canvas") ( 500, 100 ) []
+                        , userB.pointerDown 100 (Dom.id "canvas") ( 500, 400 ) []
+                        , userB.pointerUp 100 (Dom.id "canvas") ( 500, 400 ) []
                         , checkPlayersInSync 5000
                         ]
                     )
@@ -219,7 +221,50 @@ tests fileData =
                     (Route.encode (Route.InMatchRoute (Id.fromInt 0)))
                     desktopWindow
                     (\userB ->
-                        [ handleAudioPorts userB, checkPlayersInSync 5000 ]
+                        [ handleAudioPorts userB
+                        , checkPlayersInSync 5000
+                        ]
+                    )
+                ]
+            )
+        ]
+    , T.start
+        "Owner rejoins game"
+        startTime
+        config
+        [ T.connectFrontend
+            100
+            sessionId0
+            "/"
+            desktopWindow
+            (\userA ->
+                [ handleAudioPorts userA
+                , T.connectFrontend
+                    100
+                    sessionId1
+                    "/"
+                    desktopWindow
+                    (\userB ->
+                        [ handleAudioPorts userB
+                        , userB.click 500 (Dom.id "createNewMatch")
+                        , userA.clickLink 500 (Route.encode (Route.InMatchRoute (Id.fromInt 0)))
+                        , userB.click 100 (Dom.id "startMatchSetup")
+                        , userA.pointerDown 100 (Dom.id "canvas") ( 500, 100 ) []
+                        , userA.pointerUp 100 (Dom.id "canvas") ( 500, 100 ) []
+                        , userB.pointerDown 100 (Dom.id "canvas") ( 500, 400 ) []
+                        , userB.pointerUp 100 (Dom.id "canvas") ( 500, 400 ) []
+                        , checkPlayersInSync 5000
+                        ]
+                    )
+                , T.connectFrontend
+                    100
+                    sessionId1
+                    (Route.encode (Route.InMatchRoute (Id.fromInt 0)))
+                    desktopWindow
+                    (\userB ->
+                        [ handleAudioPorts userB
+                        , checkPlayersInSync 5000
+                        ]
                     )
                 ]
             )
@@ -247,6 +292,9 @@ checkPlayersInSync delay =
     T.checkState delay
         (\data ->
             let
+                _ =
+                    Debug.log "a" (SeqDict.size data.frontends)
+
                 frontendMatchData : List { matchId : Id MatchId, frameId : Id FrameId, state : MatchState }
                 frontendMatchData =
                     SeqDict.toList data.frontends

@@ -33,6 +33,7 @@ module Match exposing
     , name
     , preview
     , previousMatchFinishTimes
+    , serverTimeAdd
     , serverTimeToFrameId
     , unwrapServerTime
     )
@@ -186,6 +187,11 @@ clampTime (ServerTime currentTime) (ServerTime time) =
         (Time.posixToMillis time)
         |> Time.millisToPosix
         |> ServerTime
+
+
+serverTimeAdd : Duration -> ServerTime -> ServerTime
+serverTimeAdd duration (ServerTime serverTime) =
+    Duration.addTo serverTime duration |> ServerTime
 
 
 type PlayerMode
