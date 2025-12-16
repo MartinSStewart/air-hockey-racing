@@ -192,7 +192,7 @@ idCodec =
 dictCodec : Codec e k -> Codec e v -> Codec e (SeqDict k v)
 dictCodec keyCodec valueCodec =
     Serialize.list (Serialize.tuple keyCodec valueCodec)
-        |> Serialize.map (List.reverse >> SeqDict.fromList) SeqDict.toList
+        |> Serialize.map SeqDict.fromList SeqDict.toList
 
 
 layerCodec : Codec e Layer
