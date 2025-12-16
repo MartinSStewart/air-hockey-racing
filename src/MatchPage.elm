@@ -1253,38 +1253,15 @@ canvasViewHelper model matchSetup canvasSize =
                                                         case Direction2d.from player.position clickStart.position of
                                                             Just direction ->
                                                                 let
-                                                                    charge =
-                                                                        throwCharge elapsed
-
-                                                                    arrowScale =
-                                                                        0.2 + 0.4 * charge
-
-                                                                    angle =
-                                                                        Direction2d.toAngle direction
-                                                                            |> Angle.inRadians
-                                                                            |> (\a -> a + pi / 2)
-
                                                                     targetPosition =
                                                                         Point2d.translateBy
                                                                             (Vector2d.withLength (throwDistance elapsed) direction)
                                                                             player.position
 
                                                                     reticleScale =
-                                                                        0.15 + 0.15 * charge
+                                                                        0.15 + 0.15 * throwCharge elapsed
                                                                 in
-                                                                [ --WebGL.entityWith
-                                                                  --    [ WebGL.Settings.cullFace WebGL.Settings.back ]
-                                                                  --    vertexShader
-                                                                  --    fragmentShader
-                                                                  --    chargingArrow
-                                                                  --    { view = viewMatrix
-                                                                  --    , model =
-                                                                  --        pointToMatrix player.position
-                                                                  --            |> Mat4.rotate angle (Math.Vector3.vec3 0 0 1)
-                                                                  --            |> Mat4.translate3 0 (-0.5 - arrowScale * 3) 0
-                                                                  --            |> Mat4.scale3 arrowScale arrowScale arrowScale
-                                                                  --    }
-                                                                  WebGL.entityWith
+                                                                [ WebGL.entityWith
                                                                     [ WebGL.Settings.cullFace WebGL.Settings.back ]
                                                                     vertexShader
                                                                     fragmentShader
@@ -1822,6 +1799,11 @@ snowballStartHeight =
     Length.meters 1
 
 
+maxThrowDistance : Length
+maxThrowDistance =
+    Length.meters 10
+
+
 throwVelocity : Direction2d WorldCoordinate -> Length -> Vector3d MetersPerSecond WorldCoordinate
 throwVelocity direction distance =
     let
@@ -1859,12 +1841,24 @@ throwVelocity direction distance =
 
 throwCharge : Duration -> Float
 throwCharge clickStartElapsed =
-    Quantity.ratio (clickStartElapsed |> Quantity.minus clickMoveMaxDelay) chargeMaxDelay
+    let
+        t : Float
+        t =
+            Quantity.ratio (clickStartElapsed |> Quantity.minus clickMoveMaxDelay) chargeMaxDelay
+
+        offset =
+            0.1
+    in
+    if t < 0.5 then
+        (t * 2) * (1 - offset) + offset
+
+    else
+        (2 - t * 2) * (1 - offset) + offset
 
 
 throwDistance : Duration -> Length
 throwDistance clickStartElapsed =
-    throwCharge clickStartElapsed * 10 + 0.1 |> Length.meters
+    Quantity.multiplyBy (throwCharge clickStartElapsed) maxThrowDistance
 
 
 updateVelocities : Id FrameId -> SeqDict (Id UserId) Player -> SeqDict (Id UserId) Player
