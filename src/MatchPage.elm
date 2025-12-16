@@ -1,6 +1,6 @@
 module MatchPage exposing
     ( MatchId
-    , MatchLocalOnly
+    , MatchLocalOnly(..)
     , Model
     , Mouse
     , Msg
