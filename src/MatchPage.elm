@@ -84,7 +84,7 @@ import RasterShapes
 import Rectangle2d exposing (Rectangle2d)
 import SeqDict exposing (SeqDict)
 import SeqSet exposing (SeqSet)
-import Shape
+import Shape exposing (RenderableShape)
 import Size exposing (Size)
 import Sounds exposing (Sounds)
 import Speed exposing (MetersPerSecond)
@@ -1161,7 +1161,11 @@ canvasViewHelper model matchSetup canvasSize =
         ( Just match, MatchActiveLocal matchData ) ->
             case matchData.timelineCache of
                 Ok cache ->
-                    case Timeline.getStateAt gameUpdate (timeToFrameId model match) cache match.timeline of
+                    let
+                        frameId =
+                            timeToFrameId model match
+                    in
+                    case Timeline.getStateAt gameUpdate frameId cache match.timeline of
                         Ok ( _, state ) ->
                             let
                                 zoom : Float
@@ -1186,16 +1190,33 @@ canvasViewHelper model matchSetup canvasSize =
                                 playerRadius_ : Float
                                 playerRadius_ =
                                     Length.inMeters playerRadius
+
+                                secondsElapsed =
+                                    frameTimeElapsed (Id.fromInt 0) frameId |> Duration.inSeconds |> floor
                             in
-                            WebGL.entityWith
-                                [ WebGL.Settings.cullFace WebGL.Settings.back ]
-                                vertexShader
-                                fragmentShader
-                                matchData.wallMesh
-                                { view = viewMatrix
-                                , model = Mat4.identity
-                                }
-                                :: List.concatMap
+                            (case secondsElapsed of
+                                0 ->
+                                    drawShape 0.01 Point2d.origin viewMatrix Shape.three
+
+                                1 ->
+                                    drawShape 0.01 Point2d.origin viewMatrix Shape.two
+
+                                2 ->
+                                    drawShape 0.01 Point2d.origin viewMatrix Shape.one
+
+                                _ ->
+                                    []
+                            )
+                                ++ [ WebGL.entityWith
+                                        [ WebGL.Settings.cullFace WebGL.Settings.back ]
+                                        vertexShader
+                                        fragmentShader
+                                        matchData.wallMesh
+                                        { view = viewMatrix
+                                        , model = Mat4.identity
+                                        }
+                                   ]
+                                ++ List.concatMap
                                     (\( userId, player ) ->
                                         drawPlayer
                                             (timeToFrameId model match)
@@ -1364,23 +1385,17 @@ drawPlayer frameId userId matchData viewMatrix player playerRadius_ =
                                         0
                                         0.002
                             in
-                            (case lastEmote.emote of
-                                SurpriseEmote ->
-                                    Shape.surprise.layers
+                            drawShape
+                                emojiSize
+                                (Point2d.translateBy (Vector2d.meters 0.4 0.3) player.position)
+                                viewMatrix
+                                (case lastEmote.emote of
+                                    SurpriseEmote ->
+                                        Shape.surprise
 
-                                ImpEmote ->
-                                    Shape.imp.layers
-                            )
-                                |> List.concatMap
-                                    (\layer ->
-                                        FontRender.drawLayer
-                                            layer.color
-                                            layer.mesh
-                                            (pointToMatrix (Point2d.translateBy (Vector2d.meters 0.4 0.3) player.position)
-                                                |> Mat4.scale3 emojiSize emojiSize 0.01
-                                            )
-                                            viewMatrix
-                                    )
+                                    ImpEmote ->
+                                        Shape.imp
+                                )
 
                         Nothing ->
                             []
@@ -1388,6 +1403,19 @@ drawPlayer frameId userId matchData viewMatrix player playerRadius_ =
 
         Nothing ->
             []
+
+
+drawShape : Float -> Point2d units coordinates -> Mat4 -> RenderableShape -> List WebGL.Entity
+drawShape scale position viewMatrix shape =
+    List.concatMap
+        (\layer ->
+            FontRender.drawLayer
+                layer.color
+                layer.mesh
+                (pointToMatrix position |> Mat4.scale3 scale scale 0.01)
+                viewMatrix
+        )
+        shape.layers
 
 
 toFrom : Duration -> Duration -> Easing -> Float -> Float -> Float
