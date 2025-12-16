@@ -1807,39 +1807,49 @@ maxThrowDistance =
 throwVelocity : Direction2d WorldCoordinate -> Length -> Vector3d MetersPerSecond WorldCoordinate
 throwVelocity direction distance =
     let
-        -- Constant throw speed: the speed needed to achieve maxThrowDistance at 45°
-        -- For projectile motion: R_max = v² / |g| at 45°, so v = sqrt(R_max * |g|)
+        -- For projectile motion starting at height h above ground:
+        -- The ball lands when y = 0, giving flight time from quadratic formula
+        -- Range at 45°: R_45 = v*(v + sqrt(v² + 4gh)) / (2g)
+        -- Solving R_45 = R_max gives: v² = g*R_max² / (R_max + h)
         g =
             Acceleration.inMetersPerSecondSquared gravity |> abs
+
+        h =
+            Length.inMeters snowballStartHeight
 
         rMax =
             Length.inMeters maxThrowDistance
 
-        speed =
-            sqrt (rMax * g)
+        -- Constant throw speed calibrated so 45° gives maxThrowDistance
+        vSquared =
+            g * rMax * rMax / (rMax + h)
 
-        -- For a target distance d, we need to find angle θ such that:
-        -- d = v² * sin(2θ) / g
-        -- sin(2θ) = d * g / v² = d / R_max
-        -- θ = arcsin(d / R_max) / 2
+        v =
+            sqrt vSquared
+
         d =
-            Length.inMeters distance
+            Length.inMeters distance |> clamp 0.001 rMax
 
-        -- Clamp the ratio to avoid domain errors with arcsin
-        distanceRatio =
-            clamp 0 1 (d / rMax)
+        -- Find launch angle using the trajectory equation:
+        -- g*d²*tan²(θ) - 2*v²*d*tan(θ) + (g*d² - 2*v²*h) = 0
+        -- Discriminant: D = v⁴ + 2*g*v²*h - g²*d²
+        -- tan(θ) = (v² ± sqrt(D)) / (g*d)
+        -- Use + solution to get θ = 45° when d = R_max
+        discriminant =
+            vSquared * vSquared + 2 * g * vSquared * h - g * g * d * d
 
-        -- Calculate launch angle (in radians)
-        -- For shorter distances, we get a steeper angle
+        tanTheta =
+            (vSquared + sqrt (max 0 discriminant)) / (g * d)
+
         launchAngle =
-            asin distanceRatio / 2
+            atan tanTheta
 
         -- Velocity components
         horizontalSpeed =
-            speed * cos launchAngle
+            v * cos launchAngle
 
         verticalSpeed =
-            speed * sin launchAngle
+            v * sin launchAngle
 
         -- Get the 2D direction components
         ( dirX, dirY ) =
