@@ -392,7 +392,7 @@ updateLoadedFromBackend msg model =
                 MainLobbyPage _ ->
                     let
                         ( match, cmd ) =
-                            MatchPage.init lobbyId lobby
+                            MatchPage.init lobbyId lobby Nothing
                     in
                     ( { model | page = MatchPage match }
                     , Command.batch
@@ -409,7 +409,7 @@ updateLoadedFromBackend msg model =
                 MainLobbyPage lobbyPage ->
                     case result of
                         JoinedLobby lobby ->
-                            MatchPage.init lobbyId lobby
+                            MatchPage.init lobbyId lobby Nothing
                                 |> Tuple.mapBoth
                                     (\a -> { model | page = MatchPage a })
                                     (\cmd -> Command.map identity MatchPageMsg cmd)
@@ -420,7 +420,7 @@ updateLoadedFromBackend msg model =
                             )
 
                         JoinedActiveMatch match frameId matchState ->
-                            MatchPage.init lobbyId match
+                            MatchPage.init lobbyId match (Just ( frameId, matchState ))
                                 |> Tuple.mapBoth
                                     (\a -> { model | page = MatchPage a })
                                     (\cmd -> Command.map identity MatchPageMsg cmd)

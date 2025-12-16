@@ -222,7 +222,7 @@ tests fileData =
                     desktopWindow
                     (\userB ->
                         [ handleAudioPorts userB
-                        , checkPlayersInSync 5000
+                        , checkPlayersInSync 500
                         ]
                     )
                 ]
@@ -263,7 +263,7 @@ tests fileData =
                     desktopWindow
                     (\userB ->
                         [ handleAudioPorts userB
-                        , checkPlayersInSync 5000
+                        , checkPlayersInSync 500
                         ]
                     )
                 ]
@@ -292,9 +292,6 @@ checkPlayersInSync delay =
     T.checkState delay
         (\data ->
             let
-                _ =
-                    Debug.log "a" (SeqDict.size data.frontends)
-
                 frontendMatchData : List { matchId : Id MatchId, frameId : Id FrameId, state : MatchState }
                 frontendMatchData =
                     SeqDict.toList data.frontends
@@ -321,6 +318,9 @@ checkPlayersInSync delay =
                                                                 []
 
                                                     MatchSetupLocal _ ->
+                                                        []
+
+                                                    MatchError ->
                                                         []
 
                                             _ ->

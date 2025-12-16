@@ -371,8 +371,8 @@ matchSetupRequest currentTime lobbyId userId eventId clientId matchSetupMsg mode
                             case Match.matchActive match of
                                 Just matchActive ->
                                     let
-                                        latestFrameThatWontChange2 : Id FrameId
-                                        latestFrameThatWontChange2 =
+                                        latestFrameThatWontChange : Id FrameId
+                                        latestFrameThatWontChange =
                                             Match.serverTimeToFrameId
                                                 (Match.serverTimeAdd (Quantity.negate Match.maxInputDelay) currentTime)
                                                 matchActive
@@ -380,7 +380,7 @@ matchSetupRequest currentTime lobbyId userId eventId clientId matchSetupMsg mode
                                     ( { model2
                                         | joiningActiveMatch =
                                             SeqDict.update
-                                                ( lobbyId, latestFrameThatWontChange2 )
+                                                ( lobbyId, latestFrameThatWontChange )
                                                 (\maybe ->
                                                     case maybe of
                                                         Just nonempty ->
@@ -391,7 +391,7 @@ matchSetupRequest currentTime lobbyId userId eventId clientId matchSetupMsg mode
                                                 )
                                                 model2.joiningActiveMatch
                                       }
-                                    , broadcastToMatch match (MatchPage.NeedCurrentCacheBroadcast lobbyId latestFrameThatWontChange2) model2
+                                    , broadcastToMatch match (MatchPage.NeedCurrentCacheBroadcast lobbyId latestFrameThatWontChange) model2
                                     )
 
                                 Nothing ->

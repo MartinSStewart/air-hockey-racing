@@ -136,6 +136,7 @@ type MatchId
 type MatchLocalOnly
     = MatchSetupLocal MatchSetupLocal_
     | MatchActiveLocal MatchActiveLocal_
+    | MatchError
 
 
 type alias Model =
@@ -145,8 +146,8 @@ type alias Model =
     }
 
 
-init : Id MatchId -> Match -> ( Model, Command FrontendOnly toMsg Msg )
-init lobbyId lobby =
+init : Id MatchId -> Match -> Maybe ( Id FrameId, MatchState ) -> ( Model, Command FrontendOnly toMsg Msg )
+init lobbyId lobby maybeCache =
     let
         networkModel : NetworkModel { userId : Id UserId, msg : Match.Msg } Match
         networkModel =
@@ -155,11 +156,16 @@ init lobbyId lobby =
     ( { lobbyId = lobbyId
       , networkModel = networkModel
       , matchData =
-            updateMatchData
-                Match.JoinMatchSetup
-                networkModel
-                networkModel
-                (initMatchSetupData lobby |> MatchSetupLocal)
+            case ( Match.matchActive lobby, maybeCache ) of
+                ( Just { startTime, timeline }, Just cache ) ->
+                    initMatchData startTime (Match.allUsersAndBots lobby) (Just cache)
+                        |> MatchActiveLocal
+
+                ( Nothing, Nothing ) ->
+                    initMatchSetupData lobby |> MatchSetupLocal
+
+                _ ->
+                    MatchError
       }
     , scrollToBottom
     )
@@ -232,6 +238,9 @@ update config msg model =
 
                         MatchSetupLocal matchSetupData ->
                             { matchSetupData | matchName = matchName } |> MatchSetupLocal
+
+                        MatchError ->
+                            MatchError
               }
             , Command.none
             )
@@ -253,6 +262,9 @@ update config msg model =
                                         |> MatchName.toString
                             }
                                 |> MatchSetupLocal
+
+                        MatchError ->
+                            MatchError
               }
             , Command.none
             )
@@ -266,6 +278,9 @@ update config msg model =
 
                         MatchSetupLocal matchSetupData ->
                             { matchSetupData | message = text } |> MatchSetupLocal
+
+                        MatchError ->
+                            MatchError
               }
             , Command.none
             )
@@ -282,6 +297,9 @@ update config msg model =
 
                             MatchSetupLocal matchSetupData ->
                                 { matchSetupData | message = "" } |> MatchSetupLocal
+
+                            MatchError ->
+                                MatchError
                 }
                 |> Tuple.mapSecond (\cmd -> Command.batch [ cmd, scrollToBottom ])
 
@@ -294,6 +312,9 @@ update config msg model =
 
                         MatchSetupLocal matchSetupData ->
                             { matchSetupData | maxPlayers = maxPlayersText } |> MatchSetupLocal
+
+                        MatchError ->
+                            MatchError
               }
             , Command.none
             )
@@ -315,6 +336,9 @@ update config msg model =
                                         |> String.fromInt
                             }
                                 |> MatchSetupLocal
+
+                        MatchError ->
+                            MatchError
               }
             , Command.none
             )
@@ -336,6 +360,9 @@ update config msg model =
 
                         MatchSetupLocal _ ->
                             model.matchData
+
+                        MatchError ->
+                            MatchError
               }
             , Command.none
             )
@@ -357,6 +384,9 @@ update config msg model =
 
                         MatchSetupLocal _ ->
                             model.matchData
+
+                        MatchError ->
+                            MatchError
               }
             , Command.none
             )
@@ -374,6 +404,9 @@ update config msg model =
 
                         MatchSetupLocal _ ->
                             model.matchData
+
+                        MatchError ->
+                            MatchError
               }
             , Command.none
             )
@@ -394,6 +427,9 @@ update config msg model =
 
                         MatchSetupLocal _ ->
                             model.matchData
+
+                        MatchError ->
+                            MatchError
               }
             , Command.none
             )
@@ -415,6 +451,9 @@ update config msg model =
 
                                 MatchSetupLocal matchSetupData ->
                                     { matchSetupData | botCount = text } |> MatchSetupLocal
+
+                                MatchError ->
+                                    MatchError
                     }
             in
             case validateBotCount text of
@@ -535,6 +574,9 @@ updateFromBackend msg matchSetup =
 
                             MatchSetupLocal _ ->
                                 matchSetup.matchData
+
+                            MatchError ->
+                                MatchError
                 }
 
               else
@@ -2230,6 +2272,36 @@ backgroundFragmentShader =
     |]
 
 
+initMatchData : ServerTime -> Nonempty ( Id UserId, PlayerData ) -> Maybe ( Id FrameId, MatchState ) -> MatchActiveLocal_
+initMatchData serverTime newUserIds maybeTimelineCache =
+    { timelineCache =
+        case maybeTimelineCache of
+            Just timelineCache ->
+                { cache = List.Nonempty.singleton timelineCache } |> Ok
+
+            Nothing ->
+                initMatch serverTime newUserIds |> Timeline.init |> Ok
+    , userIds =
+        List.Nonempty.toList newUserIds
+            |> List.filterMap
+                (\( id, playerData ) ->
+                    case playerData.mode of
+                        PlayerMode ->
+                            Just ( id, playerMesh playerData )
+
+                        SpectatorMode ->
+                            Nothing
+                )
+            |> SeqDict.fromList
+    , wallMesh = lineSegmentMesh (Math.Vector3.vec3 1 0 0) wallSegments
+    , touchPosition = Nothing
+    , previousTouchPosition = Nothing
+    , primaryDown = Nothing
+    , previousPrimaryDown = Nothing
+    , desyncedAtFrame = Nothing
+    }
+
+
 updateMatchData :
     Match.Msg
     -> NetworkModel { userId : Id UserId, msg : Match.Msg } Match
@@ -2245,34 +2317,6 @@ updateMatchData newMsg newNetworkModel oldNetworkModel oldMatchData =
         oldMatchState : Match
         oldMatchState =
             NetworkModel.localState Match.matchSetupUpdate oldNetworkModel
-
-        newUserIds : Nonempty ( Id UserId, PlayerData )
-        newUserIds =
-            Match.allUsersAndBots newMatchState
-
-        initHelper : ServerTime -> MatchLocalOnly
-        initHelper serverTime =
-            { timelineCache = initMatch serverTime newUserIds |> Timeline.init |> Ok
-            , userIds =
-                List.Nonempty.toList newUserIds
-                    |> List.filterMap
-                        (\( id, playerData ) ->
-                            case playerData.mode of
-                                PlayerMode ->
-                                    Just ( id, playerMesh playerData )
-
-                                SpectatorMode ->
-                                    Nothing
-                        )
-                    |> SeqDict.fromList
-            , wallMesh = lineSegmentMesh (Math.Vector3.vec3 1 0 0) wallSegments
-            , touchPosition = Nothing
-            , previousTouchPosition = Nothing
-            , primaryDown = Nothing
-            , previousPrimaryDown = Nothing
-            , desyncedAtFrame = Nothing
-            }
-                |> MatchActiveLocal
     in
     case ( Match.matchActive newMatchState, Match.matchActive oldMatchState ) of
         ( Just newMatch, Just _ ) ->
@@ -2292,15 +2336,18 @@ updateMatchData newMsg newNetworkModel oldNetworkModel oldMatchData =
                             MatchActiveLocal matchData
 
                 MatchSetupLocal _ ->
-                    initHelper newMatch.startTime
+                    initMatchData newMatch.startTime (Match.allUsersAndBots newMatchState) Nothing |> MatchActiveLocal
+
+                MatchError ->
+                    MatchError
 
         ( Just newMatch, Nothing ) ->
-            initHelper newMatch.startTime
+            initMatchData newMatch.startTime (Match.allUsersAndBots newMatchState) Nothing |> MatchActiveLocal
 
         ( Nothing, Just _ ) ->
             initMatchSetupData newMatchState |> MatchSetupLocal
 
-        _ ->
+        ( Nothing, Nothing ) ->
             oldMatchData
 
 
