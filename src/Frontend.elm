@@ -10,6 +10,7 @@ import Effect.Browser.Events
 import Effect.Browser.Navigation
 import Effect.Command as Command exposing (Command, FrontendOnly)
 import Effect.Lamdera
+import Effect.Process
 import Effect.Subscription as Subscription exposing (Subscription)
 import Effect.Task as Task
 import Effect.Time
@@ -70,7 +71,7 @@ app_ =
     Audio.lamderaFrontendWithAudio
         { init = init
         , onUrlRequest = UrlClicked
-        , onUrlChange = \_ -> UrlChanged
+        , onUrlChange = UrlChanged
         , update = update
         , updateFromBackend = updateFromBackend
         , subscriptions = subscriptions
@@ -128,6 +129,7 @@ loadedInit loading time sounds ( userId, lobbyData ) =
             , pingStartTime = Nothing
             , pingData = Nothing
             , route = loading.route
+            , loadMatchError = Nothing
             }
                 |> (\a -> { a | pingStartTime = MatchPage.actualTime a |> Just })
 
@@ -193,16 +195,18 @@ init url key =
 
 routeChanged : Route -> FrontendLoaded -> ( FrontendLoaded, Command FrontendOnly ToBackend FrontendMsg_ )
 routeChanged route model =
-    case Debug.log "route" route of
+    case route of
         HomePageRoute ->
             ( model, Command.none )
 
         InMatchRoute matchId ->
             ( model
-            , MatchPage.MatchRequest matchId (Id.fromInt -1) Match.JoinMatchSetup
-                |> MatchPageToBackend
-                |> Debug.log "toBackend"
-                |> Effect.Lamdera.sendToBackend
+            , Command.batch
+                [ MatchPage.MatchRequest matchId (Id.fromInt -1) Match.JoinMatchSetup
+                    |> MatchPageToBackend
+                    |> Effect.Lamdera.sendToBackend
+                , Effect.Process.sleep (Duration.seconds 5) |> Task.perform (\() -> RejoinMatchTimedOut matchId)
+                ]
             )
 
 
@@ -252,15 +256,8 @@ updateLoaded msg model =
         UrlClicked urlRequest ->
             case urlRequest of
                 Browser.Internal url ->
-                    let
-                        route =
-                            Route.decode url
-
-                        ( model2, cmd ) =
-                            routeChanged route model
-                    in
-                    ( model2
-                    , Command.batch [ cmd, Effect.Browser.Navigation.pushUrl model.navigationKey (Route.encode route) ]
+                    ( model
+                    , Effect.Browser.Navigation.pushUrl model.navigationKey (Route.decode url |> Route.encode)
                     )
 
                 Browser.External url ->
@@ -268,8 +265,15 @@ updateLoaded msg model =
                     , Effect.Browser.Navigation.load url
                     )
 
-        UrlChanged ->
-            ( model, Command.none )
+        UrlChanged url ->
+            let
+                route =
+                    Route.decode url
+
+                ( model2, cmd ) =
+                    routeChanged route model
+            in
+            ( { model2 | route = route }, cmd )
 
         KeyMsg keyMsg ->
             ( { model | currentKeys = Keyboard.update keyMsg model.currentKeys }
@@ -350,6 +354,20 @@ updateLoaded msg model =
 
                 _ ->
                     ( model, Command.none )
+
+        RejoinMatchTimedOut matchId ->
+            case model.route of
+                HomePageRoute ->
+                    ( model, Command.none )
+
+                InMatchRoute a ->
+                    if a == matchId then
+                        ( { model | loadMatchError = Just model.time }
+                        , Effect.Browser.Navigation.replaceUrl model.navigationKey (Route.encode HomePageRoute)
+                        )
+
+                    else
+                        ( model, Command.none )
 
 
 windowResizedUpdate : Size -> { b | windowSize : Size } -> ( { b | windowSize : Size }, Command FrontendOnly toMsg FrontendMsg_ )
@@ -612,76 +630,80 @@ loadedView model =
                 MatchPage.view model matchSetup |> Ui.map MatchPageMsg
 
             MainLobbyPage lobbyData ->
-                Ui.column
-                    [ Ui.height Ui.fill
-                    , Ui.spacing 16
-                    , Ui.padding (MyUi.ifMobile displayType 8 16)
-                    ]
-                    [ Ui.el [ Ui.width Ui.shrink, Ui.Font.bold ] (Ui.text "Air Hockey Racing")
-                    , MyUi.simpleButton (Dom.id "createNewMatch") PressedCreateLobby (Ui.text "Create new match")
-                    , MyUi.simpleButton (Dom.id "openLevelEditor") PressedOpenLevelEditor (Ui.text "Open level editor")
-                    , Ui.column
-                        [ Ui.height Ui.fill, Ui.spacing 8 ]
-                        [ Ui.text "Or join existing match"
-                        , case lobbyData.joinLobbyError of
-                            Nothing ->
-                                Ui.none
+                case model.route of
+                    InMatchRoute _ ->
+                        Ui.text "Loading match..."
 
-                            Just MatchNotFound ->
-                                Ui.el
-                                    [ Ui.width Ui.shrink, Ui.Font.color (Ui.rgb 255 0 0) ]
-                                    (Ui.text "Lobby not found!")
+                    HomePageRoute ->
+                        Ui.column
+                            [ Ui.height Ui.fill
+                            , Ui.spacing 16
+                            , Ui.padding (MyUi.ifMobile displayType 8 16)
+                            , case model.loadMatchError of
+                                Just time ->
+                                    if Duration.from time model.time |> Quantity.lessThan (Duration.seconds 5) then
+                                        Ui.inFront
+                                            (Ui.el
+                                                [ Ui.centerX
+                                                , Ui.width Ui.shrink
+                                                , Ui.padding 16
+                                                , Ui.background (Ui.rgb 255 255 255)
+                                                , Ui.border 1
+                                                , Ui.rounded 4
+                                                , Ui.move { x = 0, y = 8, z = 0 }
+                                                ]
+                                                (Ui.text "Failed to load match!")
+                                            )
 
-                            Just MatchFull ->
-                                Ui.el
-                                    [ Ui.width Ui.shrink, Ui.Font.color (Ui.rgb 255 0 0) ]
-                                    (Ui.text "Lobby is full!")
-                        , if SeqDict.isEmpty lobbyData.lobbies then
-                            Ui.Prose.paragraph
-                                [ Ui.Font.center, Ui.centerY ]
-                                [ Ui.text "There are currently no existing matches" ]
-                                |> Ui.el
-                                    [ Ui.widthMax 800
-                                    , Ui.height Ui.fill
-                                    , Ui.border 1
-                                    ]
+                                    else
+                                        Ui.noAttr
 
-                          else
-                            SeqDict.toList lobbyData.lobbies
-                                |> List.indexedMap (\index lobby -> lobbyRowView (modBy 2 index == 0) lobby)
-                                |> Ui.column
-                                    [ Ui.widthMax 800
-                                    , Ui.height Ui.fill
-                                    , Ui.border 1
-                                    ]
-                        ]
-                    ]
+                                Nothing ->
+                                    Ui.noAttr
+                            ]
+                            [ Ui.el [ Ui.width Ui.shrink, Ui.Font.bold ] (Ui.text "Air Hockey Racing")
+                            , MyUi.simpleButton (Dom.id "createNewMatch") PressedCreateLobby (Ui.text "Create new match")
+                            , MyUi.simpleButton (Dom.id "openLevelEditor") PressedOpenLevelEditor (Ui.text "Open level editor")
+                            , Ui.column
+                                [ Ui.height Ui.fill, Ui.spacing 8 ]
+                                [ Ui.text "Or join existing match"
+                                , case lobbyData.joinLobbyError of
+                                    Nothing ->
+                                        Ui.none
+
+                                    Just MatchNotFound ->
+                                        Ui.el
+                                            [ Ui.width Ui.shrink, Ui.Font.color (Ui.rgb 255 0 0) ]
+                                            (Ui.text "Lobby not found!")
+
+                                    Just MatchFull ->
+                                        Ui.el
+                                            [ Ui.width Ui.shrink, Ui.Font.color (Ui.rgb 255 0 0) ]
+                                            (Ui.text "Lobby is full!")
+                                , if SeqDict.isEmpty lobbyData.lobbies then
+                                    Ui.Prose.paragraph
+                                        [ Ui.Font.center, Ui.centerY ]
+                                        [ Ui.text "There are currently no existing matches" ]
+                                        |> Ui.el
+                                            [ Ui.widthMax 800
+                                            , Ui.height Ui.fill
+                                            , Ui.border 1
+                                            ]
+
+                                  else
+                                    SeqDict.toList lobbyData.lobbies
+                                        |> List.indexedMap (\index lobby -> lobbyRowView (modBy 2 index == 0) lobby)
+                                        |> Ui.column
+                                            [ Ui.widthMax 800
+                                            , Ui.height Ui.fill
+                                            , Ui.border 1
+                                            ]
+                                ]
+                            ]
 
             EditorPage editorPageModel ->
                 EditorPage.view model editorPageModel |> Ui.map EditorPageMsg
         )
-
-
-
---inputsView : MatchPage_ -> Element msg
---inputsView matchPage =
---    List.map
---        (\( frameId, event ) ->
---            String.fromInt (Id.toInt frameId)
---                ++ ", User "
---                ++ String.fromInt (Id.toInt event.userId)
---                ++ ", "
---                ++ (case event.input of
---                        Just input ->
---                            Direction2d.toAngle input |> Angle.inDegrees |> round |> String.fromInt |> (\a -> a ++ "°")
---
---                        Nothing ->
---                            "No input"
---                   )
---                |> Element.text
---        )
---        (Set.toList matchPage.timeline)
---        |> Element.column [ Element.alignTop ]
 
 
 lobbyRowView : Bool -> ( Id MatchId, LobbyPreview ) -> Ui.Element FrontendMsg_

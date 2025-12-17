@@ -40,6 +40,7 @@ import SeqSet exposing (SeqSet)
 import Size exposing (Size)
 import Sounds exposing (Sounds)
 import Timeline exposing (FrameId)
+import Url exposing (Url)
 import User exposing (UserId)
 
 
@@ -84,6 +85,7 @@ type alias FrontendLoaded =
     , pingStartTime : Maybe Time.Posix
     , pingData : Maybe PingData
     , route : Route
+    , loadMatchError : Maybe Time.Posix
     }
 
 
@@ -120,7 +122,7 @@ type alias BackendUserData =
 
 type FrontendMsg_
     = UrlClicked Browser.UrlRequest
-    | UrlChanged
+    | UrlChanged Url
     | KeyMsg Keyboard.Msg
     | WindowResized Size
     | GotDevicePixelRatio (Quantity Float (Rate WorldPixel Pixels))
@@ -132,6 +134,7 @@ type FrontendMsg_
     | GotTime Time.Posix
     | RandomInput Time.Posix
     | EditorPageMsg EditorPage.Msg
+    | RejoinMatchTimedOut (Id MatchId)
 
 
 type ToBackend
