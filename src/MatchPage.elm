@@ -1204,6 +1204,9 @@ canvasViewHelper model matchSetup canvasSize =
                                 2 ->
                                     drawShape 0.01 Point2d.origin viewMatrix Shape.one
 
+                                3 ->
+                                    drawShape 0.01 Point2d.origin viewMatrix Shape.go
+
                                 _ ->
                                     []
                             )
