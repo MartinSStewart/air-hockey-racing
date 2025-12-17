@@ -64,7 +64,7 @@ import Length exposing (Length, Meters)
 import LineSegment2d exposing (LineSegment2d)
 import List.Extra as List
 import List.Nonempty exposing (Nonempty)
-import Match exposing (Action(..), Emote(..), Input, LobbyPreview, Match, MatchActive, MatchState, Place(..), Player, PlayerData, PlayerMode(..), ServerTime(..), Snowball, Team(..), TimelineEvent, WorldCoordinate)
+import Match exposing (Action(..), Emote(..), Input, LobbyPreview, Match, MatchActive, MatchState, Particle, Place(..), Player, PlayerData, PlayerMode(..), ServerTime(..), Snowball, Team(..), TimelineEvent, WorldCoordinate)
 import MatchName exposing (MatchName)
 import Math.Matrix4 as Mat4 exposing (Mat4)
 import Math.Vector2 exposing (Vec2)
@@ -1262,6 +1262,24 @@ canvasViewHelper model matchSetup canvasSize =
                                         ]
                                     )
                                     state.snowballs
+                                ++ List.map
+                                    (\particle ->
+                                        let
+                                            { x, y } =
+                                                Point2d.toMeters particle.position
+                                        in
+                                        WebGL.entityWith
+                                            [ WebGL.Settings.cullFace WebGL.Settings.back ]
+                                            vertexShader
+                                            fragmentShader
+                                            particleMesh
+                                            { view = viewMatrix
+                                            , model =
+                                                Mat4.makeTranslate3 x y 0.01
+                                                    |> Mat4.scale3 particle.size particle.size particle.size
+                                            }
+                                    )
+                                    state.particles
                                 ++ (case SeqDict.get model.userId state.players of
                                         Just player ->
                                             case player.clickStart of
@@ -1750,6 +1768,38 @@ gameUpdate frameId inputs model =
         updatedVelocities_ =
             updateVelocities frameId model3.players
     in
+    let
+        ( survivingSnowballs, newParticles ) =
+            List.foldl
+                (\snowball ( snowballs2, particles2 ) ->
+                    let
+                        position : Point3d Meters WorldCoordinate
+                        position =
+                            Point3d.translateBy (Vector3d.for Match.frameDuration snowball.velocity) snowball.position
+                    in
+                    if Point3d.zCoordinate position |> Quantity.greaterThanZero then
+                        ( { position = position
+                          , velocity = Vector3d.plus (Vector3d.for Match.frameDuration gravityVector) snowball.velocity
+                          , thrownBy = snowball.thrownBy
+                          , thrownAt = snowball.thrownAt
+                          }
+                            :: snowballs2
+                        , particles2
+                        )
+
+                    else
+                        ( snowballs2
+                        , spawnParticles frameId snowball.thrownAt position ++ particles2
+                        )
+                )
+                ( [], [] )
+                model3.snowballs
+
+        survivingParticles =
+            List.filter
+                (\particle -> Id.toInt frameId - Id.toInt particle.spawnedAt < particle.lifetime)
+                model3.particles
+    in
     { players =
         SeqDict.map
             (\id player ->
@@ -1758,27 +1808,38 @@ gameUpdate frameId inputs model =
                     |> List.foldl (\a b -> handleCollision frameId b a |> Tuple.first) player
             )
             updatedVelocities_
-    , snowballs =
-        List.filterMap
-            (\snowball ->
-                let
-                    position : Point3d Meters WorldCoordinate
-                    position =
-                        Point3d.translateBy (Vector3d.for Match.frameDuration snowball.velocity) snowball.position
-                in
-                if Point3d.zCoordinate position |> Quantity.greaterThanZero then
-                    Just
-                        { position = position
-                        , velocity = Vector3d.plus (Vector3d.for Match.frameDuration gravityVector) snowball.velocity
-                        , thrownBy = snowball.thrownBy
-                        , thrownAt = snowball.thrownAt
-                        }
-
-                else
-                    Nothing
-            )
-            model3.snowballs
+    , snowballs = List.reverse survivingSnowballs
+    , particles = survivingParticles ++ newParticles
     }
+
+
+spawnParticles : Id FrameId -> Id FrameId -> Point3d Meters WorldCoordinate -> List Particle
+spawnParticles frameId thrownAt impactPosition =
+    let
+        seed =
+            Random.initialSeed (Id.toInt frameId * 1000 + Id.toInt thrownAt)
+
+        { x, y } =
+            Point3d.toMeters impactPosition
+
+        particleGenerator =
+            Random.map4
+                (\size lifetime offsetX offsetY ->
+                    { position = Point2d.meters (x + offsetX) (y + offsetY)
+                    , size = size
+                    , spawnedAt = frameId
+                    , lifetime = lifetime
+                    }
+                )
+                (Random.float 0.1 0.3)
+                (Random.int 6 30)
+                (Random.float -0.3 0.3)
+                (Random.float -0.3 0.3)
+
+        ( particles, _ ) =
+            Random.step (Random.list 8 particleGenerator) seed
+    in
+    particles
 
 
 getBotInput : Id FrameId -> MatchState -> Id UserId -> Player -> Input
@@ -2240,6 +2301,12 @@ snowballShadowMesh =
         |> WebGL.triangles
 
 
+particleMesh : WebGL.Mesh Vertex
+particleMesh =
+    circleMesh 1 (Math.Vector3.vec3 0.9 0.95 1)
+        |> WebGL.triangles
+
+
 snowballRadius : Quantity Float Meters
 snowballRadius =
     Length.meters 0.2
@@ -2489,6 +2556,7 @@ initMatch startTime users =
         )
             |> SeqDict.fromList
     , snowballs = []
+    , particles = []
     }
 
 

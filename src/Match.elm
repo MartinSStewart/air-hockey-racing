@@ -7,6 +7,7 @@ module Match exposing
     , MatchActive
     , MatchState
     , Msg(..)
+    , Particle
     , Place(..)
     , Player
     , PlayerData
@@ -102,6 +103,7 @@ type alias TimelineEvent =
 type alias MatchState =
     { players : SeqDict (Id UserId) Player
     , snowballs : List Snowball
+    , particles : List Particle
     }
 
 
@@ -110,6 +112,14 @@ type alias Snowball =
     , position : Point3d Meters WorldCoordinate
     , thrownBy : Id UserId
     , thrownAt : Id FrameId
+    }
+
+
+type alias Particle =
+    { position : Point2d Meters WorldCoordinate
+    , size : Float
+    , spawnedAt : Id FrameId
+    , lifetime : Int
     }
 
 
