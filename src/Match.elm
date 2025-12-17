@@ -13,6 +13,7 @@ module Match exposing
     , PlayerMode(..)
     , ServerTime(..)
     , Snowball
+    , Team(..)
     , TimelineEvent
     , WorldCoordinate
     , allUsers
@@ -89,6 +90,11 @@ type Place
     | DidNotFinish
 
 
+type Team
+    = RedTeam
+    | BlueTeam
+
+
 type alias TimelineEvent =
     { userId : Id UserId, input : Input }
 
@@ -117,6 +123,7 @@ type alias Player =
     , lastEmote : Maybe { time : Id FrameId, emote : Emote }
     , clickStart : Maybe { position : Point2d Meters WorldCoordinate, time : Id FrameId }
     , isDead : Maybe (Id FrameId)
+    , team : Team
     }
 
 

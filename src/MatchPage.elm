@@ -64,7 +64,7 @@ import Length exposing (Length, Meters)
 import LineSegment2d exposing (LineSegment2d)
 import List.Extra as List
 import List.Nonempty exposing (Nonempty)
-import Match exposing (Action(..), Emote(..), Input, LobbyPreview, Match, MatchActive, MatchState, Place(..), Player, PlayerData, PlayerMode(..), ServerTime(..), Snowball, TimelineEvent, WorldCoordinate)
+import Match exposing (Action(..), Emote(..), Input, LobbyPreview, Match, MatchActive, MatchState, Place(..), Player, PlayerData, PlayerMode(..), ServerTime(..), Snowball, Team(..), TimelineEvent, WorldCoordinate)
 import MatchName exposing (MatchName)
 import Math.Matrix4 as Mat4 exposing (Mat4)
 import Math.Vector2 exposing (Vec2)
@@ -2023,6 +2023,7 @@ updateVelocities frameId players =
                     , lastEmote = a.lastEmote
                     , clickStart = a.clickStart
                     , isDead = a.isDead
+                    , team = a.team
                     }
 
                 Nothing ->
@@ -2035,6 +2036,7 @@ updateVelocities frameId players =
                     , lastEmote = a.lastEmote
                     , clickStart = a.clickStart
                     , isDead = a.isDead
+                    , team = a.team
                     }
         )
         players
@@ -2423,38 +2425,75 @@ initMatch startTime users =
             Random.step
                 (Random.shuffle playerIds)
                 (Match.unwrapServerTime startTime |> Time.posixToMillis |> Random.initialSeed)
+
+        -- Split players into two teams
+        halfCount =
+            (List.length shuffledPlayers + 1) // 2
+
+        redTeamPlayers =
+            List.take halfCount shuffledPlayers
+
+        blueTeamPlayers =
+            List.drop halfCount shuffledPlayers
+
+        -- Team spawn positions (opposite corners)
+        -- Red team: bottom-left corner
+        redTeamStart =
+            Point2d.meters -12 -10
+
+        -- Blue team: top-right corner
+        blueTeamStart =
+            Point2d.meters 12 10
+
+        spacing =
+            Length.inMeters playerRadius * 2.1
+
+        playersPerRow =
+            4
+
+        initTeamPlayers team startPos playerList =
+            playerList
+                |> List.indexedMap
+                    (\index userId ->
+                        let
+                            x =
+                                modBy playersPerRow index
+
+                            y =
+                                index // playersPerRow
+
+                            -- For blue team, offset in negative direction (towards center)
+                            ( xDir, yDir ) =
+                                case team of
+                                    RedTeam ->
+                                        ( 1, 1 )
+
+                                    BlueTeam ->
+                                        ( -1, -1 )
+
+                            position =
+                                Point2d.translateBy
+                                    (Vector2d.fromMeters
+                                        { x = toFloat x * spacing * xDir
+                                        , y = toFloat y * spacing * yDir
+                                        }
+                                    )
+                                    startPos
+                        in
+                        ( userId, initPlayer team position )
+                    )
     in
     { players =
-        shuffledPlayers
-            |> List.indexedMap
-                (\index userId ->
-                    let
-                        playersPerRow =
-                            6
-
-                        spacing =
-                            Length.inMeters playerRadius * 2.1
-
-                        x =
-                            modBy playersPerRow index
-
-                        y =
-                            index // playersPerRow
-
-                        position =
-                            Point2d.translateBy
-                                (Vector2d.fromMeters { x = toFloat x * spacing, y = toFloat y * spacing })
-                                playerStart
-                    in
-                    ( userId, initPlayer position )
-                )
+        (initTeamPlayers RedTeam redTeamStart redTeamPlayers
+            ++ initTeamPlayers BlueTeam blueTeamStart blueTeamPlayers
+        )
             |> SeqDict.fromList
     , snowballs = []
     }
 
 
-initPlayer : Point2d Meters WorldCoordinate -> Player
-initPlayer position =
+initPlayer : Team -> Point2d Meters WorldCoordinate -> Player
+initPlayer team position =
     { position = position
     , targetPosition = Nothing
     , velocity = Vector2d.zero
@@ -2464,6 +2503,7 @@ initPlayer position =
     , lastEmote = Nothing
     , clickStart = Nothing
     , isDead = Nothing
+    , team = team
     }
 
 
