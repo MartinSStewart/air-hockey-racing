@@ -1289,10 +1289,6 @@ canvasViewHelper model matchSetup canvasSize =
                                                 (Quantity.toFloatQuantity canvasSize.width)
                                                 (Quantity.toFloatQuantity canvasSize.height)
                                         }
-
-                                playerRadius_ : Float
-                                playerRadius_ =
-                                    Length.inMeters playerRadius
                             in
                             drawCountdown frameId viewMatrix
                                 ++ [ WebGL.entityWith
@@ -1312,7 +1308,6 @@ canvasViewHelper model matchSetup canvasSize =
                                             matchData
                                             viewMatrix
                                             player
-                                            playerRadius_
                                     )
                                     (SeqDict.toList state.players)
                                 ++ List.concatMap
@@ -1428,14 +1423,58 @@ canvasViewHelper model matchSetup canvasSize =
             []
 
 
-drawPlayer : Id FrameId -> Id UserId -> MatchActiveLocal_ -> Mat4 -> Player -> Float -> List WebGL.Entity
-drawPlayer frameId userId matchData viewMatrix player playerRadius_ =
+drawHand : Bool -> Float -> Player -> Mat4 -> WebGL.Entity
+drawHand leftHand rotation player viewMatrix =
+    let
+        playerRadius_ : Float
+        playerRadius_ =
+            Length.inMeters playerRadius
+    in
+    WebGL.entityWith
+        [ WebGL.Settings.cullFace WebGL.Settings.back, WebGL.Settings.DepthTest.default ]
+        vertexShader
+        fragmentShader
+        playerHand
+        { view = viewMatrix
+        , model =
+            pointToMatrix
+                (Point2d.translateIn
+                    (if leftHand then
+                        Direction2d.rotateCounterclockwise player.rotation
+
+                     else
+                        Direction2d.rotateClockwise player.rotation
+                    )
+                    (Length.meters 0.5)
+                    player.position
+                )
+                |> Mat4.scale3
+                    playerRadius_
+                    (case player.isDead of
+                        Just _ ->
+                            playerRadius_ * 0.5
+
+                        Nothing ->
+                            playerRadius_
+                    )
+                    playerRadius_
+                |> Mat4.rotate -0.4 (Vec3.vec3 1 0 0)
+                |> Mat4.rotate rotation (Vec3.vec3 0 0 1)
+        }
+
+
+drawPlayer : Id FrameId -> Id UserId -> MatchActiveLocal_ -> Mat4 -> Player -> List WebGL.Entity
+drawPlayer frameId userId matchData viewMatrix player =
     case SeqDict.get userId matchData.userIds of
         Just mesh ->
             let
                 rotation : Float
                 rotation =
                     Direction2d.toAngle player.rotation |> Angle.inRadians
+
+                playerRadius_ : Float
+                playerRadius_ =
+                    Length.inMeters playerRadius
             in
             [ WebGL.entityWith
                 [ WebGL.Settings.cullFace WebGL.Settings.back, WebGL.Settings.DepthTest.default ]
@@ -1458,27 +1497,8 @@ drawPlayer frameId userId matchData viewMatrix player playerRadius_ =
                         |> Mat4.rotate -0.4 (Vec3.vec3 1 0 0)
                         |> Mat4.rotate rotation (Vec3.vec3 0 0 1)
                 }
-            , WebGL.entityWith
-                [ WebGL.Settings.cullFace WebGL.Settings.back, WebGL.Settings.DepthTest.default ]
-                vertexShader
-                fragmentShader
-                playerHand
-                { view = viewMatrix
-                , model =
-                    pointToMatrix (Point2d.translateIn player.rotation (Length.meters 1) player.position)
-                        |> Mat4.scale3
-                            playerRadius_
-                            (case player.isDead of
-                                Just _ ->
-                                    playerRadius_ * 0.5
-
-                                Nothing ->
-                                    playerRadius_
-                            )
-                            playerRadius_
-                        |> Mat4.rotate -0.4 (Vec3.vec3 1 0 0)
-                        |> Mat4.rotate rotation (Vec3.vec3 0 0 1)
-                }
+            , drawHand True rotation player viewMatrix
+            , drawHand False rotation player viewMatrix
             , WebGL.entityWith
                 [ WebGL.Settings.cullFace WebGL.Settings.back, WebGL.Settings.DepthTest.default ]
                 vertexShader
