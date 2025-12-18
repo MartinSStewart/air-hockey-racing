@@ -46,7 +46,7 @@ import Decal exposing (Decal)
 import Direction2d exposing (Direction2d)
 import Duration exposing (Duration)
 import Id exposing (Id)
-import Length exposing (Meters)
+import Length exposing (Length, Meters)
 import List.Extra as List
 import List.Nonempty exposing (Nonempty(..))
 import MatchName exposing (MatchName)
@@ -117,9 +117,10 @@ type alias Snowball =
 
 type alias Particle =
     { position : Point2d Meters WorldCoordinate
-    , size : Float
+    , velocity : Vector2d MetersPerSecond WorldCoordinate
+    , size : Length
     , spawnedAt : Id FrameId
-    , lifetime : Int
+    , lifetime : Duration
     }
 
 

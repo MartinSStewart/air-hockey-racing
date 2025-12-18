@@ -76,6 +76,7 @@ import Point3d exposing (Point3d)
 import Polygon2d exposing (Polygon2d)
 import Quantity exposing (Quantity(..), Rate)
 import Random
+import Random.Extra
 import Random.List as Random
 import RasterShapes
 import Rectangle2d exposing (Rectangle2d)
@@ -1150,8 +1151,109 @@ backgroundGrid cameraPosition zoom canvasSize =
         }
 
 
+countdown : Array.Array RenderableShape
 countdown =
     Array.fromList [ Shape.three, Shape.two, Shape.one, Shape.go ]
+
+
+drawCountdown : Id FrameId -> Mat4 -> List WebGL.Entity
+drawCountdown frameId viewMatrix =
+    let
+        gameTimeElapsed : Duration
+        gameTimeElapsed =
+            frameTimeElapsed (Id.fromInt 0) frameId
+
+        elapsedSeconds : Int
+        elapsedSeconds =
+            Duration.inSeconds gameTimeElapsed |> floor
+    in
+    case Array.get (elapsedSeconds - 1) countdown of
+        Just value ->
+            drawShape
+                (toFromAndBack
+                    (Duration.milliseconds 100)
+                    (Duration.seconds 800)
+                    (Duration.milliseconds 100)
+                    (gameTimeElapsed |> Quantity.minus (Duration.seconds (toFloat elapsedSeconds)))
+                    Ease.outBack
+                    Ease.inBack
+                    0
+                    0.01
+                )
+                Point2d.origin
+                viewMatrix
+                value
+
+        Nothing ->
+            []
+
+
+drawParticles : Id FrameId -> Mat4 -> List Particle -> List WebGL.Entity
+drawParticles frameId viewMatrix particles =
+    List.map
+        (\particle ->
+            let
+                timeElapsed =
+                    frameTimeElapsed particle.spawnedAt frameId
+
+                { x, y } =
+                    particle.position
+                        |> Point2d.translateBy (Vector2d.for timeElapsed particle.velocity)
+                        |> Point2d.toMeters
+
+                t : Float
+                t =
+                    Quantity.ratio
+                        timeElapsed
+                        particle.lifetime
+
+                size : Float
+                size =
+                    Length.inMeters particle.size * (1 - t)
+            in
+            WebGL.entityWith
+                [ WebGL.Settings.cullFace WebGL.Settings.back ]
+                vertexShader
+                fragmentShader
+                particleOutlineMesh
+                { view = viewMatrix
+                , model =
+                    Mat4.makeTranslate3 x y 1 |> Mat4.scale3 size size size
+                }
+        )
+        particles
+        ++ List.map
+            (\particle ->
+                let
+                    timeElapsed =
+                        frameTimeElapsed particle.spawnedAt frameId
+
+                    { x, y } =
+                        particle.position
+                            |> Point2d.translateBy (Vector2d.for timeElapsed particle.velocity)
+                            |> Point2d.toMeters
+
+                    t : Float
+                    t =
+                        Quantity.ratio
+                            timeElapsed
+                            particle.lifetime
+
+                    size : Float
+                    size =
+                        Length.inMeters particle.size * (1 - t)
+                in
+                WebGL.entityWith
+                    [ WebGL.Settings.cullFace WebGL.Settings.back ]
+                    vertexShader
+                    fragmentShader
+                    particleMesh
+                    { view = viewMatrix
+                    , model =
+                        Mat4.makeTranslate3 x y 1 |> Mat4.scale3 size size size
+                    }
+            )
+            particles
 
 
 canvasViewHelper : Config a -> Model -> Size -> List WebGL.Entity
@@ -1189,35 +1291,8 @@ canvasViewHelper model matchSetup canvasSize =
                                 playerRadius_ : Float
                                 playerRadius_ =
                                     Length.inMeters playerRadius
-
-                                timeElapsed : Duration
-                                timeElapsed =
-                                    frameTimeElapsed (Id.fromInt 0) frameId
-
-                                elapsedSeconds : Int
-                                elapsedSeconds =
-                                    Duration.inSeconds timeElapsed |> floor
                             in
-                            (case Array.get (elapsedSeconds - 1) countdown of
-                                Just value ->
-                                    drawShape
-                                        (toFromAndBack
-                                            (Duration.milliseconds 100)
-                                            (Duration.seconds 800)
-                                            (Duration.milliseconds 100)
-                                            (timeElapsed |> Quantity.minus (Duration.seconds (toFloat elapsedSeconds)))
-                                            Ease.outBack
-                                            Ease.inBack
-                                            0
-                                            0.01
-                                        )
-                                        Point2d.origin
-                                        viewMatrix
-                                        value
-
-                                Nothing ->
-                                    []
-                            )
+                            drawCountdown frameId viewMatrix
                                 ++ [ WebGL.entityWith
                                         [ WebGL.Settings.cullFace WebGL.Settings.back ]
                                         vertexShader
@@ -1270,24 +1345,7 @@ canvasViewHelper model matchSetup canvasSize =
                                         ]
                                     )
                                     state.snowballs
-                                ++ List.map
-                                    (\particle ->
-                                        let
-                                            { x, y } =
-                                                Point2d.toMeters particle.position
-                                        in
-                                        WebGL.entityWith
-                                            [ WebGL.Settings.cullFace WebGL.Settings.back ]
-                                            vertexShader
-                                            fragmentShader
-                                            particleMesh
-                                            { view = viewMatrix
-                                            , model =
-                                                Mat4.makeTranslate3 x y 0.01
-                                                    |> Mat4.scale3 particle.size particle.size particle.size
-                                            }
-                                    )
-                                    state.particles
+                                ++ drawParticles frameId viewMatrix state.particles
                                 ++ (case SeqDict.get model.userId state.players of
                                         Just player ->
                                             case player.clickStart of
@@ -1309,7 +1367,7 @@ canvasViewHelper model matchSetup canvasSize =
                                                                             player.position
 
                                                                     reticleScale =
-                                                                        0.15 + 0.15 * throwCharge elapsed
+                                                                        0.2 + 0.15 * throwCharge elapsed
                                                                 in
                                                                 [ WebGL.entityWith
                                                                     [ WebGL.Settings.cullFace WebGL.Settings.back ]
@@ -1797,16 +1855,11 @@ gameUpdate frameId inputs model =
 
                     else
                         ( snowballs2
-                        , spawnParticles frameId snowball.thrownAt position ++ particles2
+                        , snowballParticles frameId snowball.thrownAt position ++ particles2
                         )
                 )
                 ( [], [] )
                 model3.snowballs
-
-        survivingParticles =
-            List.filter
-                (\particle -> Id.toInt frameId - Id.toInt particle.spawnedAt < particle.lifetime)
-                model3.particles
     in
     { players =
         SeqDict.map
@@ -1817,12 +1870,16 @@ gameUpdate frameId inputs model =
             )
             updatedVelocities_
     , snowballs = List.reverse survivingSnowballs
-    , particles = survivingParticles ++ newParticles
+    , particles =
+        List.filter
+            (\particle -> frameTimeElapsed particle.spawnedAt frameId |> Quantity.lessThan particle.lifetime)
+            model3.particles
+            ++ newParticles
     }
 
 
-spawnParticles : Id FrameId -> Id FrameId -> Point3d Meters WorldCoordinate -> List Particle
-spawnParticles frameId thrownAt impactPosition =
+snowballParticles : Id FrameId -> Id FrameId -> Point3d Meters WorldCoordinate -> List Particle
+snowballParticles frameId thrownAt impactPosition =
     let
         seed =
             Random.initialSeed (Id.toInt frameId * 1000 + Id.toInt thrownAt)
@@ -1830,22 +1887,29 @@ spawnParticles frameId thrownAt impactPosition =
         { x, y } =
             Point3d.toMeters impactPosition
 
-        particleGenerator =
-            Random.map4
-                (\size lifetime offsetX offsetY ->
-                    { position = Point2d.meters (x + offsetX) (y + offsetY)
-                    , size = size
+        count =
+            8
+
+        particleGenerator : Int -> Random.Generator Particle
+        particleGenerator index =
+            Random.map3
+                (\size lifetime speed ->
+                    { position = Point2d.meters x y
+                    , velocity =
+                        Vector2d.withLength
+                            (Speed.metersPerSecond speed)
+                            ((toFloat index / count) |> Angle.turns |> Direction2d.fromAngle)
+                    , size = Length.meters size
                     , spawnedAt = frameId
-                    , lifetime = lifetime
+                    , lifetime = Duration.seconds lifetime
                     }
                 )
                 (Random.float 0.1 0.3)
-                (Random.int 6 30)
-                (Random.float -0.3 0.3)
-                (Random.float -0.3 0.3)
+                (Random.float 0.1 0.2)
+                (Random.float 2 4)
 
         ( particles, _ ) =
-            Random.step (Random.list 8 particleGenerator) seed
+            Random.step (List.range 0 (count - 1) |> List.map particleGenerator |> Random.Extra.sequence) seed
     in
     particles
 
@@ -2299,7 +2363,7 @@ circleMesh size color =
 snowballMesh : WebGL.Mesh Vertex
 snowballMesh =
     circleMesh 1 (Math.Vector3.vec3 0 0 0)
-        ++ circleMesh 0.9 (Math.Vector3.vec3 1 1 1)
+        ++ circleMesh 0.85 (Math.Vector3.vec3 1 1 1)
         |> WebGL.triangles
 
 
@@ -2311,7 +2375,13 @@ snowballShadowMesh =
 
 particleMesh : WebGL.Mesh Vertex
 particleMesh =
-    circleMesh 1 (Math.Vector3.vec3 0.9 0.95 1)
+    circleMesh 0.9 (Math.Vector3.vec3 1 1 1)
+        |> WebGL.triangles
+
+
+particleOutlineMesh : WebGL.Mesh Vertex
+particleOutlineMesh =
+    circleMesh 1 (Math.Vector3.vec3 0 0 0)
         |> WebGL.triangles
 
 
