@@ -128,7 +128,7 @@ type alias Player =
     { position : Point2d Meters WorldCoordinate
     , targetPosition : Maybe (Point2d Meters WorldCoordinate)
     , velocity : Vector2d Meters WorldCoordinate
-    , rotation : Angle
+    , rotation : Direction2d WorldCoordinate
     , finishTime : Place
     , lastCollision : Maybe (Id FrameId)
     , lastEmote : Maybe { time : Id FrameId, emote : Emote }

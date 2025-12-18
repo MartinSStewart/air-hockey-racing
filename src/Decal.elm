@@ -3,7 +3,7 @@ module Decal exposing (Decal(..), allDecals, toString, triangles)
 import ColorIndex exposing (ColorIndex)
 import List.Nonempty exposing (Nonempty(..))
 import Math.Vector2 exposing (Vec2)
-import Math.Vector3 exposing (Vec3)
+import Math.Vector3 as Vec3 exposing (Vec3)
 
 
 type Decal
@@ -43,7 +43,7 @@ toString decal =
 
 
 type alias Vertex =
-    { position : Vec2, color : Vec3 }
+    { position : Vec3, color : Vec3 }
 
 
 triangles : ColorIndex -> Decal -> List ( Vertex, Vertex, Vertex )
@@ -71,9 +71,9 @@ triangles colorIndex decal =
                             t2 =
                                 pi + 2 * pi * toFloat (index + 1) / 5
                         in
-                        ( Math.Vector2.vec2 (cos t0 * size) (sin t0 * size)
-                        , Math.Vector2.vec2 (cos t1 * size) (sin t1 * size)
-                        , Math.Vector2.vec2 (cos t2 * size * 0.4) (sin t2 * size * 0.4)
+                        ( Vec3.vec3 (cos t0 * size) (sin t0 * size) 0
+                        , Vec3.vec3 (cos t1 * size) (sin t1 * size) 0
+                        , Vec3.vec3 (cos t2 * size * 0.4) (sin t2 * size * 0.4) 0
                         )
                     )
 
@@ -82,39 +82,39 @@ triangles colorIndex decal =
                 size =
                     0.7
             in
-            [ ( Math.Vector2.vec2 (cos 0 * size) (sin 0 * size)
-              , Math.Vector2.vec2 (cos (2 * pi / 3) * size) (sin (2 * pi / 3) * size)
-              , Math.Vector2.vec2 (cos (4 * pi / 3) * size) (sin (4 * pi / 3) * size)
+            [ ( Vec3.vec3 (cos 0 * size) (sin 0 * size) 0
+              , Vec3.vec3 (cos (2 * pi / 3) * size) (sin (2 * pi / 3) * size) 0
+              , Vec3.vec3 (cos (4 * pi / 3) * size) (sin (4 * pi / 3) * size) 0
               )
             ]
 
         Plus ->
-            [ ( Math.Vector2.vec2 0.6 0.15
-              , Math.Vector2.vec2 -0.6 0.15
-              , Math.Vector2.vec2 0.6 -0.15
+            [ ( Vec3.vec3 0.6 0.15 0
+              , Vec3.vec3 -0.6 0.15 0
+              , Vec3.vec3 0.6 -0.15 0
               )
-            , ( Math.Vector2.vec2 -0.6 0.15
-              , Math.Vector2.vec2 -0.6 -0.15
-              , Math.Vector2.vec2 0.6 -0.15
+            , ( Vec3.vec3 -0.6 0.15 0
+              , Vec3.vec3 -0.6 -0.15 0
+              , Vec3.vec3 0.6 -0.15 0
               )
-            , ( Math.Vector2.vec2 0.15 0.6
-              , Math.Vector2.vec2 -0.15 0.6
-              , Math.Vector2.vec2 0.15 -0.6
+            , ( Vec3.vec3 0.15 0.6 0
+              , Vec3.vec3 -0.15 0.6 0
+              , Vec3.vec3 0.15 -0.6 0
               )
-            , ( Math.Vector2.vec2 0.15 -0.6
-              , Math.Vector2.vec2 -0.15 0.6
-              , Math.Vector2.vec2 -0.15 -0.6
+            , ( Vec3.vec3 0.15 -0.6 0
+              , Vec3.vec3 -0.15 0.6 0
+              , Vec3.vec3 -0.15 -0.6 0
               )
             ]
 
         Minus ->
-            [ ( Math.Vector2.vec2 0.6 0.15
-              , Math.Vector2.vec2 -0.6 0.15
-              , Math.Vector2.vec2 0.6 -0.15
+            [ ( Vec3.vec3 0.6 0.15 0
+              , Vec3.vec3 -0.6 0.15 0
+              , Vec3.vec3 0.6 -0.15 0
               )
-            , ( Math.Vector2.vec2 -0.6 0.15
-              , Math.Vector2.vec2 -0.6 -0.15
-              , Math.Vector2.vec2 0.6 -0.15
+            , ( Vec3.vec3 -0.6 0.15 0
+              , Vec3.vec3 -0.6 -0.15 0
+              , Vec3.vec3 0.6 -0.15 0
               )
             ]
 
@@ -123,13 +123,13 @@ triangles colorIndex decal =
                 size =
                     0.5
             in
-            [ ( Math.Vector2.vec2 size size
-              , Math.Vector2.vec2 -size -size
-              , Math.Vector2.vec2 size -size
+            [ ( Vec3.vec3 size size 0
+              , Vec3.vec3 -size -size 0
+              , Vec3.vec3 size -size 0
               )
-            , ( Math.Vector2.vec2 size size
-              , Math.Vector2.vec2 -size size
-              , Math.Vector2.vec2 -size -size
+            , ( Vec3.vec3 size size 0
+              , Vec3.vec3 -size size 0
+              , Vec3.vec3 -size -size 0
               )
             ]
 
@@ -141,37 +141,37 @@ triangles colorIndex decal =
                 innerSize =
                     0.3
             in
-            [ ( Math.Vector2.vec2 size size
-              , Math.Vector2.vec2 innerSize innerSize
-              , Math.Vector2.vec2 innerSize -innerSize
+            [ ( Vec3.vec3 size size 0
+              , Vec3.vec3 innerSize innerSize 0
+              , Vec3.vec3 innerSize -innerSize 0
               )
-            , ( Math.Vector2.vec2 size size
-              , Math.Vector2.vec2 innerSize -innerSize
-              , Math.Vector2.vec2 size -size
+            , ( Vec3.vec3 size size 0
+              , Vec3.vec3 innerSize -innerSize 0
+              , Vec3.vec3 size -size 0
               )
-            , ( Math.Vector2.vec2 size size
-              , Math.Vector2.vec2 -innerSize innerSize
-              , Math.Vector2.vec2 innerSize innerSize
+            , ( Vec3.vec3 size size 0
+              , Vec3.vec3 -innerSize innerSize 0
+              , Vec3.vec3 innerSize innerSize 0
               )
-            , ( Math.Vector2.vec2 size size
-              , Math.Vector2.vec2 -size size
-              , Math.Vector2.vec2 -innerSize innerSize
+            , ( Vec3.vec3 size size 0
+              , Vec3.vec3 -size size 0
+              , Vec3.vec3 -innerSize innerSize 0
               )
-            , ( Math.Vector2.vec2 -size -size
-              , Math.Vector2.vec2 -innerSize -innerSize
-              , Math.Vector2.vec2 -innerSize innerSize
+            , ( Vec3.vec3 -size -size 0
+              , Vec3.vec3 -innerSize -innerSize 0
+              , Vec3.vec3 -innerSize innerSize 0
               )
-            , ( Math.Vector2.vec2 -size -size
-              , Math.Vector2.vec2 -innerSize innerSize
-              , Math.Vector2.vec2 -size size
+            , ( Vec3.vec3 -size -size 0
+              , Vec3.vec3 -innerSize innerSize 0
+              , Vec3.vec3 -size size 0
               )
-            , ( Math.Vector2.vec2 -size -size
-              , Math.Vector2.vec2 innerSize -innerSize
-              , Math.Vector2.vec2 -innerSize -innerSize
+            , ( Vec3.vec3 -size -size 0
+              , Vec3.vec3 innerSize -innerSize 0
+              , Vec3.vec3 -innerSize -innerSize 0
               )
-            , ( Math.Vector2.vec2 -size -size
-              , Math.Vector2.vec2 size -size
-              , Math.Vector2.vec2 innerSize -innerSize
+            , ( Vec3.vec3 -size -size 0
+              , Vec3.vec3 size -size 0
+              , Vec3.vec3 innerSize -innerSize 0
               )
             ]
     )

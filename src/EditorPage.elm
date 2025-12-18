@@ -35,7 +35,7 @@ import Match exposing (WorldCoordinate)
 import MatchPage exposing (Mouse, ScreenCoordinate, Vertex, WorldPixel)
 import Math.Matrix4 as Mat4 exposing (Mat4)
 import Math.Vector2
-import Math.Vector3
+import Math.Vector3 as Vec3
 import MyUi
 import Pixels exposing (Pixels)
 import Point2d exposing (Point2d)
@@ -428,10 +428,10 @@ drawSegment config maybeMouseWorldPosition maybeDragging splines isCurrentLayer 
 
         color =
             if isCurrentLayer && SeqSet.member index model.editorState.selectedNodes then
-                Math.Vector3.vec3 0 0.8 0.1
+                Vec3.vec3 0 0.8 0.1
 
             else
-                Math.Vector3.vec3 0 0 0
+                Vec3.vec3 0 0 0
 
         segment2 =
             dragSegment
@@ -456,23 +456,23 @@ drawSegment config maybeMouseWorldPosition maybeDragging splines isCurrentLayer 
                 { x, y } =
                     Point2d.toMeters p
             in
-            [ ( { position = Math.Vector2.vec2 (x - size) (y - size)
+            [ ( { position = Vec3.vec3 (x - size) (y - size) 0
                 , color = color
                 }
-              , { position = Math.Vector2.vec2 (x + size) (y - size)
+              , { position = Vec3.vec3 (x + size) (y - size) 0
                 , color = color
                 }
-              , { position = Math.Vector2.vec2 (x + size) (y + size)
+              , { position = Vec3.vec3 (x + size) (y + size) 0
                 , color = color
                 }
               )
-            , ( { position = Math.Vector2.vec2 (x - size) (y - size)
+            , ( { position = Vec3.vec3 (x - size) (y - size) 0
                 , color = color
                 }
-              , { position = Math.Vector2.vec2 (x + size) (y + size)
+              , { position = Vec3.vec3 (x + size) (y + size) 0
                 , color = color
                 }
-              , { position = Math.Vector2.vec2 (x - size) (y + size)
+              , { position = Vec3.vec3 (x - size) (y + size) 0
                 , color = color
                 }
               )
@@ -1379,7 +1379,7 @@ canvasView model canvasSize =
                 case SeqDict.get layerId model.meshCache of
                     Just cache ->
                         FontRender.drawLayer
-                            (Math.Vector3.vec3
+                            (Vec3.vec3
                                 (toFloat layer.red / 255)
                                 (toFloat layer.green / 255)
                                 (toFloat layer.blue / 255)

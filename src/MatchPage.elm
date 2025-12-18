@@ -65,7 +65,7 @@ import Match exposing (Action(..), Emote(..), Input, LobbyPreview, Match, MatchA
 import MatchName exposing (MatchName)
 import Math.Matrix4 as Mat4 exposing (Mat4)
 import Math.Vector2 exposing (Vec2)
-import Math.Vector3 exposing (Vec3)
+import Math.Vector3 as Vec3 exposing (Vec3)
 import Math.Vector4 exposing (Vec4)
 import MyUi
 import NetworkModel exposing (EventId, NetworkModel)
@@ -88,6 +88,7 @@ import Sounds exposing (Sounds)
 import Speed exposing (MetersPerSecond)
 import TextMessage exposing (TextMessage)
 import Timeline exposing (FrameId, TimelineCache, getOldestCachedState)
+import TriangularMesh exposing (TriangularMesh)
 import Ui
 import Ui.Events
 import Ui.Font
@@ -99,6 +100,7 @@ import Vector3d exposing (Vector3d)
 import Viewpoint3d
 import WebGL.Matrices
 import WebGL.Settings
+import WebGL.Settings.DepthTest
 
 
 type Msg
@@ -172,7 +174,7 @@ type alias MatchSetupLocal_ =
 
 
 type alias Vertex =
-    { position : Vec2, color : Vec3 }
+    { position : Vec3, color : Vec3 }
 
 
 type ScreenCoordinate
@@ -1087,7 +1089,7 @@ canvasView windowSize devicePixelRatio entities =
             findPixelPerfectSize windowSize devicePixelRatio
     in
     WebGL.toHtmlWith
-        [ WebGL.alpha True, WebGL.stencil 0 ]
+        [ WebGL.alpha True, WebGL.stencil 0, WebGL.depth 1 ]
         [ Html.Attributes.width (Pixels.inPixels actualCanvasSize.width)
         , Html.Attributes.height (Pixels.inPixels actualCanvasSize.height)
         , Html.Attributes.style "width" (String.fromInt (Pixels.inPixels cssWindowWidth) ++ "px")
@@ -1430,11 +1432,16 @@ drawPlayer : Id FrameId -> Id UserId -> MatchActiveLocal_ -> Mat4 -> Player -> F
 drawPlayer frameId userId matchData viewMatrix player playerRadius_ =
     case SeqDict.get userId matchData.userIds of
         Just mesh ->
+            let
+                rotation : Float
+                rotation =
+                    Direction2d.toAngle player.rotation |> Angle.inRadians
+            in
             [ WebGL.entityWith
-                [ WebGL.Settings.cullFace WebGL.Settings.back ]
+                [ WebGL.Settings.cullFace WebGL.Settings.back, WebGL.Settings.DepthTest.default ]
                 vertexShader
                 fragmentShader
-                mesh
+                playerHead
                 { view = viewMatrix
                 , model =
                     pointToMatrix player.position
@@ -1448,7 +1455,50 @@ drawPlayer frameId userId matchData viewMatrix player playerRadius_ =
                                     playerRadius_
                             )
                             playerRadius_
-                        |> Mat4.rotate (Angle.inRadians player.rotation) (Math.Vector3.vec3 0 0 1)
+                        |> Mat4.rotate -0.4 (Vec3.vec3 1 0 0)
+                        |> Mat4.rotate rotation (Vec3.vec3 0 0 1)
+                }
+            , WebGL.entityWith
+                [ WebGL.Settings.cullFace WebGL.Settings.back, WebGL.Settings.DepthTest.default ]
+                vertexShader
+                fragmentShader
+                playerHand
+                { view = viewMatrix
+                , model =
+                    pointToMatrix (Point2d.translateIn player.rotation (Length.meters 1) player.position)
+                        |> Mat4.scale3
+                            playerRadius_
+                            (case player.isDead of
+                                Just _ ->
+                                    playerRadius_ * 0.5
+
+                                Nothing ->
+                                    playerRadius_
+                            )
+                            playerRadius_
+                        |> Mat4.rotate -0.4 (Vec3.vec3 1 0 0)
+                        |> Mat4.rotate rotation (Vec3.vec3 0 0 1)
+                }
+            , WebGL.entityWith
+                [ WebGL.Settings.cullFace WebGL.Settings.back, WebGL.Settings.DepthTest.default ]
+                vertexShader
+                fragmentShader
+                playerBody
+                { view = viewMatrix
+                , model =
+                    pointToMatrix player.position
+                        |> Mat4.scale3
+                            playerRadius_
+                            (case player.isDead of
+                                Just _ ->
+                                    playerRadius_ * 0.5
+
+                                Nothing ->
+                                    playerRadius_
+                            )
+                            playerRadius_
+                        |> Mat4.rotate -0.4 (Vec3.vec3 1 0 0)
+                        |> Mat4.rotate rotation (Vec3.vec3 0 0 1)
                 }
             ]
                 ++ (case player.lastEmote of
@@ -1641,13 +1691,13 @@ lineMesh thickness color line =
             )
 
 
-pointToVec : Point2d units coordinate -> Vec2
+pointToVec : Point2d units coordinate -> Vec3
 pointToVec point2d =
     let
         { x, y } =
             Point2d.unwrap point2d
     in
-    Math.Vector2.vec2 x y
+    Vec3.vec3 x y 0
 
 
 clickMoveMaxDelay : Duration
@@ -1750,6 +1800,29 @@ gameUpdate frameId inputs model =
 
                                                     _ ->
                                                         player.targetPosition
+                                    , rotation =
+                                        case player.targetPosition of
+                                            Just targetPosition ->
+                                                case Direction2d.from player.position targetPosition of
+                                                    Just direction ->
+                                                        let
+                                                            angleDifference : Angle
+                                                            angleDifference =
+                                                                Direction2d.angleFrom player.rotation direction
+                                                        in
+                                                        if Quantity.abs angleDifference |> Quantity.lessThan (Angle.degrees 5) then
+                                                            direction
+
+                                                        else
+                                                            Direction2d.rotateBy
+                                                                (Angle.degrees (5 * Quantity.sign angleDifference))
+                                                                player.rotation
+
+                                                    Nothing ->
+                                                        player.rotation
+
+                                            Nothing ->
+                                                player.rotation
                                     , lastEmote =
                                         case input.emote of
                                             Just emote ->
@@ -1881,12 +1954,10 @@ gameUpdate frameId inputs model =
 snowballParticles : Id FrameId -> Id FrameId -> Point3d Meters WorldCoordinate -> List Particle
 snowballParticles frameId thrownAt impactPosition =
     let
-        seed =
-            Random.initialSeed (Id.toInt frameId * 1000 + Id.toInt thrownAt)
-
         { x, y } =
             Point3d.toMeters impactPosition
 
+        count : number
         count =
             8
 
@@ -1907,11 +1978,71 @@ snowballParticles frameId thrownAt impactPosition =
                 (Random.float 0.1 0.3)
                 (Random.float 0.1 0.2)
                 (Random.float 2 4)
-
-        ( particles, _ ) =
-            Random.step (List.range 0 (count - 1) |> List.map particleGenerator |> Random.Extra.sequence) seed
     in
-    particles
+    Random.step
+        (List.range 0 (count - 1) |> List.map particleGenerator |> Random.Extra.sequence)
+        (Random.initialSeed (Id.toInt frameId * 1000 + Id.toInt thrownAt))
+        |> Tuple.first
+
+
+sphere : Vec3 -> Vec3 -> Vec3 -> TriangularMesh Vertex
+sphere position scaleBy color =
+    let
+        p =
+            Vec3.toRecord position
+
+        s =
+            Vec3.toRecord scaleBy
+
+        uDetail =
+            18
+
+        vDetail =
+            10
+    in
+    TriangularMesh.indexedBall
+        uDetail
+        vDetail
+        (\u v ->
+            let
+                longitude =
+                    2 * pi * toFloat u / toFloat uDetail
+
+                latitude =
+                    pi * toFloat v / toFloat vDetail
+            in
+            { position =
+                Vec3.vec3
+                    (sin longitude * sin latitude * s.x + p.x)
+                    (cos longitude * sin latitude * s.y + p.y)
+                    (cos latitude * s.z + p.z)
+            , color = color
+            }
+        )
+
+
+sphereMesh : Vec3 -> Vec3 -> Vec3 -> Mesh Vertex
+sphereMesh position scaleBy color =
+    let
+        sphere2 =
+            sphere position scaleBy color
+    in
+    TriangularMesh.faceVertices sphere2 |> WebGL.triangles
+
+
+playerHead : Mesh Vertex
+playerHead =
+    sphereMesh (Vec3.vec3 0 0 1.5) (Vec3.vec3 0.9 0.9 0.9) (Vec3.vec3 0 1 0)
+
+
+playerBody : Mesh Vertex
+playerBody =
+    sphereMesh (Vec3.vec3 0 0 0.7) (Vec3.vec3 1 1 1.5) (Vec3.vec3 1 0 0)
+
+
+playerHand : Mesh Vertex
+playerHand =
+    sphereMesh (Vec3.vec3 0 0 0.7) (Vec3.vec3 0.3 0.3 0.3) (Vec3.vec3 1 0 1)
 
 
 getBotInput : Id FrameId -> MatchState -> Id UserId -> Player -> Input
@@ -2185,7 +2316,7 @@ playerRadius =
     Length.meters 0.5
 
 
-arrow : Vec3 -> Mesh { position : Vec2, color : Vec3 }
+arrow : Vec3 -> Mesh Vertex
 arrow color =
     [ { v0 = ( -1, 1 ), v1 = ( 0, 0 ), v2 = ( 1, 1 ) }
     , { v0 = ( -0.5, 1 ), v1 = ( 0.5, 1 ), v2 = ( 0.5, 2 ) }
@@ -2193,13 +2324,13 @@ arrow color =
     ]
         |> List.map
             (\{ v0, v1, v2 } ->
-                ( { position = Math.Vector2.vec2 (Tuple.first v0) (Tuple.second v0)
+                ( { position = Vec3.vec3 (Tuple.first v0) (Tuple.second v0) 0
                   , color = color
                   }
-                , { position = Math.Vector2.vec2 (Tuple.first v1) (Tuple.second v1)
+                , { position = Vec3.vec3 (Tuple.first v1) (Tuple.second v1) 0
                   , color = color
                   }
-                , { position = Math.Vector2.vec2 (Tuple.first v2) (Tuple.second v2)
+                , { position = Vec3.vec3 (Tuple.first v2) (Tuple.second v2) 0
                   , color = color
                   }
                 )
@@ -2209,19 +2340,14 @@ arrow color =
 
 moveArrow : WebGL.Mesh Vertex
 moveArrow =
-    arrow (Math.Vector3.vec3 1 0.8 0.1)
-
-
-chargingArrow : WebGL.Mesh Vertex
-chargingArrow =
-    arrow (Math.Vector3.vec3 0.3 0.7 1)
+    arrow (Vec3.vec3 1 0.8 0.1)
 
 
 aimingReticle : WebGL.Mesh Vertex
 aimingReticle =
     let
         color =
-            Math.Vector3.vec3 0.3 0.7 1
+            Vec3.vec3 0.3 0.7 1
 
         segments =
             32
@@ -2236,7 +2362,7 @@ aimingReticle =
             0.08
 
         toVertex ( x, y ) =
-            { position = Math.Vector2.vec2 x y, color = color }
+            { position = Vec3.vec3 x y 0, color = color }
 
         -- Ring segments
         ringTriangles =
@@ -2322,7 +2448,7 @@ playerMesh playerData =
         primaryColor =
             ColorIndex.toVec3 playerData.primaryColor
     in
-    circleMesh 1 (Math.Vector3.vec3 0 0 0)
+    circleMesh 1 (Vec3.vec3 0 0 0)
         ++ circleMesh 0.95 primaryColor
         ++ (case playerData.decal of
                 Just decal ->
@@ -2353,35 +2479,35 @@ circleMesh size color =
                     t2 =
                         pi * 2 * toFloat (index + 2) / detail
                 in
-                ( { position = Math.Vector2.vec2 (cos t0 * size) (sin t0 * size), color = color }
-                , { position = Math.Vector2.vec2 (cos t1 * size) (sin t1 * size), color = color }
-                , { position = Math.Vector2.vec2 (cos t2 * size) (sin t2 * size), color = color }
+                ( { position = Vec3.vec3 (cos t0 * size) (sin t0 * size) 0, color = color }
+                , { position = Vec3.vec3 (cos t1 * size) (sin t1 * size) 0, color = color }
+                , { position = Vec3.vec3 (cos t2 * size) (sin t2 * size) 0, color = color }
                 )
             )
 
 
 snowballMesh : WebGL.Mesh Vertex
 snowballMesh =
-    circleMesh 1 (Math.Vector3.vec3 0 0 0)
-        ++ circleMesh 0.85 (Math.Vector3.vec3 1 1 1)
+    circleMesh 1 (Vec3.vec3 0 0 0)
+        ++ circleMesh 0.85 (Vec3.vec3 1 1 1)
         |> WebGL.triangles
 
 
 snowballShadowMesh : WebGL.Mesh Vertex
 snowballShadowMesh =
-    circleMesh 1 (Math.Vector3.vec3 0.2 0.2 0.2)
+    circleMesh 1 (Vec3.vec3 0.2 0.2 0.2)
         |> WebGL.triangles
 
 
 particleMesh : WebGL.Mesh Vertex
 particleMesh =
-    circleMesh 0.9 (Math.Vector3.vec3 1 1 1)
+    circleMesh 0.9 (Vec3.vec3 1 1 1)
         |> WebGL.triangles
 
 
 particleOutlineMesh : WebGL.Mesh Vertex
 particleOutlineMesh =
-    circleMesh 1 (Math.Vector3.vec3 0 0 0)
+    circleMesh 1 (Vec3.vec3 0 0 0)
         |> WebGL.triangles
 
 
@@ -2397,7 +2523,7 @@ type alias PlayerUniforms =
 vertexShader : Shader Vertex PlayerUniforms { vcolor : Vec4 }
 vertexShader =
     [glsl|
-attribute vec2 position;
+attribute vec3 position;
 attribute vec3 color;
 varying vec4 vcolor;
 uniform mat4 view;
@@ -2405,7 +2531,7 @@ uniform mat4 model;
 
 
 void main () {
-    gl_Position = view * model * vec4(position, 0.0, 1.0);
+    gl_Position = view * model * vec4(position, 1.0);
 
     vcolor = vec4(color.xyz,1.0);
 
@@ -2488,7 +2614,7 @@ initMatchData serverTime newUserIds maybeTimelineCache =
                             Nothing
                 )
             |> SeqDict.fromList
-    , wallMesh = lineSegmentMesh (Math.Vector3.vec3 1 0 0) wallSegments
+    , wallMesh = lineSegmentMesh (Vec3.vec3 1 0 0) wallSegments
     , touchPosition = Nothing
     , previousTouchPosition = Nothing
     , primaryDown = Nothing
@@ -2643,7 +2769,7 @@ initPlayer team position =
     { position = position
     , targetPosition = Nothing
     , velocity = Vector2d.zero
-    , rotation = Quantity.zero
+    , rotation = Direction2d.x
     , finishTime = DidNotFinish
     , lastCollision = Nothing
     , lastEmote = Nothing
