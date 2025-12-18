@@ -1453,6 +1453,29 @@ handPosition leftHand frameId player =
 
             else
                 Quantity.zero
+
+        -- Check if right hand is charging a throw
+        chargeOffset : Length
+        chargeOffset =
+            if not leftHand then
+                case player.clickStart of
+                    Just clickStart ->
+                        let
+                            elapsed =
+                                frameTimeElapsed clickStart.time frameId
+                        in
+                        if elapsed |> Quantity.greaterThanOrEqualTo clickMoveMaxDelay then
+                            -- Move backwards based on charge amount
+                            Length.meters (-0.3 * throwCharge elapsed)
+
+                        else
+                            Quantity.zero
+
+                    Nothing ->
+                        Quantity.zero
+
+            else
+                Quantity.zero
     in
     Point2d.translateIn
         (if leftHand then
@@ -1463,7 +1486,7 @@ handPosition leftHand frameId player =
         )
         (Length.meters 0.5)
         player.position
-        |> Point2d.translateIn player.rotation swingAmount
+        |> Point2d.translateIn player.rotation (Quantity.plus swingAmount chargeOffset)
 
 
 drawHand : Bool -> Id FrameId -> Float -> Player -> Mat4 -> WebGL.Entity
@@ -1472,6 +1495,28 @@ drawHand leftHand frameId rotation player viewMatrix =
         playerRadius_ : Float
         playerRadius_ =
             Length.inMeters playerRadius
+
+        -- Calculate up offset for right hand when charging
+        upOffset : Float
+        upOffset =
+            if not leftHand then
+                case player.clickStart of
+                    Just clickStart ->
+                        let
+                            elapsed =
+                                frameTimeElapsed clickStart.time frameId
+                        in
+                        if elapsed |> Quantity.greaterThanOrEqualTo clickMoveMaxDelay then
+                            0.3 * throwCharge elapsed
+
+                        else
+                            0
+
+                    Nothing ->
+                        0
+
+            else
+                0
     in
     WebGL.entityWith
         [ WebGL.Settings.cullFace WebGL.Settings.back, WebGL.Settings.DepthTest.default ]
@@ -1481,6 +1526,7 @@ drawHand leftHand frameId rotation player viewMatrix =
         { view = viewMatrix
         , model =
             pointToMatrix (handPosition leftHand frameId player)
+                |> Mat4.translate3 0 0 upOffset
                 |> Mat4.scale3
                     playerRadius_
                     (case player.isDead of
