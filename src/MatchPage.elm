@@ -28,10 +28,10 @@ module MatchPage exposing
 
 import Acceleration exposing (Acceleration, MetersPerSecondSquared)
 import Angle exposing (Angle)
+import Array
 import Audio
 import Axis2d
 import Axis3d
-import BoundingBox2d exposing (BoundingBox2d)
 import Camera3d exposing (Camera3d)
 import ColorIndex exposing (ColorIndex(..))
 import Decal exposing (Decal)
@@ -48,17 +48,14 @@ import Effect.Time as Time
 import Effect.WebGL as WebGL exposing (Mesh, Shader)
 import Env
 import FontRender
-import Frame2d
 import Geometry
 import Geometry.Interop.LinearAlgebra.Point2d
 import Html.Attributes
 import Html.Events
 import Html.Events.Extra.Pointer
-import Html.Events.Extra.Touch
 import Id exposing (Id)
 import Json.Decode
 import Keyboard exposing (Key)
-import Keyboard.Arrows
 import KeyboardExtra as Keyboard
 import Length exposing (Length, Meters)
 import LineSegment2d exposing (LineSegment2d)
@@ -91,11 +88,9 @@ import Speed exposing (MetersPerSecond)
 import TextMessage exposing (TextMessage)
 import Timeline exposing (FrameId, TimelineCache, getOldestCachedState)
 import Ui
-import Ui.Anim
 import Ui.Events
 import Ui.Font
 import Ui.Input
-import Ui.Layout
 import Ui.Prose
 import User exposing (UserId)
 import Vector2d exposing (Vector2d)
@@ -1155,6 +1150,10 @@ backgroundGrid cameraPosition zoom canvasSize =
         }
 
 
+countdown =
+    Array.fromList [ Shape.three, Shape.two, Shape.one, Shape.go ]
+
+
 canvasViewHelper : Config a -> Model -> Size -> List WebGL.Entity
 canvasViewHelper model matchSetup canvasSize =
     case ( Match.matchActive (getLocalState matchSetup), matchSetup.matchData ) of
@@ -1191,23 +1190,32 @@ canvasViewHelper model matchSetup canvasSize =
                                 playerRadius_ =
                                     Length.inMeters playerRadius
 
-                                secondsElapsed =
-                                    frameTimeElapsed (Id.fromInt 0) frameId |> Duration.inSeconds |> floor
+                                timeElapsed : Duration
+                                timeElapsed =
+                                    frameTimeElapsed (Id.fromInt 0) frameId
+
+                                elapsedSeconds : Int
+                                elapsedSeconds =
+                                    Duration.inSeconds timeElapsed |> floor
                             in
-                            (case secondsElapsed of
-                                0 ->
-                                    drawShape 0.01 Point2d.origin viewMatrix Shape.three
+                            (case Array.get (elapsedSeconds - 1) countdown of
+                                Just value ->
+                                    drawShape
+                                        (toFromAndBack
+                                            (Duration.milliseconds 100)
+                                            (Duration.seconds 800)
+                                            (Duration.milliseconds 100)
+                                            (timeElapsed |> Quantity.minus (Duration.seconds (toFloat elapsedSeconds)))
+                                            Ease.outBack
+                                            Ease.inBack
+                                            0
+                                            0.01
+                                        )
+                                        Point2d.origin
+                                        viewMatrix
+                                        value
 
-                                1 ->
-                                    drawShape 0.01 Point2d.origin viewMatrix Shape.two
-
-                                2 ->
-                                    drawShape 0.01 Point2d.origin viewMatrix Shape.one
-
-                                3 ->
-                                    drawShape 0.01 Point2d.origin viewMatrix Shape.go
-
-                                _ ->
+                                Nothing ->
                                     []
                             )
                                 ++ [ WebGL.entityWith
@@ -2611,7 +2619,7 @@ placeToText place =
 
 countdownDelay : Duration
 countdownDelay =
-    Duration.seconds 3
+    Duration.seconds 4
 
 
 timeToFrameId : Config a -> MatchActive -> Id FrameId
