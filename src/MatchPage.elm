@@ -1423,20 +1423,12 @@ canvasViewHelper model matchSetup canvasSize =
             []
 
 
-drawHand : Bool -> Id FrameId -> Float -> Player -> Mat4 -> WebGL.Entity
-drawHand leftHand frameId rotation player viewMatrix =
+handPosition : Bool -> Id FrameId -> Player -> Point2d Meters WorldCoordinate
+handPosition leftHand frameId player =
     let
-        playerRadius_ : Float
-        playerRadius_ =
-            Length.inMeters playerRadius
-
         speed : Float
         speed =
             Vector2d.length player.velocity |> Quantity.unwrap
-
-        isMoving : Bool
-        isMoving =
-            speed > 0.01
 
         swingPhase : Float
         swingPhase =
@@ -1446,13 +1438,40 @@ drawHand leftHand frameId rotation player viewMatrix =
             else
                 pi
 
-        swingAmount : Float
+        timeElapsed : Duration
+        timeElapsed =
+            frameTimeElapsed (Id.fromInt 0) frameId
+
+        isMoving : Bool
+        isMoving =
+            speed > 0.01
+
+        swingAmount : Length
         swingAmount =
             if isMoving then
-                sin (toFloat (Id.toInt frameId) * 0.5 + swingPhase) * 0.15
+                sin (Duration.inSeconds timeElapsed * 10 + swingPhase) * 0.15 |> Length.meters
 
             else
-                0
+                Quantity.zero
+    in
+    Point2d.translateIn
+        (if leftHand then
+            Direction2d.rotateCounterclockwise player.rotation
+
+         else
+            Direction2d.rotateClockwise player.rotation
+        )
+        (Length.meters 0.5)
+        player.position
+        |> Point2d.translateIn player.rotation swingAmount
+
+
+drawHand : Bool -> Id FrameId -> Float -> Player -> Mat4 -> WebGL.Entity
+drawHand leftHand frameId rotation player viewMatrix =
+    let
+        playerRadius_ : Float
+        playerRadius_ =
+            Length.inMeters playerRadius
     in
     WebGL.entityWith
         [ WebGL.Settings.cullFace WebGL.Settings.back, WebGL.Settings.DepthTest.default ]
@@ -1461,17 +1480,7 @@ drawHand leftHand frameId rotation player viewMatrix =
         playerHand
         { view = viewMatrix
         , model =
-            pointToMatrix
-                (Point2d.translateIn
-                    (if leftHand then
-                        Direction2d.rotateCounterclockwise player.rotation
-
-                     else
-                        Direction2d.rotateClockwise player.rotation
-                    )
-                    (Length.meters 0.5)
-                    player.position
-                )
+            pointToMatrix (handPosition leftHand frameId player)
                 |> Mat4.scale3
                     playerRadius_
                     (case player.isDead of
@@ -1484,7 +1493,6 @@ drawHand leftHand frameId rotation player viewMatrix =
                     playerRadius_
                 |> Mat4.rotate -0.4 (Vec3.vec3 1 0 0)
                 |> Mat4.rotate rotation (Vec3.vec3 0 0 1)
-                |> Mat4.rotate swingAmount (Vec3.vec3 1 0 0)
         }
 
 
