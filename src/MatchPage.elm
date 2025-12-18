@@ -1423,12 +1423,36 @@ canvasViewHelper model matchSetup canvasSize =
             []
 
 
-drawHand : Bool -> Float -> Player -> Mat4 -> WebGL.Entity
-drawHand leftHand rotation player viewMatrix =
+drawHand : Bool -> Id FrameId -> Float -> Player -> Mat4 -> WebGL.Entity
+drawHand leftHand frameId rotation player viewMatrix =
     let
         playerRadius_ : Float
         playerRadius_ =
             Length.inMeters playerRadius
+
+        speed : Float
+        speed =
+            Vector2d.length player.velocity |> Quantity.unwrap
+
+        isMoving : Bool
+        isMoving =
+            speed > 0.01
+
+        swingPhase : Float
+        swingPhase =
+            if leftHand then
+                0
+
+            else
+                pi
+
+        swingAmount : Float
+        swingAmount =
+            if isMoving then
+                sin (toFloat (Id.toInt frameId) * 0.5 + swingPhase) * 0.15
+
+            else
+                0
     in
     WebGL.entityWith
         [ WebGL.Settings.cullFace WebGL.Settings.back, WebGL.Settings.DepthTest.default ]
@@ -1460,6 +1484,7 @@ drawHand leftHand rotation player viewMatrix =
                     playerRadius_
                 |> Mat4.rotate -0.4 (Vec3.vec3 1 0 0)
                 |> Mat4.rotate rotation (Vec3.vec3 0 0 1)
+                |> Mat4.rotate swingAmount (Vec3.vec3 1 0 0)
         }
 
 
@@ -1497,8 +1522,8 @@ drawPlayer frameId userId matchData viewMatrix player =
                         |> Mat4.rotate -0.4 (Vec3.vec3 1 0 0)
                         |> Mat4.rotate rotation (Vec3.vec3 0 0 1)
                 }
-            , drawHand True rotation player viewMatrix
-            , drawHand False rotation player viewMatrix
+            , drawHand True frameId rotation player viewMatrix
+            , drawHand False frameId rotation player viewMatrix
             , WebGL.entityWith
                 [ WebGL.Settings.cullFace WebGL.Settings.back, WebGL.Settings.DepthTest.default ]
                 vertexShader
