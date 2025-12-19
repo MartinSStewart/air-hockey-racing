@@ -1597,7 +1597,13 @@ drawPlayer frameId userId matchData viewMatrix player =
                 [ WebGL.Settings.cullFace WebGL.Settings.back, WebGL.Settings.DepthTest.default ]
                 vertexShader
                 fragmentShader
-                playerEye
+                (case player.isDead of
+                    Just _ ->
+                        deadEye
+
+                    Nothing ->
+                        playerEye
+                )
                 { ucolor = Vec3.vec3 1 1 1
                 , view = viewMatrix
                 , model =
@@ -2198,6 +2204,53 @@ playerEye =
             sphere (Vec3.vec3 0.8 -0.4 1.6) (Vec3.vec3 0.12 0.12 0.12) (Vec3.vec3 0 0 0) |> TriangularMesh.faceVertices
     in
     leftEye ++ rightEye |> WebGL.triangles
+
+
+deadEye : Mesh Vertex
+deadEye =
+    let
+        xLine : Float -> Float -> Float -> List ( Vertex, Vertex, Vertex )
+        xLine centerY centerZ size =
+            let
+                thickness =
+                    0.03
+
+                color =
+                    Vec3.vec3 0 0 0
+
+                -- Diagonal line 1: bottom-left to top-right
+                line1 =
+                    [ ( { position = Vec3.vec3 (centerY - size - thickness) (centerZ - size) 0.8, color = color }
+                      , { position = Vec3.vec3 (centerY - size + thickness) (centerZ - size) 0.8, color = color }
+                      , { position = Vec3.vec3 (centerY + size + thickness) (centerZ + size) 0.8, color = color }
+                      )
+                    , ( { position = Vec3.vec3 (centerY + size + thickness) (centerZ + size) 0.8, color = color }
+                      , { position = Vec3.vec3 (centerY + size - thickness) (centerZ + size) 0.8, color = color }
+                      , { position = Vec3.vec3 (centerY - size - thickness) (centerZ - size) 0.8, color = color }
+                      )
+                    ]
+
+                -- Diagonal line 2: top-left to bottom-right
+                line2 =
+                    [ ( { position = Vec3.vec3 (centerY - size - thickness) (centerZ + size) 0.8, color = color }
+                      , { position = Vec3.vec3 (centerY - size + thickness) (centerZ + size) 0.8, color = color }
+                      , { position = Vec3.vec3 (centerY + size + thickness) (centerZ - size) 0.8, color = color }
+                      )
+                    , ( { position = Vec3.vec3 (centerY + size + thickness) (centerZ - size) 0.8, color = color }
+                      , { position = Vec3.vec3 (centerY + size - thickness) (centerZ - size) 0.8, color = color }
+                      , { position = Vec3.vec3 (centerY - size - thickness) (centerZ + size) 0.8, color = color }
+                      )
+                    ]
+            in
+            line1 ++ line2
+
+        leftX =
+            xLine 0.4 1.6 0.1
+
+        rightX =
+            xLine -0.4 1.6 0.1
+    in
+    (leftX ++ rightX) |> WebGL.triangles
 
 
 getBotInput : Id FrameId -> MatchState -> Id UserId -> Player -> Input
