@@ -1597,6 +1597,52 @@ drawPlayer frameId userId matchData viewMatrix player =
                 [ WebGL.Settings.cullFace WebGL.Settings.back, WebGL.Settings.DepthTest.default ]
                 vertexShader
                 fragmentShader
+                playerEye
+                { ucolor = Vec3.vec3 1 1 1
+                , view = viewMatrix
+                , model =
+                    pointToMatrix player.position
+                        |> Mat4.translate3 -0.2 0 0
+                        |> Mat4.scale3
+                            playerRadius_
+                            (case player.isDead of
+                                Just _ ->
+                                    playerRadius_ * 0.5
+
+                                Nothing ->
+                                    playerRadius_
+                            )
+                            playerRadius_
+                        |> Mat4.rotate -0.4 (Vec3.vec3 1 0 0)
+                        |> Mat4.rotate rotation (Vec3.vec3 0 0 1)
+                }
+            , WebGL.entityWith
+                [ WebGL.Settings.cullFace WebGL.Settings.back, WebGL.Settings.DepthTest.default ]
+                vertexShader
+                fragmentShader
+                playerEye
+                { ucolor = Vec3.vec3 1 1 1
+                , view = viewMatrix
+                , model =
+                    pointToMatrix player.position
+                        |> Mat4.translate3 0.2 0 0
+                        |> Mat4.scale3
+                            playerRadius_
+                            (case player.isDead of
+                                Just _ ->
+                                    playerRadius_ * 0.5
+
+                                Nothing ->
+                                    playerRadius_
+                            )
+                            playerRadius_
+                        |> Mat4.rotate -0.4 (Vec3.vec3 1 0 0)
+                        |> Mat4.rotate rotation (Vec3.vec3 0 0 1)
+                }
+            , WebGL.entityWith
+                [ WebGL.Settings.cullFace WebGL.Settings.back, WebGL.Settings.DepthTest.default ]
+                vertexShader
+                fragmentShader
                 playerBody
                 { ucolor =
                     case player.team of
@@ -2164,6 +2210,11 @@ playerBody =
 playerHand : Mesh Vertex
 playerHand =
     sphereMesh (Vec3.vec3 0 0 0.7) (Vec3.vec3 0.3 0.3 0.3) (Vec3.vec3 1 1 1)
+
+
+playerEye : Mesh Vertex
+playerEye =
+    sphereMesh (Vec3.vec3 0 0.4 1.6) (Vec3.vec3 0.12 0.12 0.12) (Vec3.vec3 0 0 0)
 
 
 getBotInput : Id FrameId -> MatchState -> Id UserId -> Player -> Input
