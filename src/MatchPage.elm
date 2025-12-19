@@ -2048,6 +2048,13 @@ gameUpdate frameId inputs model =
 
                                 _ ->
                                     snowballs
+                        , particles =
+                            case hitBySnowball of
+                                Just snowball ->
+                                    snowballParticles frameId snowball.thrownAt snowball.position ++ model2.particles
+
+                                Nothing ->
+                                    model2.particles
                     }
                 )
                 model
