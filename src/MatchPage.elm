@@ -1486,7 +1486,10 @@ handPosition leftHand frameId player =
 
         upOffset : Length
         upOffset =
-            if not leftHand then
+            if leftHand then
+                Length.meters 0.3
+
+            else
                 case player.clickStart of
                     Just clickStart ->
                         let
@@ -1494,16 +1497,13 @@ handPosition leftHand frameId player =
                                 frameTimeElapsed clickStart.time frameId
                         in
                         if elapsed |> Quantity.greaterThanOrEqualTo clickMoveMaxDelay then
-                            0.3 * throwCharge elapsed |> Length.meters
+                            0.3 * (Length.inMeters snowballStartHeight - 0.3) * throwCharge elapsed |> Length.meters
 
                         else
-                            Quantity.zero
+                            Length.meters 0.3
 
                     Nothing ->
-                        Quantity.zero
-
-            else
-                Quantity.zero
+                        Length.meters 0.3
     in
     Point2d.translateIn
         (if leftHand then
@@ -1944,7 +1944,28 @@ gameUpdate frameId inputs model =
                                                         player.rotation
 
                                             Nothing ->
-                                                player.rotation
+                                                case player.clickStart of
+                                                    Just clickStart ->
+                                                        case Direction2d.from player.position clickStart.position of
+                                                            Just direction ->
+                                                                let
+                                                                    angleDifference : Angle
+                                                                    angleDifference =
+                                                                        Direction2d.angleFrom player.rotation direction
+                                                                in
+                                                                if Quantity.abs angleDifference |> Quantity.lessThan (Angle.degrees 5) then
+                                                                    direction
+
+                                                                else
+                                                                    Direction2d.rotateBy
+                                                                        (Angle.degrees (5 * Quantity.sign angleDifference))
+                                                                        player.rotation
+
+                                                            Nothing ->
+                                                                player.rotation
+
+                                                    Nothing ->
+                                                        player.rotation
                                     , lastEmote =
                                         case input.emote of
                                             Just emote ->
