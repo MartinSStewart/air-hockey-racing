@@ -1569,10 +1569,42 @@ drawPlayer frameId userId matchData viewMatrix player =
                 playerRadius_ =
                     Length.inMeters playerRadius
 
+                fallRotation : Float
+                fallRotation =
+                    case player.isDead of
+                        Just death ->
+                            let
+                                framesSinceDeath =
+                                    Id.toInt frameId - Id.toInt death.time |> toFloat
+
+                                -- Fall over in about 0.5 seconds (30 frames at 60fps)
+                                fallProgress =
+                                    min 1 (framesSinceDeath / 30)
+                            in
+                            fallProgress * (pi / 2)
+
+                        Nothing ->
+                            0
+
+                fallAxis : Vec3
+                fallAxis =
+                    case player.isDead of
+                        Just death ->
+                            let
+                                -- Rotate around axis perpendicular to fall direction
+                                ( dx, dy ) =
+                                    Direction2d.components death.fallDirection
+                            in
+                            Vec3.vec3 -dy dx 0
+
+                        Nothing ->
+                            Vec3.vec3 1 0 0
+
                 viewAdjust : Mat4 -> Mat4
                 viewAdjust matrix =
                     Mat4.rotate -0.4 (Vec3.vec3 1 0 0) matrix
                         |> Mat4.rotate rotation (Vec3.vec3 0 0 1)
+                        |> Mat4.rotate fallRotation fallAxis
             in
             [ WebGL.entityWith
                 [ WebGL.Settings.cullFace WebGL.Settings.back, WebGL.Settings.DepthTest.default ]
@@ -1905,16 +1937,16 @@ gameUpdate frameId inputs model =
                             else
                                 SeqDict.get userId inputs2 |> Maybe.withDefault noInput
 
-                        ( isHit, snowballs ) =
+                        ( hitBySnowball, snowballs ) =
                             List.foldl
-                                (\snowball ( hasHit, snowballs2 ) ->
-                                    if not hasHit && snowballPlayerCollision snowball userId player then
-                                        ( True, snowballs2 )
+                                (\snowball ( hitSnowball, snowballs2 ) ->
+                                    if hitSnowball == Nothing && snowballPlayerCollision snowball userId player then
+                                        ( Just snowball, snowballs2 )
 
                                     else
-                                        ( hasHit, snowball :: snowballs2 )
+                                        ( hitSnowball, snowball :: snowballs2 )
                                 )
-                                ( False, [] )
+                                ( Nothing, [] )
                                 model2.snowballs
                                 |> Tuple.mapSecond List.reverse
                     in
@@ -2009,11 +2041,22 @@ gameUpdate frameId inputs model =
                                                             Nothing ->
                                                                 player.clickStart
                                     , isDead =
-                                        if isHit then
-                                            Just frameId
+                                        case hitBySnowball of
+                                            Just snowball ->
+                                                let
+                                                    snowballVelocity2d =
+                                                        Vector2d.metersPerSecond
+                                                            (Vector3d.xComponent snowball.velocity |> Speed.inMetersPerSecond)
+                                                            (Vector3d.yComponent snowball.velocity |> Speed.inMetersPerSecond)
 
-                                        else
-                                            player.isDead
+                                                    fallDirection =
+                                                        Vector2d.direction snowballVelocity2d
+                                                            |> Maybe.withDefault Direction2d.x
+                                                in
+                                                Just { time = frameId, fallDirection = fallDirection }
+
+                                            Nothing ->
+                                                player.isDead
                                 }
                                 model2.players
                         , snowballs =
