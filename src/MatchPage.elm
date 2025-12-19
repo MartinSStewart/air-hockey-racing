@@ -2966,10 +2966,20 @@ initMatch startTime users =
 
 initPlayer : Team -> Point2d Meters WorldCoordinate -> Player
 initPlayer team position =
+    let
+        -- Teams face each other: Red faces northeast (towards blue), Blue faces southwest (towards red)
+        facingDirection =
+            case team of
+                RedTeam ->
+                    Direction2d.fromAngle (Angle.degrees 45)
+
+                BlueTeam ->
+                    Direction2d.fromAngle (Angle.degrees 225)
+    in
     { position = position
     , targetPosition = Nothing
     , velocity = Vector2d.zero
-    , rotation = Direction2d.x
+    , rotation = facingDirection
     , finishTime = DidNotFinish
     , lastCollision = Nothing
     , lastEmote = Nothing
