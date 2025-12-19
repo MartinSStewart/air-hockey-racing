@@ -1379,7 +1379,7 @@ canvasViewHelper model matchSetup canvasSize =
                                                                     { ucolor = Vec3.vec3 1 1 1
                                                                     , view = viewMatrix
                                                                     , model =
-                                                                        pointToMatrix targetPosition
+                                                                        point2ToMatrix targetPosition
                                                                             |> Mat4.scale3 reticleScale reticleScale reticleScale
                                                                     }
                                                                 ]
@@ -1408,7 +1408,7 @@ canvasViewHelper model matchSetup canvasSize =
                                                         { ucolor = Vec3.vec3 1 1 1
                                                         , view = viewMatrix
                                                         , model =
-                                                            pointToMatrix targetPos
+                                                            point2ToMatrix targetPos
                                                                 |> Mat4.scale3 0.3 0.3 0.3
                                                         }
                                                     ]
@@ -1430,7 +1430,7 @@ canvasViewHelper model matchSetup canvasSize =
             []
 
 
-handPosition : Bool -> Id FrameId -> Player -> Point2d Meters WorldCoordinate
+handPosition : Bool -> Id FrameId -> Player -> Point3d Meters WorldCoordinate
 handPosition leftHand frameId player =
     let
         speed : Float
@@ -1483,6 +1483,27 @@ handPosition leftHand frameId player =
 
             else
                 Quantity.zero
+
+        upOffset : Length
+        upOffset =
+            if not leftHand then
+                case player.clickStart of
+                    Just clickStart ->
+                        let
+                            elapsed =
+                                frameTimeElapsed clickStart.time frameId
+                        in
+                        if elapsed |> Quantity.greaterThanOrEqualTo clickMoveMaxDelay then
+                            0.3 * throwCharge elapsed |> Length.meters
+
+                        else
+                            Quantity.zero
+
+                    Nothing ->
+                        Quantity.zero
+
+            else
+                Quantity.zero
     in
     Point2d.translateIn
         (if leftHand then
@@ -1494,37 +1515,11 @@ handPosition leftHand frameId player =
         (Length.meters 0.5)
         player.position
         |> Point2d.translateIn player.rotation (Quantity.plus swingAmount chargeOffset)
+        |> point2To3 upOffset
 
 
-drawHand : Bool -> Id FrameId -> Float -> Player -> Mat4 -> WebGL.Entity
-drawHand leftHand frameId rotation player viewMatrix =
-    let
-        playerRadius_ : Float
-        playerRadius_ =
-            Length.inMeters playerRadius
-
-        -- Calculate up offset for right hand when charging
-        upOffset : Float
-        upOffset =
-            if not leftHand then
-                case player.clickStart of
-                    Just clickStart ->
-                        let
-                            elapsed =
-                                frameTimeElapsed clickStart.time frameId
-                        in
-                        if elapsed |> Quantity.greaterThanOrEqualTo clickMoveMaxDelay then
-                            0.3 * throwCharge elapsed
-
-                        else
-                            0
-
-                    Nothing ->
-                        0
-
-            else
-                0
-    in
+drawHand : Bool -> Id FrameId -> Player -> Mat4 -> Mat4 -> WebGL.Entity
+drawHand leftHand frameId player viewMatrix modelMatrix =
     WebGL.entityWith
         [ WebGL.Settings.cullFace WebGL.Settings.back, WebGL.Settings.DepthTest.default ]
         vertexShader
@@ -1538,22 +1533,13 @@ drawHand leftHand frameId rotation player viewMatrix =
                 RedTeam ->
                     Vec3.vec3 0.8 0 0
         , view = viewMatrix
-        , model =
-            pointToMatrix (handPosition leftHand frameId player)
-                |> Mat4.translate3 0 0 upOffset
-                |> Mat4.scale3
-                    playerRadius_
-                    (case player.isDead of
-                        Just _ ->
-                            playerRadius_ * 0.5
-
-                        Nothing ->
-                            playerRadius_
-                    )
-                    playerRadius_
-                |> Mat4.rotate -0.4 (Vec3.vec3 1 0 0)
-                |> Mat4.rotate rotation (Vec3.vec3 0 0 1)
+        , model = point3ToMatrix (handPosition leftHand frameId player) |> matMul modelMatrix
         }
+
+
+matMul : Mat4 -> Mat4 -> Mat4
+matMul a b =
+    Mat4.mul b a
 
 
 drawPlayer : Id FrameId -> Id UserId -> MatchActiveLocal_ -> Mat4 -> Player -> List WebGL.Entity
@@ -1569,66 +1555,43 @@ drawPlayer frameId userId matchData viewMatrix player =
                 playerRadius_ =
                     Length.inMeters playerRadius
 
-                fallRotation : Float
-                fallRotation =
-                    case player.isDead of
-                        Just death ->
-                            let
-                                framesSinceDeath =
-                                    Id.toInt frameId - Id.toInt death.time |> toFloat
-
-                                -- Fall over in about 0.5 seconds (30 frames at 60fps)
-                                fallProgress =
-                                    min 1 (framesSinceDeath / 30)
-                            in
-                            fallProgress * (pi / 2)
-
-                        Nothing ->
-                            0
-
-                fallAxis : Vec3
-                fallAxis =
-                    case player.isDead of
-                        Just death ->
-                            let
-                                -- Rotate around axis perpendicular to fall direction
-                                ( dx, dy ) =
-                                    Direction2d.components death.fallDirection
-                            in
-                            Vec3.vec3 -dy dx 0
-
-                        Nothing ->
-                            Vec3.vec3 1 0 0
-
-                viewAdjust : Mat4 -> Mat4
-                viewAdjust matrix =
-                    Mat4.rotate -0.4 (Vec3.vec3 1 0 0) matrix
+                modelMatrix : Mat4
+                modelMatrix =
+                    Mat4.makeScale3 playerRadius_ playerRadius_ playerRadius_
+                        |> Mat4.rotate -0.4 (Vec3.vec3 1 0 0)
                         |> Mat4.rotate rotation (Vec3.vec3 0 0 1)
-                        |> Mat4.rotate fallRotation fallAxis
+                        |> (\mat ->
+                                case player.isDead of
+                                    Just death ->
+                                        let
+                                            framesSinceDeath : Duration
+                                            framesSinceDeath =
+                                                frameTimeElapsed death.time frameId
+
+                                            fallProgress : Float
+                                            fallProgress =
+                                                Quantity.ratio framesSinceDeath (Duration.seconds 0.5) |> min 1
+
+                                            ( dx, dy ) =
+                                                Direction2d.rotateClockwise death.fallDirection |> Direction2d.components
+                                        in
+                                        Mat4.rotate (fallProgress * (pi / 2)) (Vec3.vec3 dx dy 0) mat
+
+                                    Nothing ->
+                                        mat
+                           )
             in
             [ WebGL.entityWith
                 [ WebGL.Settings.cullFace WebGL.Settings.back, WebGL.Settings.DepthTest.default ]
                 vertexShader
                 fragmentShader
                 playerHead
-                { ucolor = Vec3.vec3 1 1 1
+                { ucolor = Vec3.vec3 1 0.8 0.5
                 , view = viewMatrix
-                , model =
-                    pointToMatrix player.position
-                        |> Mat4.scale3
-                            playerRadius_
-                            (case player.isDead of
-                                Just _ ->
-                                    playerRadius_ * 0.5
-
-                                Nothing ->
-                                    playerRadius_
-                            )
-                            playerRadius_
-                        |> viewAdjust
+                , model = point2ToMatrix player.position |> matMul modelMatrix
                 }
-            , drawHand True frameId rotation player viewMatrix
-            , drawHand False frameId rotation player viewMatrix
+            , drawHand True frameId player viewMatrix modelMatrix
+            , drawHand False frameId player viewMatrix modelMatrix
             , WebGL.entityWith
                 [ WebGL.Settings.DepthTest.default ]
                 vertexShader
@@ -1642,19 +1605,7 @@ drawPlayer frameId userId matchData viewMatrix player =
                 )
                 { ucolor = Vec3.vec3 1 1 1
                 , view = viewMatrix
-                , model =
-                    pointToMatrix player.position
-                        |> Mat4.scale3
-                            playerRadius_
-                            (case player.isDead of
-                                Just _ ->
-                                    playerRadius_ * 0.5
-
-                                Nothing ->
-                                    playerRadius_
-                            )
-                            playerRadius_
-                        |> viewAdjust
+                , model = point2ToMatrix player.position |> matMul modelMatrix
                 }
             , WebGL.entityWith
                 [ WebGL.Settings.cullFace WebGL.Settings.back, WebGL.Settings.DepthTest.default ]
@@ -1669,19 +1620,7 @@ drawPlayer frameId userId matchData viewMatrix player =
                         RedTeam ->
                             Vec3.vec3 1 0 0
                 , view = viewMatrix
-                , model =
-                    pointToMatrix player.position
-                        |> Mat4.scale3
-                            playerRadius_
-                            (case player.isDead of
-                                Just _ ->
-                                    playerRadius_ * 0.5
-
-                                Nothing ->
-                                    playerRadius_
-                            )
-                            playerRadius_
-                        |> viewAdjust
+                , model = point2ToMatrix player.position |> matMul modelMatrix
                 }
             ]
                 ++ (case player.lastEmote of
@@ -1732,7 +1671,7 @@ drawShape scale position viewMatrix shape =
             FontRender.drawLayer
                 layer.color
                 layer.mesh
-                (pointToMatrix position |> Mat4.scale3 scale scale 0.01)
+                (point2ToMatrix position |> Mat4.scale3 scale scale 0.01)
                 viewMatrix
         )
         shape.layers
@@ -2043,17 +1982,13 @@ gameUpdate frameId inputs model =
                                     , isDead =
                                         case hitBySnowball of
                                             Just snowball ->
-                                                let
-                                                    snowballVelocity2d =
-                                                        Vector2d.metersPerSecond
-                                                            (Vector3d.xComponent snowball.velocity |> Speed.inMetersPerSecond)
-                                                            (Vector3d.yComponent snowball.velocity |> Speed.inMetersPerSecond)
-
-                                                    fallDirection =
-                                                        Vector2d.direction snowballVelocity2d
-                                                            |> Maybe.withDefault Direction2d.x
-                                                in
-                                                Just { time = frameId, fallDirection = fallDirection }
+                                                { time = frameId
+                                                , fallDirection =
+                                                    vector3To2 snowball.velocity
+                                                        |> Vector2d.direction
+                                                        |> Maybe.withDefault Direction2d.x
+                                                }
+                                                    |> Just
 
                                             Nothing ->
                                                 player.isDead
@@ -2143,6 +2078,20 @@ gameUpdate frameId inputs model =
             model3.particles
             ++ newParticles
     }
+
+
+vector3To2 : Vector3d u c -> Vector2d u c
+vector3To2 v =
+    let
+        { x, y } =
+            Vector3d.unwrap v
+    in
+    Vector2d.unsafe { x = x, y = y }
+
+
+point2To3 : Quantity Float u -> Point2d u c -> Point3d u c
+point2To3 z p =
+    Point3d.xyz (Point2d.xCoordinate p) (Point2d.yCoordinate p) z
 
 
 snowballParticles : Id FrameId -> Id FrameId -> Point3d Meters WorldCoordinate -> List Particle
@@ -3030,13 +2979,22 @@ initPlayer team position =
     }
 
 
-pointToMatrix : Point2d units coordinates -> Mat4
-pointToMatrix point =
+point2ToMatrix : Point2d units coordinates -> Mat4
+point2ToMatrix point =
     let
         { x, y } =
             Point2d.unwrap point
     in
     Mat4.makeTranslate3 x y 0
+
+
+point3ToMatrix : Point3d units coordinates -> Mat4
+point3ToMatrix point =
+    let
+        { x, y, z } =
+            Point3d.unwrap point
+    in
+    Mat4.makeTranslate3 x y z
 
 
 placeToText : Int -> String
