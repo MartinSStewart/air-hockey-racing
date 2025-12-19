@@ -1393,7 +1393,8 @@ canvasView model canvasSize =
                                         MatchPage.vertexShader
                                         MatchPage.fragmentShader
                                         cache.pathMesh
-                                        { view = viewMatrix
+                                        { ucolor = Vec3.vec3 1 1 1
+                                        , view = viewMatrix
                                         , model = Mat4.identity
                                         }
                                     ]

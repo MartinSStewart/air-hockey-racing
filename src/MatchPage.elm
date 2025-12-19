@@ -1218,7 +1218,8 @@ drawParticles frameId viewMatrix particles =
                 vertexShader
                 fragmentShader
                 particleOutlineMesh
-                { view = viewMatrix
+                { ucolor = Vec3.vec3 1 1 1
+                , view = viewMatrix
                 , model =
                     Mat4.makeTranslate3 x y 1 |> Mat4.scale3 size size size
                 }
@@ -1250,7 +1251,8 @@ drawParticles frameId viewMatrix particles =
                     vertexShader
                     fragmentShader
                     particleMesh
-                    { view = viewMatrix
+                    { ucolor = Vec3.vec3 1 1 1
+                    , view = viewMatrix
                     , model =
                         Mat4.makeTranslate3 x y 1 |> Mat4.scale3 size size size
                     }
@@ -1296,7 +1298,8 @@ canvasViewHelper model matchSetup canvasSize =
                                         vertexShader
                                         fragmentShader
                                         matchData.wallMesh
-                                        { view = viewMatrix
+                                        { ucolor = Vec3.vec3 1 1 1
+                                        , view = viewMatrix
                                         , model = Mat4.identity
                                         }
                                    ]
@@ -1324,7 +1327,8 @@ canvasViewHelper model matchSetup canvasSize =
                                             vertexShader
                                             fragmentShader
                                             snowballShadowMesh
-                                            { view = viewMatrix
+                                            { ucolor = Vec3.vec3 1 1 1
+                                            , view = viewMatrix
                                             , model =
                                                 Mat4.makeTranslate3 x y -0.1
                                                     |> Mat4.scale3 snowballRadius_ snowballRadius_ snowballRadius_
@@ -1334,7 +1338,8 @@ canvasViewHelper model matchSetup canvasSize =
                                             vertexShader
                                             fragmentShader
                                             snowballMesh
-                                            { view = viewMatrix
+                                            { ucolor = Vec3.vec3 1 1 1
+                                            , view = viewMatrix
                                             , model =
                                                 Mat4.makeTranslate3 x (y + z) z
                                                     |> Mat4.scale3 snowballRadius_ snowballRadius_ snowballRadius_
@@ -1371,7 +1376,8 @@ canvasViewHelper model matchSetup canvasSize =
                                                                     vertexShader
                                                                     fragmentShader
                                                                     aimingReticle
-                                                                    { view = viewMatrix
+                                                                    { ucolor = Vec3.vec3 1 1 1
+                                                                    , view = viewMatrix
                                                                     , model =
                                                                         pointToMatrix targetPosition
                                                                             |> Mat4.scale3 reticleScale reticleScale reticleScale
@@ -1399,7 +1405,8 @@ canvasViewHelper model matchSetup canvasSize =
                                                         vertexShader
                                                         fragmentShader
                                                         moveArrow
-                                                        { view = viewMatrix
+                                                        { ucolor = Vec3.vec3 1 1 1
+                                                        , view = viewMatrix
                                                         , model =
                                                             pointToMatrix targetPos
                                                                 |> Mat4.scale3 0.3 0.3 0.3
@@ -1523,7 +1530,14 @@ drawHand leftHand frameId rotation player viewMatrix =
         vertexShader
         fragmentShader
         playerHand
-        { view = viewMatrix
+        { ucolor =
+            case player.team of
+                BlueTeam ->
+                    Vec3.vec3 0 0 0.8
+
+                RedTeam ->
+                    Vec3.vec3 0.8 0 0
+        , view = viewMatrix
         , model =
             pointToMatrix (handPosition leftHand frameId player)
                 |> Mat4.translate3 0 0 upOffset
@@ -1560,7 +1574,8 @@ drawPlayer frameId userId matchData viewMatrix player =
                 vertexShader
                 fragmentShader
                 playerHead
-                { view = viewMatrix
+                { ucolor = Vec3.vec3 1 1 1
+                , view = viewMatrix
                 , model =
                     pointToMatrix player.position
                         |> Mat4.scale3
@@ -1583,7 +1598,14 @@ drawPlayer frameId userId matchData viewMatrix player =
                 vertexShader
                 fragmentShader
                 playerBody
-                { view = viewMatrix
+                { ucolor =
+                    case player.team of
+                        BlueTeam ->
+                            Vec3.vec3 0 0 1
+
+                        RedTeam ->
+                            Vec3.vec3 1 0 0
+                , view = viewMatrix
                 , model =
                     pointToMatrix player.position
                         |> Mat4.scale3
@@ -2131,17 +2153,17 @@ sphereMesh position scaleBy color =
 
 playerHead : Mesh Vertex
 playerHead =
-    sphereMesh (Vec3.vec3 0 0 1.5) (Vec3.vec3 0.9 0.9 0.9) (Vec3.vec3 0 1 0)
+    sphereMesh (Vec3.vec3 0 0 1.5) (Vec3.vec3 0.9 0.9 0.9) (Vec3.vec3 1 1 1)
 
 
 playerBody : Mesh Vertex
 playerBody =
-    sphereMesh (Vec3.vec3 0 0 0.7) (Vec3.vec3 1 1 1.5) (Vec3.vec3 1 0 0)
+    sphereMesh (Vec3.vec3 0 0 0.7) (Vec3.vec3 1 1 1.5) (Vec3.vec3 1 1 1)
 
 
 playerHand : Mesh Vertex
 playerHand =
-    sphereMesh (Vec3.vec3 0 0 0.7) (Vec3.vec3 0.3 0.3 0.3) (Vec3.vec3 1 0 1)
+    sphereMesh (Vec3.vec3 0 0 0.7) (Vec3.vec3 0.3 0.3 0.3) (Vec3.vec3 1 1 1)
 
 
 getBotInput : Id FrameId -> MatchState -> Id UserId -> Player -> Input
@@ -2616,7 +2638,7 @@ snowballRadius =
 
 
 type alias PlayerUniforms =
-    { view : Mat4, model : Mat4 }
+    { ucolor : Vec3, view : Mat4, model : Mat4 }
 
 
 vertexShader : Shader Vertex PlayerUniforms { vcolor : Vec4 }
@@ -2625,6 +2647,7 @@ vertexShader =
 attribute vec3 position;
 attribute vec3 color;
 varying vec4 vcolor;
+uniform vec3 ucolor;
 uniform mat4 view;
 uniform mat4 model;
 
@@ -2632,11 +2655,8 @@ uniform mat4 model;
 void main () {
     gl_Position = view * model * vec4(position, 1.0);
 
-    vcolor = vec4(color.xyz,1.0);
-
-
+    vcolor = vec4(color.xyz * ucolor, 1.0);
 }
-
 |]
 
 
